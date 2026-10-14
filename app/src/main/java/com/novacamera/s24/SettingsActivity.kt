@@ -27,6 +27,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.device.DeviceMonitor
 import com.novacamera.s24.settings.NovaSettings
+import com.novacamera.s24.settings.PhotoResolutionOption
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Nova
 import com.novacamera.s24.ui.NovaIconView
@@ -81,6 +82,11 @@ class SettingsActivity : NovaScreen() {
         section("Foto")
         switch("Salvar selfie como visualizada", "A foto frontal mantém o mesmo lado da pré-visualização (sem recodificar a imagem).",
             { settings.mirrorFrontPhoto }, { settings.mirrorFrontPhoto = it })
+        choice("Resolução", "Máxima usa a maior saída que o aparelho libera a outros apps (pode ser mais lenta). " +
+            "O valor real aparece no botão da barra superior.",
+            PhotoResolutionOption.entries.map { it.label }, { settings.photoResolution.ordinal }) {
+            settings.photoResolution = PhotoResolutionOption.entries[it]
+        }
         switch("Grade de composição", null, { settings.grid }, { settings.grid = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
         switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
@@ -99,6 +105,9 @@ class SettingsActivity : NovaScreen() {
             { settings.mirrorFrontVideo }, { settings.mirrorFrontVideo = it })
         switch("Gravar áudio", "Sem permissão do microfone, o vídeo é gravado sem som e o app avisa.",
             { settings.recordAudio }, { settings.recordAudio = it })
+        switch("Exposição estável no zoom", "Sem ponto escolhido, o vídeo mede a exposição pelo centro: ao aproximar, " +
+            "áreas claras que saem do quadro não fazem a imagem saltar de brilho.",
+            { settings.videoCenterMetering }, { settings.videoCenterMetering = it })
 
         section("Foco e exposição")
         switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
@@ -245,7 +254,8 @@ class DiagnosticsActivity : NovaScreen() {
                         if (provider != null) cameraXSummary(provider, ext)
                         else appendLine("CameraX indisponível")
                     }
-                    val text = CameraDiagnostics.createReport(this, extra)
+                    val text = CameraDiagnostics.createReport(this, extra) + "\n── Registro de zoom desta sessão\n" +
+                        synchronized(com.novacamera.s24.camera.NovaCamera.telemetry) { com.novacamera.s24.camera.NovaCamera.telemetry.report() }
                     runOnUiThread { report = text; body.text = text }
                 }
             }

@@ -28,6 +28,7 @@ data class CameraCapabilities(
     val awbLockAvailable: Boolean,
     val aeFpsRanges: List<Range<Int>>,
     val physicalCameraIds: Set<String>,
+    val opticalStabilization: Boolean = false,
 ) {
     val manualFocus get() = minFocusDistance > 0f && manualSensor
 
@@ -50,6 +51,8 @@ data class CameraCapabilities(
                 aeLockAvailable = get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true,
                 awbLockAvailable = get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true,
                 aeFpsRanges = get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty(),
+                opticalStabilization = get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+                    ?.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) == true,
                 // Preenchido só em câmeras lógicas (várias lentes físicas sob um ID).
                 physicalCameraIds = runCatching {
                     info.physicalCameraInfos.map { Camera2CameraInfo.from(it).cameraId }.toSet()
@@ -87,6 +90,26 @@ object LensCatalog {
         val max = runCatching { c.getCameraCharacteristic(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) }
             .getOrNull() ?: 1f
         return 1f to max
+    }
+
+    /**
+     * Nome de cada lente física de uma câmera lógica, pela focal equivalente relativa à lógica
+     * (ex.: "Ultra-angular", "Principal", "Tele 3×", "Tele 5×").
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun physicalLabels(info: CameraInfo): Map<String, String> {
+        val reference = equivalentFocal(info) ?: return emptyMap()
+        return runCatching { info.physicalCameraInfos }.getOrDefault(emptySet()).mapNotNull { p ->
+            val id = Camera2CameraInfo.from(p).cameraId
+            val eq = equivalentFocal(p) ?: return@mapNotNull null
+            id to lensName(eq / reference)
+        }.toMap()
+    }
+
+    fun lensName(relative: Float): String = when {
+        relative < 0.8f -> "Ultra-angular"
+        relative < 1.6f -> "Principal"
+        else -> "Tele ${Math.round(relative)}×"
     }
 
     @OptIn(ExperimentalCamera2Interop::class)

@@ -51,9 +51,11 @@ import com.novacamera.s24.device.DeviceMonitor
 import com.novacamera.s24.settings.AspectRatioOption
 import com.novacamera.s24.settings.FlashOption
 import com.novacamera.s24.settings.NovaSettings
+import com.novacamera.s24.settings.PhotoResolutionOption
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Haptics
 import com.novacamera.s24.ui.HintView
+import com.novacamera.s24.ui.ModeGrid
 import com.novacamera.s24.ui.ModeStrip
 import com.novacamera.s24.ui.Nova
 import com.novacamera.s24.ui.NovaIconView
@@ -94,6 +96,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var ratioChip: TextChip
     private lateinit var hdrChip: TextChip
     private lateinit var qualityChip: TextChip
+    private lateinit var fpsChip: TextChip
+    private lateinit var resChip: TextChip
+    private lateinit var rawChip: TextChip
+    private lateinit var lensChip: TextView
+    private lateinit var modeGrid: ModeGrid
     private lateinit var recChip: TextView
     private lateinit var statusRow: LinearLayout
     private lateinit var lockChip: TextView
@@ -164,7 +171,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             layoutAll()
             insets
         }
-        modeStrip.selected = settings.lastMode
+        refreshStrip(settings.lastMode, animate = false)
         updateTopBar()
         if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
         loadLatestMedia()
@@ -215,6 +222,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun signature() = listOf(settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
+        settings.videoCenterMetering, settings.photoResolution,
         settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
 
     // ------------------------------------------------------------------ interface
@@ -258,8 +266,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             setOnClickListener { toggleHdr() }
             contentDescription = "HDR do fabricante"
         }
-        qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Qualidade do vídeo" }
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, qualityChip, hdrChip).forEach { v ->
+        qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
+        fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
+        resChip = TextChip(this).apply { setOnClickListener { togglePhotoResolution() }; contentDescription = "Resolução da foto" }
+        rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
+        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, qualityChip, fpsChip, hdrChip, rawChip).forEach { v ->
             val cell = FrameLayout(this)
             cell.addView(v, FrameLayout.LayoutParams(if (v is NovaIconView) dpi(48) else -2, if (v is NovaIconView) dpi(48) else -2, Gravity.CENTER))
             topBar.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
@@ -316,11 +327,18 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         zoomBar = ZoomBar(this).apply {
             listener = object : ZoomBar.Listener {
                 override fun onStop(value: Float) = camera.zoomTo(value)
-                override fun onDrag(value: Float) = camera.zoomTo(value, allowLensSwitch = false)
+                override fun onDrag(value: Float) = camera.zoomFollow(value)
                 override fun onDragEnd() {}
             }
         }
-        modeStrip = ModeStrip(this).apply { onSelect = ::selectMode }
+        modeStrip = ModeStrip(this).apply { onSelect = ::onStripSelect }
+        modeGrid = ModeGrid(this).apply {
+            visibility = View.GONE
+            onPick = { m ->
+                val support = camera.supportFor(m)
+                if (support.canCapture) { hideGrid(); selectMode(m) } else hint.show(support.note, 3500)
+            }
+        }
 
         val controls = FrameLayout(this)
         thumbnail = ThumbnailView(this).apply { setOnClickListener { openLastMedia() } }
@@ -337,6 +355,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         bottom.addView(controls, LinearLayout.LayoutParams(-1, dpi(96)))
         root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
+        root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
 
         idleOverlay = TextView(this).apply {
             text = "Câmera pausada para poupar bateria\n\nToque para continuar"
@@ -394,6 +415,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 val ph = w * 16 / 9
                 (if (topBarBottom + ph <= h) topBarBottom else ((h - ph) / 2).coerceAtLeast(0)) to ph
             }
+            AspectRatioOption.RATIO_1_1 -> (topBarBottom + w / 6) to w
             AspectRatioOption.FULL -> 0 to h
         }
         (previewFrame.layoutParams as FrameLayout.LayoutParams).apply {
@@ -414,6 +436,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val previewBottom = pTop + pHeight.coerceAtMost(h)
         (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin =
             minOf(previewBottom - dpi(14), bottomTop - dpi(8)) - zoomBar.measuredHeight
+        (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
+            (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
+        (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
         bottomScrim.visibility = if (pTop + pHeight > h - bottom.measuredHeight - insetBottom) View.VISIBLE else View.GONE
         topBar.setBackgroundColor(if (aspect == AspectRatioOption.FULL) 0x59000000 else 0)
@@ -436,7 +461,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.orientation = deg
         zoomBar.orientation = deg
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, hdrChip, qualityChip, thumbnail, flipButton, recChip, statusRow, hint).forEach { v ->
+        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, hdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -472,9 +497,43 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     // ------------------------------------------------------------------ ações
 
+    /** Faixa principal: RETRATO · FOTO · VÍDEO · (modo extra ativo ou MAIS). */
+    private fun refreshStrip(mode: CaptureMode, animate: Boolean = true) {
+        val extra = if (mode.primary) "MAIS" else mode.label
+        modeStrip.labels = PRIMARY_MODES.map { it.label } + extra
+        val index = PRIMARY_MODES.indexOf(mode).takeIf { it >= 0 } ?: PRIMARY_MODES.size
+        if (animate) modeStrip.selectedIndex = index else modeStrip.jumpTo(index)
+        modeStrip.unavailable = PRIMARY_MODES.mapIndexedNotNull { i, m -> i.takeIf { camera.hasProvider && !camera.supportFor(m).canCapture } }.toSet()
+    }
+
+    private fun onStripSelect(index: Int) {
+        if (index < PRIMARY_MODES.size) {
+            hideGrid()
+            selectMode(PRIMARY_MODES[index])
+        } else if (modeGrid.visibility == View.VISIBLE) hideGrid() else showGrid()
+    }
+
+    private fun showGrid() {
+        if (camera.isRecording) return
+        modeGrid.bind(EXTRA_MODES.map { it to camera.supportFor(it) }, camera.mode)
+        modeGrid.alpha = 0f
+        modeGrid.translationY = dp(16f)
+        modeGrid.visibility = View.VISIBLE
+        // O painel cobre a área do zoom: esconde zoom e aviso de lente para não "vazarem" pelo vidro.
+        zoomBar.animate().alpha(0f).setDuration(Nova.FAST).start()
+        handler.removeCallbacks(hideLens); lensChip.visibility = View.GONE
+        modeGrid.animate().alpha(1f).translationY(0f).setDuration(Nova.NORMAL).setInterpolator(Nova.EASE).start()
+    }
+
+    private fun hideGrid() {
+        if (modeGrid.visibility != View.VISIBLE) return
+        zoomBar.animate().alpha(1f).setDuration(Nova.NORMAL).start()
+        modeGrid.animate().alpha(0f).translationY(dp(12f)).setDuration(Nova.FAST).withEndAction { modeGrid.visibility = View.GONE }.start()
+    }
+
     private fun selectMode(m: CaptureMode) {
         if (camera.isRecording || countdown > 0) return
-        modeStrip.selected = m
+        refreshStrip(m)
         showTransition()
         overlay.hideFocusRing()
         camera.setMode(m, rebind = false)
@@ -589,12 +648,38 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         hint.show(if (settings.oemHdr) "HDR do fabricante ativado" else "HDR desativado", 1400)
     }
 
+    /** Percorre só as resoluções que esta câmera realmente grava. */
     private fun cycleVideoQuality() {
-        val order = VideoQualityOption.entries
-        settings.videoQuality = order[(settings.videoQuality.ordinal + 1) % order.size]
+        val options = cameraState?.videoQualityOptions?.takeIf { it.isNotEmpty() } ?: return
+        val i = options.indexOf(settings.videoQuality)
+        settings.videoQuality = options[(i + 1) % options.size]
         showTransition()
         camera.bind()
         hint.show("Vídeo: ${settings.videoQuality.label}", 1400)
+    }
+
+    /** Percorre só as taxas aceitas (24/30/60; 120/240 na câmera lenta). */
+    private fun cycleFps() {
+        val s = cameraState ?: return
+        val options = s.videoFpsOptions.takeIf { it.size > 1 } ?: return hint.show("Esta câmera só oferece ${s.videoFps} fps aqui", 1600)
+        val next = options[(options.indexOf(s.videoFps) + 1) % options.size]
+        if (s.mode == CaptureMode.CAMERA_LENTA) settings.slowMotionFps = next else settings.videoFps = next
+        showTransition()
+        camera.bind()
+        hint.show("$next fps", 1200)
+    }
+
+    private fun togglePhotoResolution() {
+        settings.photoResolution = if (settings.photoResolution == PhotoResolutionOption.MAX) PhotoResolutionOption.STANDARD else PhotoResolutionOption.MAX
+        showTransition()
+        camera.bind()
+    }
+
+    private fun toggleRaw() {
+        settings.raw = !settings.raw
+        showTransition()
+        camera.bind()
+        hint.show(if (settings.raw) "RAW (DNG) + JPEG" else "Só JPEG", 1400)
     }
 
     private fun unlockAll() {
@@ -622,21 +707,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         timerButton.icon = when (settings.timerSeconds) { 3 -> Icon.TIMER_3; 10 -> Icon.TIMER_10; else -> Icon.TIMER_OFF }
         ratioChip.visibility = if (!video) View.VISIBLE else View.GONE
         ratioChip.text = settings.aspect.label
-        qualityChip.visibility = if (video) View.VISIBLE else View.GONE
-        qualityChip.text = listOfNotNull(s?.videoQualityLabel, s?.videoFps?.let { "$it" }).joinToString(" · ").ifEmpty { "VÍDEO" }
+        qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
+        qualityChip.text = s?.videoQualityLabel ?: ""
+        fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
+        fpsChip.text = "${s?.videoFps ?: 30} fps"
         hdrChip.visibility = if (s?.oemHdrAvailable == true) View.VISIBLE else View.GONE
         hdrChip.active = s?.oemHdrActive == true
-        (hdrChip.parent as? View)?.visibility = hdrChip.visibility
-        (ratioChip.parent as? View)?.visibility = ratioChip.visibility
-        (qualityChip.parent as? View)?.visibility = qualityChip.visibility
+        val res = s?.photoResolution
+        resChip.visibility = if (!video && res != null && (s.maxResolutionAvailable || settings.photoResolution == PhotoResolutionOption.MAX)) View.VISIBLE else View.GONE
+        resChip.text = res?.let { "${Math.round(it.width.toLong() * it.height / 1e6)} MP" } ?: ""
+        resChip.active = settings.photoResolution == PhotoResolutionOption.MAX
+        rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
+        rawChip.active = s?.rawActive == true
+        listOf<View>(hdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
     }
 
     // ------------------------------------------------------------------ CameraListener
 
     override fun onCameraState(state: CameraState) {
         cameraState = state
-        modeStrip.selected = state.mode
-        modeStrip.unavailable = CaptureMode.entries.filterNot { camera.supportFor(it).canCapture }.toSet()
+        refreshStrip(state.mode)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
         shutter.isEnabled = state.support.canCapture
         shutter.alpha = if (state.support.canCapture) 1f else 0.5f
@@ -649,8 +739,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         } else infoCard.visibility = View.GONE
         if (state.support.engine == ModeEngine.NOVA_BASIC && announcedMode != state.mode) hint.show(state.support.note, 4500)
         announcedMode = state.mode
-        proPanel.visibility = if (state.mode == CaptureMode.PRO) View.VISIBLE else View.GONE
-        if (state.mode == CaptureMode.PRO) {
+        proPanel.visibility = if (state.mode.isPro) View.VISIBLE else View.GONE
+        if (state.mode.isPro) {
             proPanel.configure(state.caps, state.evMin, state.evMax, state.evStepNum, state.evStepDen, state.evIndex, camera.manual)
         }
         lockChip.visibility = View.GONE
@@ -677,13 +767,27 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun updateEvChip(index: Int) {
         val s = cameraState ?: return
-        if (index == 0 || s.mode == CaptureMode.PRO) { evChip.visibility = View.GONE; return }
+        if (index == 0 || s.mode.isPro) { evChip.visibility = View.GONE; return }
         evChip.text = "☀ ${CameraMath.formatEv(CameraMath.evForIndex(index, s.evStepNum, s.evStepDen))}  ✕"
         evChip.contentDescription = "Compensação de exposição ${evChip.text}. Toque para voltar ao automático"
         evChip.visibility = View.VISIBLE
     }
 
     override fun onAutoStats(stats: AutoStats) = proPanel.setStats(stats)
+
+    override fun onManualReverted(m: ManualControls) = proPanel.syncManual(m)
+
+    private val hideLens = Runnable { lensChip.animate().alpha(0f).setDuration(Nova.NORMAL).withEndAction { lensChip.visibility = View.GONE }.start() }
+
+    /** Lente física ativa informada pela câmera (ex.: troca para a tele 5× durante o zoom). */
+    override fun onActiveLens(label: String?) {
+        if (label == null) return
+        lensChip.text = label
+        lensChip.alpha = 1f
+        lensChip.visibility = View.VISIBLE
+        handler.removeCallbacks(hideLens)
+        handler.postDelayed(hideLens, 1600)
+    }
 
     override fun onCaptureStarted() {
         overlay.flash()
@@ -741,7 +845,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onExposureDragStart() {
-        if (camera.manual.manualExposure && camera.mode == CaptureMode.PRO) {
+        if (camera.manual.manualExposure && camera.mode.isPro) {
             hint.show("Exposição manual ativa: ajuste ISO e velocidade no painel Pro", 2000)
         }
         evDragStart = camera.exposureIndex
@@ -879,6 +983,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     companion object {
         private const val TAG = "NovaCamera"
         private const val TOP_BAR_DP = 52
+        private val PRIMARY_MODES = CaptureMode.entries.filter { it.primary }
+        private val EXTRA_MODES = CaptureMode.entries.filterNot { it.primary }
         private const val IDLE_CHECK_MS = 10_000L
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f

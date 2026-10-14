@@ -159,3 +159,18 @@ class ThermalPolicyTest {
         assertFalse(ThermalPolicy.showBadge(h))
     }
 }
+
+class ProMeterTest {
+    @Test
+    fun rulerOpensAtCurrentAutoValue() {
+        val isos = CameraMath.isoStops(50, 3200).map { it.toDouble() }
+        assertEquals(1600.0, isos[CameraMath.nearestLogIndex(isos, 1500.0)], 0.0)
+    }
+
+    @Test
+    fun meterExplainsBlackPreview() {
+        // O que acontecia na 0.4: auto em ISO 1600, régua saltava para ISO 50 com o mesmo tempo.
+        assertEquals(-5.0, CameraMath.meterEv(50, 33_333_333L, 1600, 33_333_333L), 0.01)
+        assertEquals(1.0, CameraMath.meterEv(100, 20_000_000L, 100, 10_000_000L), 0.01)
+    }
+}

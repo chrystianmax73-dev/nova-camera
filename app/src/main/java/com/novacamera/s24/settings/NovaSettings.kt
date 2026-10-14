@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.novacamera.s24.core.CaptureMode
 
-enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), FULL("Tela") }
+enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), RATIO_1_1("1:1"), FULL("Tela") }
+/** STANDARD = resolução padrão (sensor agrupado, ex. 12 MP); MAX = maior saída que o aparelho libera ao app. */
+enum class PhotoResolutionOption(val label: String) { STANDARD("Padrão"), MAX("Máxima") }
 enum class FlashOption(val label: String) { OFF("Desligado"), AUTO("Automático"), ON("Ligado") }
-enum class VideoQualityOption(val label: String) { AUTO("Automática"), UHD("4K UHD"), FHD("Full HD"), HD("HD") }
+enum class VideoQualityOption(val label: String) { AUTO("Automática"), MAX("Máxima"), UHD("4K UHD"), FHD("Full HD"), HD("HD") }
 
 /** Preferências locais. Nada é sincronizado ou enviado para fora do aparelho. */
 class NovaSettings(context: Context) {
@@ -30,13 +32,19 @@ class NovaSettings(context: Context) {
     var flash get() = enum("flash", FlashOption.OFF); set(v) = put("flash", v.name)
     var timerSeconds get() = int("timer", 0); set(v) = put("timer", v)
     var oemHdr get() = bool("oem_hdr", false); set(v) = put("oem_hdr", v)
+    var photoResolution get() = enum("photo_resolution", PhotoResolutionOption.STANDARD); set(v) = put("photo_resolution", v.name)
+    /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
+    var raw get() = bool("raw", false); set(v) = put("raw", v)
 
     // Vídeo
     var mirrorFrontVideo get() = bool("mirror_front_video", true); set(v) = put("mirror_front_video", v)
     var videoQuality get() = enum("video_quality", VideoQualityOption.AUTO); set(v) = put("video_quality", v.name)
     var videoFps get() = int("video_fps", 30); set(v) = put("video_fps", v)
+    var slowMotionFps get() = int("slow_motion_fps", 120); set(v) = put("slow_motion_fps", v)
     var videoStabilization get() = bool("video_stabilization", true); set(v) = put("video_stabilization", v)
     var recordAudio get() = bool("record_audio", true); set(v) = put("record_audio", v)
+    /** Vídeo sem ponto escolhido mede a exposição pelo centro (menos saltos ao aproximar). */
+    var videoCenterMetering get() = bool("video_center_metering", true); set(v) = put("video_center_metering", v)
 
     // Foco e exposição
     var facePriority get() = bool("face_priority", true); set(v) = put("face_priority", v)

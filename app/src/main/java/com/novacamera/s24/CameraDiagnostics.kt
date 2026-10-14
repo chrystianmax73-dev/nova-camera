@@ -92,6 +92,21 @@ object CameraDiagnostics {
             val size = runCatching { map?.getOutputSizes(f)?.maxByOrNull { it.width.toLong() * it.height } }.getOrNull()
             appendLine("$name máx.: ${size?.pixels() ?: "indisponível"}")
         }
+        val highRes = runCatching { map?.getHighResolutionOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width.toLong() * it.height } }.getOrNull()
+        appendLine("JPEG alta resolução (captura lenta): ${highRes?.pixels() ?: "não anunciado"}")
+        if (Build.VERSION.SDK_INT >= 31) {
+            val ultra = 16 in caps // REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR
+            val maxMap = runCatching { c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION) }.getOrNull()
+            val maxJpeg = runCatching { maxMap?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width.toLong() * it.height } }.getOrNull()
+            val maxRaw = runCatching { maxMap?.getOutputSizes(ImageFormat.RAW_SENSOR)?.maxByOrNull { it.width.toLong() * it.height } }.getOrNull()
+            appendLine("Sensor de ultra-alta resolução: $ultra · matriz máxima ${c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION) ?: "—"}")
+            appendLine("  Saídas no modo de resolução máxima: JPEG ${maxJpeg?.pixels() ?: "—"} · RAW ${maxRaw?.pixels() ?: "—"}")
+        }
+        val hsSizes = runCatching { map?.highSpeedVideoSizes?.toList() }.getOrNull().orEmpty()
+        if (hsSizes.isNotEmpty()) {
+            val fpsList = hsSizes.flatMap { s -> runCatching { map!!.getHighSpeedVideoFpsRangesFor(s).map { it.upper } }.getOrDefault(emptyList()) }.distinct().sorted()
+            appendLine("Vídeo em alta velocidade: ${hsSizes.joinToString { "${it.width}×${it.height}" }} · até ${fpsList.lastOrNull()} fps")
+        } else appendLine("Vídeo em alta velocidade: não anunciado")
     }
 
     private fun equivalent(c: CameraCharacteristics) = LensCatalog.equivalentFocal(

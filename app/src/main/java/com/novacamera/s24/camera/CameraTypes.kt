@@ -46,6 +46,15 @@ data class CameraState(
     val videoFps: Int,
     val stabilization: Boolean,
     val screenFlash: Boolean,
+    /** Resolução real da foto configurada (lida do caso de uso após a configuração). */
+    val photoResolution: android.util.Size? = null,
+    /** A resolução máxima é maior que a padrão nesta câmera (vale oferecer a opção). */
+    val maxResolutionAvailable: Boolean = false,
+    val rawAvailable: Boolean = false,
+    val rawActive: Boolean = false,
+    /** Opções reais para os seletores de vídeo. */
+    val videoQualityOptions: List<com.novacamera.s24.settings.VideoQualityOption> = emptyList(),
+    val videoFpsOptions: List<Int> = emptyList(),
 )
 
 interface CameraListener {
@@ -59,4 +68,8 @@ interface CameraListener {
     fun onRecording(phase: RecordingPhase, seconds: Long)
     fun onRecordingFinished(uri: Uri?, error: String?)
     fun onMessage(text: String)
+    /** Lente física ativa mudou (só quando a câmera informa). */
+    fun onActiveLens(label: String?) {}
+    /** O vigia do modo manual devolveu ISO/velocidade ao automático. */
+    fun onManualReverted(m: ManualControls) {}
 }

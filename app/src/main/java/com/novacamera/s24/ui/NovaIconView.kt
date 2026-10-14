@@ -11,7 +11,10 @@ import kotlin.math.sin
 
 /** Ícones desenhados em vetor (grade 24×24), traço uniforme e cantos arredondados. */
 class NovaIconView(context: Context, icon: Icon) : View(context) {
-    enum class Icon { FLASH_OFF, FLASH_AUTO, FLASH_ON, TIMER_OFF, TIMER_3, TIMER_10, SETTINGS, FLIP, PAUSE, RESUME, CLOSE }
+    enum class Icon {
+        FLASH_OFF, FLASH_AUTO, FLASH_ON, TIMER_OFF, TIMER_3, TIMER_10, SETTINGS, FLIP, PAUSE, RESUME, CLOSE,
+        MODE_PRO, MODE_VIDEO_PRO, MODE_NIGHT, MODE_SLOWMO, MODE_PANORAMA, MODE_TIMELAPSE, MODE_FOOD, MODE_PORTRAIT_VIDEO,
+    }
 
     var icon: Icon = icon
         set(value) { field = value; contentDescription = describe(value); invalidate() }
@@ -49,6 +52,7 @@ class NovaIconView(context: Context, icon: Icon) : View(context) {
         Icon.PAUSE -> "Pausar gravação"
         Icon.RESUME -> "Retomar gravação"
         Icon.CLOSE -> "Fechar"
+        else -> ""
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -108,8 +112,70 @@ class NovaIconView(context: Context, icon: Icon) : View(context) {
             }
             Icon.RESUME -> { fill.color = Nova.REC; canvas.drawCircle(12f, 12f, 6.5f, fill) }
             Icon.CLOSE -> { canvas.drawLine(6f, 6f, 18f, 18f, stroke); canvas.drawLine(18f, 6f, 6f, 18f, stroke) }
+            Icon.MODE_PRO -> aperture(canvas)
+            Icon.MODE_VIDEO_PRO -> {
+                rect.set(3f, 7f, 15.5f, 17f); canvas.drawRoundRect(rect, 2.5f, 2.5f, stroke)
+                path.reset(); path.moveTo(15.5f, 10.5f); path.lineTo(21f, 7.5f); path.lineTo(21f, 16.5f); path.lineTo(15.5f, 13.5f)
+                canvas.drawPath(path, stroke)
+                canvas.drawCircle(9.2f, 12f, 2.2f, stroke)
+            }
+            Icon.MODE_NIGHT -> {
+                path.reset()
+                val outer = Path().apply { addCircle(12f, 12f, 8.5f, Path.Direction.CW) }
+                val cut = Path().apply { addCircle(16.5f, 8.5f, 7f, Path.Direction.CW) }
+                path.op(outer, cut, Path.Op.DIFFERENCE)
+                canvas.drawPath(path, stroke)
+            }
+            Icon.MODE_SLOWMO -> {
+                for (i in 0 until 12) {
+                    val a = Math.toRadians(i * 30.0)
+                    val len = if (i < 4) 2.6f else 1.2f
+                    canvas.drawLine(12f + (9f - len) * cos(a).toFloat(), 12f + (9f - len) * sin(a).toFloat(),
+                        12f + 9f * cos(a).toFloat(), 12f + 9f * sin(a).toFloat(), stroke)
+                }
+                canvas.drawCircle(12f, 12f, 2.6f, fill)
+            }
+            Icon.MODE_PANORAMA -> {
+                path.reset()
+                path.moveTo(2.5f, 7.5f); path.quadTo(12f, 4.5f, 21.5f, 7.5f)
+                path.lineTo(21.5f, 16.5f); path.quadTo(12f, 19.5f, 2.5f, 16.5f); path.close()
+                canvas.drawPath(path, stroke)
+                path.reset(); path.moveTo(6f, 15f); path.lineTo(10f, 11f); path.lineTo(13f, 14f); path.lineTo(15f, 12f); path.lineTo(18f, 15f)
+                canvas.drawPath(path, stroke)
+            }
+            Icon.MODE_TIMELAPSE -> {
+                rect.set(3.5f, 3.5f, 20.5f, 20.5f)
+                canvas.drawArc(rect, -60f, 300f, false, stroke)
+                canvas.drawLine(12f, 12f, 12f, 7.5f, stroke); canvas.drawLine(12f, 12f, 15.5f, 14f, stroke)
+                arrowHead(canvas, -60f, false)
+            }
+            Icon.MODE_FOOD -> {
+                canvas.drawLine(8f, 3.5f, 8f, 20.5f, stroke)
+                canvas.drawLine(5.5f, 3.5f, 5.5f, 8f, stroke); canvas.drawLine(10.5f, 3.5f, 10.5f, 8f, stroke)
+                path.reset(); path.moveTo(5.5f, 8f); path.quadTo(8f, 11f, 10.5f, 8f); canvas.drawPath(path, stroke)
+                path.reset(); path.moveTo(16.5f, 20.5f); path.lineTo(16.5f, 3.5f); path.quadTo(20.5f, 7f, 18.5f, 13f); path.lineTo(16.5f, 13f)
+                canvas.drawPath(path, stroke)
+            }
+            Icon.MODE_PORTRAIT_VIDEO -> {
+                canvas.drawCircle(10.5f, 8.5f, 3.6f, stroke)
+                path.reset(); path.moveTo(3.5f, 20f); path.quadTo(4.5f, 13.5f, 10.5f, 13.5f); path.quadTo(13.5f, 13.5f, 15f, 15f)
+                canvas.drawPath(path, stroke)
+                path.reset(); path.moveTo(16f, 15.5f); path.lineTo(21f, 18.3f); path.lineTo(16f, 21f); path.close()
+                canvas.drawPath(path, fill)
+            }
         }
         canvas.restore()
+    }
+
+    /** Diafragma de seis lâminas (modo Pro). */
+    private fun aperture(canvas: Canvas) {
+        canvas.drawCircle(12f, 12f, 9f, stroke)
+        for (i in 0 until 6) {
+            val a = Math.toRadians(i * 60.0)
+            val b = Math.toRadians(i * 60.0 + 62.0)
+            canvas.drawLine(12f + 3.6f * cos(a).toFloat(), 12f + 3.6f * sin(a).toFloat(),
+                12f + 9f * cos(b).toFloat(), 12f + 9f * sin(b).toFloat(), stroke)
+        }
     }
 
     private fun bolt(canvas: Canvas, dx: Float) {

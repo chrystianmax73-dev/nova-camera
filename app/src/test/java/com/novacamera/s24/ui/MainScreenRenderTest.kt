@@ -45,6 +45,12 @@ class MainScreenRenderTest {
         hasFlash = true, oemHdrAvailable = false, oemHdrActive = false, extensionActive = false,
         canLockExposure = true, videoQualityLabel = if (mode.isVideo) "4K" else null, videoFps = 30,
         stabilization = true, screenFlash = false,
+        photoResolution = if (mode.isVideo) null else android.util.Size(4000, 3000),
+        maxResolutionAvailable = !mode.isVideo,
+        rawAvailable = mode == CaptureMode.PRO, rawActive = false,
+        videoQualityOptions = if (mode.isVideo) listOf(com.novacamera.s24.settings.VideoQualityOption.AUTO,
+            com.novacamera.s24.settings.VideoQualityOption.UHD, com.novacamera.s24.settings.VideoQualityOption.FHD) else emptyList(),
+        videoFpsOptions = if (mode.isVideo) listOf(24, 30, 60) else emptyList(),
     )
 
     @Test
@@ -58,6 +64,8 @@ class MainScreenRenderTest {
             "foto" to state(CaptureMode.FOTO),
             "video" to state(CaptureMode.VIDEO),
             "pro" to state(CaptureMode.PRO),
+            "video-pro" to state(CaptureMode.VIDEO_PRO),
+            "mais" to state(CaptureMode.FOTO),
             "retrato-indisponivel" to state(CaptureMode.RETRATO, ModeEngine.UNAVAILABLE,
                 "O fabricante não libera o Retrato para outros apps nesta câmera. O Retrato próprio ainda está em desenvolvimento."),
         )
@@ -65,6 +73,8 @@ class MainScreenRenderTest {
             activity.onCameraState(s)
             activity.onZoom(if (s.mode == CaptureMode.VIDEO) 2.4f else 1f)
             if (name == "video") activity.onRecording(RecordingPhase.RECORDING, 83)
+            if (name == "video-pro") activity.onActiveLens("Tele 5×")
+            if (name == "mais") MainActivity::class.java.getDeclaredMethod("showGrid").apply { isAccessible = true }.invoke(activity)
             shadowOf(Looper.getMainLooper()).idle()
             val root = activity.window.decorView
             root.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
@@ -74,6 +84,7 @@ class MainScreenRenderTest {
             root.draw(Canvas(bmp))
             File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
             if (name == "video") activity.onRecording(RecordingPhase.IDLE, 0)
+            if (name == "mais") MainActivity::class.java.getDeclaredMethod("hideGrid").apply { isAccessible = true }.invoke(activity)
         }
         assertTrue(File(out, "foto.png").length() > 0)
     }

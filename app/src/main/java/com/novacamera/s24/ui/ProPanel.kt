@@ -31,6 +31,13 @@ class ProPanel(context: Context) : LinearLayout(context) {
 
     var listener: Listener? = null
     private val ruler = RulerView(context)
+    private val autoButton = TextChip(context).apply { text = "AUTO"; contentDescription = "Voltar ao automático" }
+    private val rulerRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+    private val meter = TextView(context).apply {
+        textSize = 11.5f; typeface = Nova.MEDIUM; gravity = Gravity.CENTER; visibility = GONE
+    }
+    /** Última medição do automático antes de fixar ISO/velocidade (referência do medidor). */
+    private var reference: AutoStats? = null
     private val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val chipViews = mutableMapOf<Param, TextView>()
     private var selected: Param? = null
@@ -47,8 +54,12 @@ class ProPanel(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
-        ruler.visibility = GONE
-        addView(ruler, LayoutParams(LayoutParams.MATCH_PARENT, dpi(52)))
+        rulerRow.visibility = GONE
+        rulerRow.addView(autoButton, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dpi(12) })
+        rulerRow.addView(ruler, LayoutParams(0, dpi(52), 1f))
+        autoButton.setOnClickListener { setAuto() }
+        addView(meter, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(rulerRow, LayoutParams(LayoutParams.MATCH_PARENT, dpi(52)))
         addView(chips, LayoutParams(LayoutParams.MATCH_PARENT, dpi(46)))
         Param.entries.forEach { p ->
             val chip = TextView(context).apply {
@@ -82,7 +93,11 @@ class ProPanel(context: Context) : LinearLayout(context) {
         refreshChips()
     }
 
-    fun setStats(s: AutoStats) { stats = s; refreshChips() }
+    fun setStats(s: AutoStats) {
+        stats = s
+        if (!manual.manualExposure) reference = s
+        refreshChips()
+    }
 
     fun setEvIndex(i: Int) { evIndex = i; refreshChips() }
 
@@ -92,31 +107,64 @@ class ProPanel(context: Context) : LinearLayout(context) {
         Haptics.tick(this)
         val sel = selected
         if (sel == null) {
-            ruler.visibility = GONE
+            rulerRow.visibility = GONE
         } else {
-            ruler.visibility = VISIBLE
+            rulerRow.visibility = VISIBLE
             val (labels, index) = rulerFor(sel)
-            ruler.set(labels, index)
+            ruler.set(labels, index, dimmed = isAuto(sel))
         }
         refreshChips()
     }
 
+    private fun isAuto(p: Param) = when (p) {
+        Param.ISO -> manual.iso == null
+        Param.SHUTTER -> manual.exposureNs == null
+        Param.FOCUS -> manual.focusDiopters == null
+        Param.WB -> manual.awbMode == null
+        Param.EV -> evIndex == 0
+    }
+
+    /** Botão AUTO: devolve o parâmetro selecionado ao automático. */
+    private fun setAuto() {
+        val p = selected ?: return
+        Haptics.tick(this)
+        when (p) {
+            Param.ISO -> manual = manual.copy(iso = null, exposureNs = null)
+            Param.SHUTTER -> manual = manual.copy(iso = null, exposureNs = null)
+            Param.FOCUS -> manual = manual.copy(focusDiopters = null)
+            Param.WB -> manual = manual.copy(awbMode = null)
+            Param.EV -> { evIndex = 0; listener?.onEv(0) }
+        }
+        if (p != Param.EV) listener?.onManual(manual)
+        val (labels, index) = rulerFor(p)
+        ruler.set(labels, index, dimmed = true)
+        refreshChips()
+    }
+
+    /**
+     * Régua sem a posição "AUTO": em automático ela abre no valor que o automático está usando agora.
+     * Assim o primeiro arraste ajusta a partir da exposição atual, em vez de saltar para ISO 50
+     * (causa da tela preta relatada na 0.4).
+     */
     private fun rulerFor(p: Param): Pair<List<String>, Int> = when (p) {
-        Param.ISO -> (listOf("AUTO") + isoValues.map { it.toString() }) to (manual.iso?.let { isoValues.indexOf(it) + 1 } ?: 0)
-        Param.SHUTTER -> (listOf("AUTO") + shutterValues.map(CameraMath::shutterLabel)) to
-            (manual.exposureNs?.let { shutterValues.indexOf(it) + 1 } ?: 0)
-        Param.FOCUS -> (listOf("AF") + focusValues.map(CameraMath::focusLabel)) to
-            (manual.focusDiopters?.let { d -> focusValues.indexOfFirst { kotlin.math.abs(it - d) < 1e-3f } + 1 } ?: 0)
-        Param.WB -> (listOf("AUTO") + wbValues.map(::wbLabel)) to (manual.awbMode?.let { wbValues.indexOf(it) + 1 } ?: 0)
+        Param.ISO -> isoValues.map { it.toString() } to CameraMath.nearestLogIndex(
+            isoValues.map { it.toDouble() }, (manual.iso ?: stats?.iso ?: 100).toDouble())
+        Param.SHUTTER -> shutterValues.map(CameraMath::shutterLabel) to CameraMath.nearestLogIndex(
+            shutterValues.map { it.toDouble() }, (manual.exposureNs ?: stats?.exposureNs ?: 16_666_666L).toDouble())
+        Param.FOCUS -> focusValues.map(CameraMath::focusLabel) to
+            (manual.focusDiopters ?: stats?.focusDiopters ?: 0f).let { d -> focusValues.indices.minByOrNull { kotlin.math.abs(focusValues[it] - d) } ?: 0 }
+        Param.WB -> wbValues.map(::wbLabel) to (manual.awbMode?.let { wbValues.indexOf(it) }
+            ?: wbValues.indexOf(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT).coerceAtLeast(0))
         Param.EV -> (evMin..evMax).map { CameraMath.formatEv(CameraMath.evForIndex(it, evNum, evDen)) } to (evIndex - evMin)
     }
 
     private fun onRuler(index: Int) {
+        ruler.dimmed = false
         when (selected ?: return) {
-            Param.ISO -> manual = manual.copy(iso = isoValues.getOrNull(index - 1))
-            Param.SHUTTER -> manual = manual.copy(exposureNs = shutterValues.getOrNull(index - 1))
-            Param.FOCUS -> manual = manual.copy(focusDiopters = focusValues.getOrNull(index - 1))
-            Param.WB -> manual = manual.copy(awbMode = wbValues.getOrNull(index - 1))
+            Param.ISO -> manual = manual.copy(iso = isoValues.getOrNull(index))
+            Param.SHUTTER -> manual = manual.copy(exposureNs = shutterValues.getOrNull(index))
+            Param.FOCUS -> manual = manual.copy(focusDiopters = focusValues.getOrNull(index))
+            Param.WB -> manual = manual.copy(awbMode = wbValues.getOrNull(index))
             Param.EV -> {
                 evIndex = evMin + index
                 listener?.onEv(evIndex)
@@ -132,6 +180,8 @@ class ProPanel(context: Context) : LinearLayout(context) {
     fun syncManual(m: ManualControls) { manual = m; refreshChips() }
 
     private fun refreshChips() {
+        refreshMeter()
+        selected?.let { autoButton.active = isAuto(it) }
         Param.entries.forEach { p ->
             val chip = chipViews[p] ?: return@forEach
             val enabled = p in enabledParams
@@ -169,6 +219,18 @@ class ProPanel(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** Medidor: diferença entre a combinação manual e a última medição automática. */
+    private fun refreshMeter() {
+        val ref = reference
+        val iso = manual.iso
+        val exp = manual.exposureNs
+        if (!manual.manualExposure || ref == null || iso == null || exp == null) { meter.visibility = GONE; return }
+        val ev = CameraMath.meterEv(iso, exp, ref.iso, ref.exposureNs)
+        meter.text = "Exposição ${CameraMath.formatEv(ev)} EV em relação ao automático"
+        meter.setTextColor(if (kotlin.math.abs(ev) >= 2.0) Nova.WARN else Nova.TEXT_MUTED)
+        meter.visibility = VISIBLE
+    }
+
     private fun auto(live: String?) = if (live != null) "A·$live" else "AUTO"
 
     private fun wbLabel(mode: Int) = when (mode) {
@@ -204,7 +266,12 @@ class RulerView(context: Context) : View(context) {
     private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Nova.MEDIUM }
 
-    fun set(values: List<String>, selected: Int) {
+    /** Em automático a régua mostra o valor medido, esmaecido, até o usuário arrastar. */
+    var dimmed = false
+        set(value) { field = value; invalidate() }
+
+    fun set(values: List<String>, selected: Int, dimmed: Boolean = false) {
+        this.dimmed = dimmed
         labels = values
         index = selected.coerceIn(0, (values.size - 1).coerceAtLeast(0))
         offset = index.toFloat()
@@ -240,8 +307,8 @@ class RulerView(context: Context) : View(context) {
             canvas.drawLine(x, baseY, x, baseY - dp(if (major) 14f else 8f), tick)
         }
         labels.getOrNull(index)?.let {
-            text.textSize = dp(13f); text.color = Nova.ACCENT_SOFT
-            canvas.drawText(it, cx, baseY - dp(22f), text)
+            text.textSize = dp(13f); text.color = if (dimmed) Nova.TEXT_MUTED else Nova.ACCENT_SOFT
+            canvas.drawText(if (dimmed) "A · $it" else it, cx, baseY - dp(22f), text)
         }
     }
 }

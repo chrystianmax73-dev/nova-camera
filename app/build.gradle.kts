@@ -12,7 +12,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.4.0"
+        versionName = "0.5.0"
     }
 
     compileOptions {
@@ -63,6 +63,7 @@ dependencies {
     implementation("androidx.camera:camera-view:$camerax")
     implementation("androidx.camera:camera-video:$camerax")
     implementation("androidx.camera:camera-extensions:$camerax")
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
     testImplementation("junit:junit:4.13.2")
     // Renderiza a interface real em JVM (sem aparelho) para teste de fumaça e capturas de layout.
     testImplementation("org.robolectric:robolectric:4.17")

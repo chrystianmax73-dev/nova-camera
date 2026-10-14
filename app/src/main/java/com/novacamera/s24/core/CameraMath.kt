@@ -149,6 +149,21 @@ object CameraMath {
         return (0 until count).map { maxDiopters * it / (count - 1) }
     }
 
+    /** Índice do valor mais próximo em escala logarítmica (ISO, tempos de exposição). */
+    fun nearestLogIndex(values: List<Double>, target: Double): Int {
+        if (values.isEmpty() || target <= 0.0) return 0
+        return values.indices.minByOrNull { abs(ln(values[it] / target)) } ?: 0
+    }
+
+    /**
+     * Quanto a combinação manual expõe a mais (+) ou a menos (−) que a última medição automática, em EV.
+     * Ex.: ISO 1600→50 com o mesmo tempo = −5 EV (imagem praticamente preta).
+     */
+    fun meterEv(iso: Int, exposureNs: Long, refIso: Int, refExposureNs: Long): Double {
+        if (iso <= 0 || exposureNs <= 0 || refIso <= 0 || refExposureNs <= 0) return 0.0
+        return ln(iso.toDouble() * exposureNs / (refIso.toDouble() * refExposureNs)) / ln(2.0)
+    }
+
     fun formatDuration(totalSeconds: Long): String {
         val s = totalSeconds.coerceAtLeast(0)
         return if (s >= 3600) String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)

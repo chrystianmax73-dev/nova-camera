@@ -7,28 +7,28 @@ import android.graphics.Paint
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import com.novacamera.s24.core.CaptureMode
 import kotlin.math.abs
 
 /**
- * Seletor de modos em texto: o modo ativo fica centralizado em acento. Toque num rótulo ou
- * deslize sobre a faixa para trocar. Modos sem implementação real aparecem esmaecidos.
+ * Seletor de modos em texto: o item ativo fica centralizado em acento. Toque num rótulo ou
+ * deslize sobre a faixa para trocar. Itens sem implementação real aparecem esmaecidos.
  */
 class ModeStrip(context: Context) : View(context) {
-    var modes: List<CaptureMode> = CaptureMode.entries
-    var selected: CaptureMode = CaptureMode.FOTO
+    var labels: List<String> = listOf("FOTO")
+        set(value) { field = value; invalidate() }
+    var selectedIndex = 0
         set(value) {
             if (field == value) return
             field = value
-            animateTo(modes.indexOf(value).toFloat())
-            contentDescription = "Modo ${value.label}"
+            animateTo(value.toFloat())
+            contentDescription = "Modo ${labels.getOrNull(value)}"
         }
-    /** Modos que não têm implementação real neste aparelho. */
-    var unavailable: Set<CaptureMode> = emptySet()
+    /** Índices sem implementação real neste aparelho. */
+    var unavailable: Set<Int> = emptySet()
         set(value) { field = value; invalidate() }
-    var onSelect: ((CaptureMode) -> Unit)? = null
+    var onSelect: ((Int) -> Unit)? = null
 
-    private var position = modes.indexOf(selected).toFloat()
+    private var position = 0f
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = Nova.MEDIUM
@@ -42,16 +42,25 @@ class ModeStrip(context: Context) : View(context) {
 
     init {
         isClickable = true
-        contentDescription = "Modo ${selected.label}"
+        contentDescription = "Seletor de modo"
+    }
+
+    /** Posiciona sem animar (ex.: ao restaurar o último modo). */
+    fun jumpTo(index: Int) {
+        animator?.cancel()
+        selectedIndex = index
+        animator?.cancel()
+        position = index.toFloat()
+        invalidate()
     }
 
     /** Espaçamento pela largura real dos rótulos: modos vizinhos ficam a uma distância visual constante. */
     private fun centers(): FloatArray {
         text.textSize = dp(13f)
         val gap = dp(26f)
-        val out = FloatArray(modes.size)
-        for (i in 1 until modes.size) {
-            out[i] = out[i - 1] + text.measureText(modes[i - 1].label) / 2f + gap + text.measureText(modes[i].label) / 2f
+        val out = FloatArray(labels.size)
+        for (i in 1 until labels.size) {
+            out[i] = out[i - 1] + text.measureText(labels[i - 1]) / 2f + gap + text.measureText(labels[i]) / 2f
         }
         return out
     }
@@ -78,19 +87,19 @@ class ModeStrip(context: Context) : View(context) {
         val c = centers()
         val origin = offsetFor(position, c)
         val fade = dp(48f)
-        modes.forEachIndexed { i, m ->
+        labels.forEachIndexed { i, label ->
             val x = cx + c[i] - origin
-            val half = text.measureText(m.label) / 2f
+            val half = text.measureText(label) / 2f
             // Esmaece perto das bordas em vez de cortar o rótulo.
             val edge = minOf(x - half, width - (x + half))
             val edgeAlpha = (edge / fade).coerceIn(0f, 1f)
             if (edgeAlpha <= 0f) return@forEachIndexed
             val closeness = (1f - abs(i - position)).coerceIn(0f, 1f)
-            val base = if (m in unavailable) Nova.TEXT_DISABLED else Nova.TEXT
+            val base = if (i in unavailable) Nova.TEXT_DISABLED else Nova.TEXT
             text.color = if (closeness > 0.5f) Nova.ACCENT_SOFT else base
-            val alpha = if (m in unavailable && closeness <= 0.5f) 110 else 255
+            val alpha = if (i in unavailable && closeness <= 0.5f) 110 else 255
             text.alpha = (alpha * edgeAlpha).toInt()
-            canvas.drawText(m.label, x, cy - (text.descent() + text.ascent()) / 2f, text)
+            canvas.drawText(label, x, cy - (text.descent() + text.ascent()) / 2f, text)
         }
         dot.alpha = 255
         canvas.drawCircle(cx, cy + dp(13f), dp(2f), dot)
@@ -104,17 +113,18 @@ class ModeStrip(context: Context) : View(context) {
                 if (!swiped && abs(event.x - downX) > slop * 2) {
                     swiped = true
                     val dir = if (event.x < downX) 1 else -1
-                    val idx = (modes.indexOf(selected) + dir).coerceIn(0, modes.size - 1)
-                    choose(modes[idx])
+                    choose((selectedIndex + dir).coerceIn(0, labels.size - 1))
                 }
             }
             MotionEvent.ACTION_UP -> if (!swiped) {
                 val c = centers()
-                val origin = c[modes.indexOf(selected)]
+                val origin = c[selectedIndex.coerceIn(0, c.size - 1)]
                 val tapped = event.x - width / 2f + origin
-                val idx = c.indices.minByOrNull { abs(c[it] - tapped) } ?: modes.indexOf(selected)
+                val idx = c.indices.minByOrNull { abs(c[it] - tapped) } ?: selectedIndex
                 performClick()
-                choose(modes[idx])
+                // Tocar no item já ativo também notifica (ex.: reabrir o painel MAIS).
+                Haptics.tick(this)
+                onSelect?.invoke(idx)
             }
         }
         return true
@@ -122,9 +132,9 @@ class ModeStrip(context: Context) : View(context) {
 
     override fun performClick(): Boolean = super.performClick()
 
-    private fun choose(m: CaptureMode) {
-        if (m == selected) return
+    private fun choose(i: Int) {
+        if (i == selectedIndex) return
         Haptics.tick(this)
-        onSelect?.invoke(m)
+        onSelect?.invoke(i)
     }
 }
