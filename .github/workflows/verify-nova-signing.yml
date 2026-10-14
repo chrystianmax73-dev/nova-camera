@@ -1,0 +1,67 @@
+name: Nova Camera - verificar Secrets de assinatura
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-nova-signing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar Java para keytool
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verificar quatro Secrets, PKCS12, alias e chave
+        shell: bash
+        env:
+          NOVA_KEYSTORE_BASE64: ${{ secrets.NOVA_KEYSTORE_BASE64 }}
+          NOVA_KEYSTORE_PASSWORD: ${{ secrets.NOVA_KEYSTORE_PASSWORD }}
+          NOVA_KEY_ALIAS: ${{ secrets.NOVA_KEY_ALIAS }}
+          NOVA_KEY_PASSWORD: ${{ secrets.NOVA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for secret_name in NOVA_KEYSTORE_BASE64 NOVA_KEYSTORE_PASSWORD NOVA_KEY_ALIAS NOVA_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Secret não configurado ou vazio: $secret_name"
+              missing=1
+            else
+              echo "Configurado: $secret_name"
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then exit 1; fi
+          if [[ "$NOVA_KEYSTORE_PASSWORD" != "$NOVA_KEY_PASSWORD" ]]; then
+            echo "::error::As duas senhas cadastradas são diferentes."
+            exit 1
+          fi
+          if [[ "$NOVA_KEY_ALIAS" != 'nova' ]]; then
+            echo "::error::NOVA_KEY_ALIAS deve ser nova."
+            exit 1
+          fi
+          umask 077
+          work_dir="$(mktemp -d)"
+          trap 'rm -rf "$work_dir"' EXIT
+          if ! printf '%s' "$NOVA_KEYSTORE_BASE64" | base64 --decode > "$work_dir/nova-upload-key.p12"; then
+            echo "::error::Base64 inválido: verifique o conteúdo do arquivo .txt."
+            exit 1
+          fi
+          if ! keytool -list -v -storetype PKCS12 -keystore "$work_dir/nova-upload-key.p12" -alias "$NOVA_KEY_ALIAS" -storepass:env NOVA_KEYSTORE_PASSWORD > "$work_dir/verification.txt" 2>/dev/null; then
+            echo "::error::Não foi possível abrir o PKCS12 usando a senha e o alias fornecidos."
+            exit 1
+          fi
+          if ! grep -q 'PrivateKeyEntry' "$work_dir/verification.txt"; then
+            echo "::error::O alias não corresponde a uma entrada de chave privada."
+            exit 1
+          fi
+          if ! keytool -certreq -storetype PKCS12 -keystore "$work_dir/nova-upload-key.p12" -alias "$NOVA_KEY_ALIAS" -storepass:env NOVA_KEYSTORE_PASSWORD -keypass:env NOVA_KEY_PASSWORD -file "$work_dir/verification.csr" > /dev/null 2>&1; then
+            echo "::error::A senha da chave não permite assinar uma solicitação de certificado."
+            exit 1
+          fi
+          echo "OK: os quatro Secrets existem e a keystore PKCS12 foi validada usando ambas as senhas e o alias nova."
+          echo "### Assinatura Nova Camera" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Quatro Secrets configurados; Base64, PKCS12, alias e acesso à chave privada validados. Nenhum valor sigiloso foi exibido." >> "$GITHUB_STEP_SUMMARY"
