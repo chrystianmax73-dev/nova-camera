@@ -109,7 +109,7 @@ A base atual (v0.3.0 experimental) tem: tela de câmera com CameraX, captura JPE
 
 **Ainda não foi testada em S24 Ultra/S25 Ultra. Não existe pós-processamento super-resolução, fusão multiquadro própria, IA de retrato ou edição pós-vídeo.** Design atual é protótipo e precisa ser redesenhado com qualidade premium.
 
-**Registro de compilação:** GitHub Actions run 38560342521 (14/10/2026) falhou em compileDebugKotlin, pois o MainActivity.kt não importava ImageCaptureException. A correção de import foi incluída no commit que atualizou este README; **aguardar resultado da nova execução para confirmar**. Primeiro erro anterior de setup do Android SDK foi corrigido adotando setup-android@v4. Verificar novamente os logs se houver falha, sem supor APK disponível.
+**Registro de compilação:** os runs 1–4 do GitHub Actions falharam. O run 38562463474 (14/10/2026) ainda falhava em compileDebugKotlin: o import de `ImageCaptureException` foi adicionado, mas o código continuava referenciando `ImageCapture.ImageCaptureException` (classe inexistente). Corrigido na branch `ccr-7443eaac-tqygyg`, junto com: rotação correta de foto/vídeo com tela travada em retrato, gravação finalizada ao sair do app (`onStop`), zoom por pinça (também durante a gravação), tempo decorrido da gravação, bloqueio do diagnóstico durante gravação e áudio desligado com segurança se o microfone for revogado. CI agora roda também testes unitários (`ZoomPresetsTest`) e Android lint. Status de cada run: ver Actions; não presumir APK sem Release publicado.
 
 ## 7. Fluxo GitHub / distribuição privada
 

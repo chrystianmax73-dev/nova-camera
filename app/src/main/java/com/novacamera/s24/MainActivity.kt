@@ -17,6 +17,9 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.OrientationEventListener
+import android.view.ScaleGestureDetector
+import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -59,6 +62,11 @@ class MainActivity : ComponentActivity() {
     private var currentZoom = 1f
     private var blurPercent = 65
     private var askedForMicrophone = false
+    private var zoomMin = 1f
+    private var zoomMax = 1f
+    private var pinching = false
+    private var recordedSeconds = 0L
+    private var batteryCached = -1
 
     private lateinit var preview: PreviewView
     private lateinit var status: TextView
@@ -79,8 +87,27 @@ class MainActivity : ComponentActivity() {
     private val power by lazy { getSystemService(PowerManager::class.java) }
     private val thermalTask = object : Runnable {
         override fun run() {
+            batteryCached = batteryPercent()
             updateStatus()
             handler.postDelayed(this, 10_000L)
+        }
+    }
+
+    /** Tela travada em retrato: a rotação do arquivo vem do sensor de orientação, não do display. */
+    private val orientationListener by lazy {
+        object : OrientationEventListener(this) {
+            override fun onOrientationChanged(degrees: Int) {
+                if (degrees == ORIENTATION_UNKNOWN) return
+                val rotation = when (degrees) {
+                    in 45 until 135 -> Surface.ROTATION_270
+                    in 135 until 225 -> Surface.ROTATION_180
+                    in 225 until 315 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+                imageCapture?.targetRotation = rotation
+                // Durante a gravação a orientação do MP4 já foi fixada no início.
+                if (activeRecording == null) videoCapture?.targetRotation = rotation
+            }
         }
     }
 
@@ -106,10 +133,27 @@ class MainActivity : ComponentActivity() {
 
     private fun makeInterface(): View {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                pinching = true
+                return activeCamera != null
+            }
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                currentZoom = (currentZoom * detector.scaleFactor).coerceIn(zoomMin, zoomMax)
+                activeCamera?.cameraControl?.setZoomRatio(currentZoom)
+                updateStatus()
+                return true
+            }
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                populateZoom(zoomMin, zoomMax)
+            }
+        })
         preview = PreviewView(this).apply {
             implementationMode = PreviewView.ImplementationMode.PERFORMANCE
             setOnTouchListener { _, event ->
-                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                pinch.onTouchEvent(event)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) pinching = false
+                if (event.actionMasked == MotionEvent.ACTION_UP && !pinching) {
                     val point = meteringPointFactory.createPoint(event.x, event.y)
                     activeCamera?.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
                 }
@@ -333,6 +377,8 @@ class MainActivity : ComponentActivity() {
             val zoomState = activeCamera?.cameraInfo?.zoomState?.value
             val min = zoomState?.minZoomRatio ?: 1f
             val max = zoomState?.maxZoomRatio ?: 1f
+            zoomMin = min
+            zoomMax = max
             currentZoom = currentZoom.coerceIn(min, max)
             activeCamera?.cameraControl?.setZoomRatio(currentZoom)
             populateZoom(min, max)
@@ -345,17 +391,18 @@ class MainActivity : ComponentActivity() {
 
     private fun populateZoom(min: Float, max: Float) {
         zooms.removeAllViews()
-        val options = listOf(0.6f, 1f, 3f, 5f, 10f, 20f, 30f)
-        options.forEach { value ->
-            val b = pill("${value}×") {
+        ZoomPresets.PRESETS.forEach { value ->
+            val supported = ZoomPresets.isSupported(value, min, max)
+            val b = pill(ZoomPresets.label(value)) {
                 currentZoom = value.coerceIn(min, max)
                 activeCamera?.cameraControl?.setZoomRatio(currentZoom)
                 populateZoom(min, max)
                 updateStatus()
             }
-            b.alpha = if (value in min..max) 1f else 0.28f
-            b.isEnabled = value in min..max
-            b.setTextColor(if (value == currentZoom) 0xFF8BDFFF.toInt() else Color.WHITE)
+            b.alpha = if (supported) 1f else 0.28f
+            b.isEnabled = supported
+            if (!supported) b.contentDescription = "${ZoomPresets.label(value)} indisponível nesta câmera"
+            b.setTextColor(if (ZoomPresets.isActive(value, currentZoom)) 0xFF8BDFFF.toInt() else Color.WHITE)
             val lp = LinearLayout.LayoutParams(-2, dp(42))
             lp.setMargins(dp(4), 0, dp(4), 0)
             zooms.addView(b, lp)
@@ -377,7 +424,7 @@ class MainActivity : ComponentActivity() {
                 override fun onImageSaved(result: ImageCapture.OutputFileResults) {
                     toast("Foto salva na galeria")
                 }
-                override fun onError(exception: ImageCapture.ImageCaptureException) {
+                override fun onError(exception: ImageCaptureException) {
                     Log.e(TAG, "Falha foto", exception)
                     toast("Erro ao salvar foto: ${exception.message}")
                 }
@@ -403,12 +450,30 @@ class MainActivity : ComponentActivity() {
         ).setContentValues(values).build()
         try {
             var pending = cap.output.prepareRecording(this, output)
-            if (mic) pending = pending.withAudioEnabled()
+            var audio = false
+            // Verificação direta no ponto de uso: a permissão pode ter sido revogada desde a checagem acima.
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED) {
+                try {
+                    pending = pending.withAudioEnabled()
+                    audio = true
+                } catch (ex: SecurityException) {
+                    Log.w(TAG, "Microfone recusado; gravando sem áudio", ex)
+                }
+            }
+            recordedSeconds = 0L
             activeRecording = pending.start(ContextCompat.getMainExecutor(this)) { event ->
                 when (event) {
+                    is VideoRecordEvent.Status -> {
+                        val seconds = event.recordingStats.recordedDurationNanos / 1_000_000_000L
+                        if (seconds != recordedSeconds) {
+                            recordedSeconds = seconds
+                            updateStatus()
+                        }
+                    }
                     is VideoRecordEvent.Start -> {
                         updateControls()
-                        toast("Gravando ${if (mic) "com áudio" else "sem áudio"}")
+                        toast("Gravando ${if (audio) "com áudio" else "sem áudio"}")
                     }
                     is VideoRecordEvent.Finalize -> {
                         activeRecording = null
@@ -446,12 +511,14 @@ class MainActivity : ComponentActivity() {
         val thermal = power.currentThermalStatus
         val state = if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) "quente"
                     else "normal"
-        val percent = batteryPercent()
-        status.text = "${mode.name} · ${currentZoom}× · bateria ${if (percent >= 0) "$percent%" else "?"} · térmico $state" +
-            if (activeRecording != null) " · ● REC" else ""
+        val percent = batteryCached
+        val rec = if (activeRecording != null)
+            " · ● REC %d:%02d".format(recordedSeconds / 60, recordedSeconds % 60) else ""
+        status.text = "${mode.name} · ${ZoomPresets.label(currentZoom)} · bateria ${if (percent >= 0) "$percent%" else "?"} · térmico $state$rec"
     }
 
     private fun shareDiagnostic() {
+        if (activeRecording != null) return toast("Pare a gravação antes de gerar o diagnóstico")
         val ext = buildString {
             val manager = extensions
             if (manager == null) appendLine("Extensões OEM: indisponíveis")
@@ -479,6 +546,18 @@ class MainActivity : ComponentActivity() {
     private fun timestamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
     private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+    override fun onStart() {
+        super.onStart()
+        if (orientationListener.canDetectOrientation()) orientationListener.enable()
+    }
+
+    /** Finaliza o MP4 de forma explícita ao sair do app (home, bloqueio, chamada). */
+    override fun onStop() {
+        orientationListener.disable()
+        activeRecording?.stop()
+        super.onStop()
+    }
 
     override fun onDestroy() {
         handler.removeCallbacks(thermalTask)

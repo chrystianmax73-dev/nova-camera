@@ -19,7 +19,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 
     signingConfigs {
         create("novaRelease") {
@@ -41,6 +40,10 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+}
+
 dependencies {
     val camerax = "1.6.2"
     implementation("androidx.activity:activity-ktx:1.13.0")
@@ -51,4 +54,5 @@ dependencies {
     implementation("androidx.camera:camera-view:$camerax")
     implementation("androidx.camera:camera-video:$camerax")
     implementation("androidx.camera:camera-extensions:$camerax")
+    testImplementation("junit:junit:4.13.2")
 }
