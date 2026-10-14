@@ -94,7 +94,8 @@ object Consistency {
         val ok = Plane(w, h); val valid = Plane(w, h)
         for (y in 0 until h) for (x in 0 until w) {
             val s = Align.shiftAt(field, gx, gy, w, h, x.toFloat(), y.toFloat(), 1f)
-            val mx = (x + s.dx).coerceIn(0, w - 1); val my = (y + s.dy).coerceIn(0, h - 1)
+            val mx = x + s.dx; val my = y + s.dy
+            if (mx !in 0 until w || my !in 0 until h) continue
             val r = ref[x, y]; val m = mov[mx, my]
             val i = y * w + x
             if (r !in 0.02f..0.97f || m !in 0.01f..0.985f) continue
@@ -125,7 +126,14 @@ object Consistency {
                 else -> deep
             }
         }
-        return Planes.boxBlur(out, 1).also { p -> for (i in p.data.indices) p.data[i] = if (p.data[i] < 0.6f) 0f else p.data[i] }
+        return Planes.boxBlur(out, 1).also { p ->
+            for (y in 0 until h) for (x in 0 until w) {
+                val i = y * w + x
+                val s = Align.shiftAt(field, gx, gy, w, h, x.toFloat(), y.toFloat(), 1f)
+                // A suavização e a confiança global não podem validar amostras fora do sensor.
+                if (x + s.dx !in 0 until w || y + s.dy !in 0 until h || p.data[i] < 0.6f) p.data[i] = 0f
+            }
+        }
     }
 
     /** Desvio do ruído em luminância (0..1), robusto a bordas (1º quartil das diferenças vizinhas). */
@@ -167,9 +175,18 @@ object Consistency {
     /** Concordância por pixel em resolução cheia (0..1), para o que a meia resolução não vê. */
     fun agreement(refPx: Int, movPx: Int, lut: ExposureLut, noise: Float): Float {
         val r = Px.luma(refPx); val m = Px.luma(movPx)
+        // Realces/sombras dependem da confiança da vizinhança, calculada em reliability.
         if (r !in 0.02f..0.97f || m !in 0.01f..0.985f) return 1f
         val d = abs(lut.map(m) - r)
         val tol = tolerance(r, noise) * max(1f, lut.slope(m) * 0.5f) * 1.5f
-        return ((2f * tol - d) / tol).coerceIn(0f, 1f)
+        val lumaAgreement = ((2f * tol - d) / tol).coerceIn(0f, 1f)
+        // Crominância relativa à luminância: objetos de mesma luminosidade e cores diferentes
+        // não são o mesmo ponto da cena. Tolerância maior no escuro, onde a cor é ruidosa.
+        val chromaTolerance = 0.10f + 3f * noise / max(0.08f, min(r, m))
+        val dr = abs(Px.r(refPx) / (255f * r) - Px.r(movPx) / (255f * m))
+        val db = abs(Px.b(refPx) / (255f * r) - Px.b(movPx) / (255f * m))
+        val chromaAgreement = ((2f * chromaTolerance - max(dr, db)) / chromaTolerance).coerceIn(0f, 1f)
+        return min(lumaAgreement, chromaAgreement)
     }
 }
+

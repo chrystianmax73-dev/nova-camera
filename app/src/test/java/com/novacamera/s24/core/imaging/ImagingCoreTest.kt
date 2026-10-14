@@ -286,3 +286,46 @@ class AdaptiveToneTest {
         assertTrue(ToneParams.plan(s, ToneIntent.LIGHT, 10f).clarity > 0.15f)
     }
 }
+
+
+class ColorConsistencyRegressionTest {
+    @org.junit.Test
+    fun sameLuminanceDifferentObjectIsRejected() {
+        // Luminâncias quase iguais; uma máscara exclusivamente luminosa aceitava o objeto.
+        val red = Px.argb(180, 60, 60)
+        val green = Px.argb(60, 96, 60)
+        org.junit.Assert.assertEquals(Px.luma(red), Px.luma(green), 0.002f)
+        org.junit.Assert.assertEquals(0f, Consistency.agreement(red, green, ExposureLut.IDENTITY, 0.002f), 0f)
+    }
+
+    @org.junit.Test
+    fun sameColorAtAnotherExposureRemainsUsable() {
+        val ref = Px.argb(160, 120, 80)
+        val mov = Px.argb(80, 60, 40)
+        val lut = ExposureLut(FloatArray(257) { (it / 128f).coerceAtMost(1f) })
+        org.junit.Assert.assertEquals(1f, Consistency.agreement(ref, mov, lut, 0.002f), 0.01f)
+    }
+
+    @org.junit.Test
+    fun shiftedOutsideSensorIsNeverTrusted() {
+        val ref = Plane(64, 64, FloatArray(64 * 64) { 0.4f })
+        val r = Consistency.reliability(ref, ref, arrayOf(Shift(-4, 0)), 1, 1, ExposureLut.IDENTITY, 0.002f)
+        for (y in 0 until 64) for (x in 0 until 4) org.junit.Assert.assertEquals(0f, r[x, y], 0f)
+        org.junit.Assert.assertTrue(r[32, 32] > 0.9f)
+    }
+}
+
+class FrameQualityRegressionTest {
+    @org.junit.Test
+    fun clearMeasuredEdgesBeatBlurredFrame() {
+        val sharp = Plane(64, 64, FloatArray(4096) { i -> if (i % 64 / 8 % 2 == 0) 0.25f else 0.75f })
+        val blurred = Planes.boxBlur(sharp, 3)
+        org.junit.Assert.assertEquals(1, FrameQuality.best(listOf(FrameQuality.score(blurred), FrameQuality.score(sharp))))
+    }
+
+    @org.junit.Test
+    fun smallDifferenceOrMoreClippingKeepsFirstFrame() {
+        org.junit.Assert.assertEquals(0, FrameQuality.best(listOf(FrameQuality.Score(1f, 0f), FrameQuality.Score(1.05f, 0f))))
+        org.junit.Assert.assertEquals(0, FrameQuality.best(listOf(FrameQuality.Score(1f, 0f), FrameQuality.Score(2f, 0.1f))))
+    }
+}

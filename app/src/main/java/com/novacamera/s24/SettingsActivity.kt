@@ -93,11 +93,12 @@ class SettingsActivity : NovaScreen() {
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
 
         section("Foto Nova")
-        switch("Processamento automático", "Cada foto é analisada e só é ajustada quando isso a melhora em medidas " +
-            "objetivas (pretos, véu, contraste). Fica uma foto pronta na galeria. A comparação Original × Nova é " +
+        switch("Processamento automático", "Cada foto é analisada com proteções de contraste e textura. O ajuste é " +
+            "adaptativo. Fica uma foto pronta na galeria. A comparação Original × Nova é " +
             "opcional: toque e segure na miniatura.", { settings.autoProcess }, { settings.autoProcess = it })
         switch("Guardar originais", "Quando a foto é ajustada, o JPEG original da câmera (sem recompressão) fica em " +
-            "Pictures › Nova Camera › Originais.", { settings.keepOriginals }, { settings.keepOriginals = it })
+            "Pictures › Nova Camera › Originais. Desligado: a comparação usa uma cópia privada temporária, " +
+            "limitada às quatro últimas fotos processadas.", { settings.keepOriginals }, { settings.keepOriginals = it })
 
         section("Assinatura")
         switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
@@ -346,3 +347,4 @@ class DiagnosticsActivity : NovaScreen() {
 
     override fun onDestroy() { io.shutdown(); super.onDestroy() }
 }
+

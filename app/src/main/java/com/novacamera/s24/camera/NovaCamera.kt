@@ -918,6 +918,7 @@ class NovaCamera(
     }
 
     @Volatile private var lowLightFpsWarned = false
+    private var lastSensorReportMs = 0L
 
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
@@ -932,6 +933,16 @@ class NovaCamera(
             val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
             if (lensChanged) handler.post { listener.onActiveLens(lensLabel(physical)) }
             val now = System.currentTimeMillis()
+            if (now - lastSensorReportMs >= 500L) {
+                lastSensorReportMs = now
+                sensorReport = "Prévia (não metadados da foto): câmera ${caps?.cameraId}, físico ${physical ?: "não informado"}, " +
+                    "zoom $zoom, focal ${result.get(CaptureResult.LENS_FOCAL_LENGTH)} mm, ISO $iso, exposição $exp ns, " +
+                    "foco $focus D, AF ${result.get(CaptureResult.CONTROL_AF_STATE)}, AE ${result.get(CaptureResult.CONTROL_AE_STATE)}, " +
+                    "AWB ${result.get(CaptureResult.CONTROL_AWB_STATE)}, ganhos ${result.get(CaptureResult.COLOR_CORRECTION_GAINS)}, " +
+                    "OIS ${result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE)}, " +
+                    "EIS ${result.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE)}, " +
+                    "foto ${imageCapture?.resolutionInfo?.resolution} · atualizado $now ms"
+            }
             // Vídeo a 60 fps em pouca luz: a exposição bate no teto de 1/60 s com ISO alto e a imagem
             // escurece (visto nos vídeos 1×→10× do dossiê 0.6, sobretudo nas teles). Avisa uma vez.
             if (mode.isVideo && (state?.videoFps ?: 30) >= 60 && !lowLightFpsWarned &&
@@ -1364,8 +1375,11 @@ class NovaCamera(
         private const val FOLLOW_SMOOTHING_MS = 110L
         /** Registro do zoom compartilhado com a tela de diagnóstico. */
         val telemetry = ZoomTelemetry()
+        @Volatile var sensorReport = "Nenhum resultado de prévia recebido"
+            private set
         private const val MIN_FREE_BYTES = 300L * 1024 * 1024
         val ZOOM_CANDIDATES = listOf(0.6f, 1f, 3f, 5f, 10f, 20f, 30f)
         val VIDEO_FPS = listOf(24, 30, 60)
     }
 }
+

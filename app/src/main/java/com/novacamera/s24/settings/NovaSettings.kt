@@ -44,10 +44,10 @@ class NovaSettings(context: Context) {
     var oemPortrait get() = bool("oem_portrait", false); set(v) = put("oem_portrait", v)
     var oemNight get() = bool("oem_night", false); set(v) = put("oem_night", v)
     /** Guarda o original sem processamento em "Nova Camera/Originais". */
-    var keepOriginals get() = bool("keep_originals", true); set(v) = put("keep_originals", v)
+    var keepOriginals get() = bool("keep_originals", false); set(v) = put("keep_originals", v)
     /**
      * FOTO: ajuste automático e adaptativo (só quando melhora a foto em medidas objetivas). A foto
-     * da galeria vira a versão pronta; o original fica em "Originais".
+     * da galeria vira a versão pronta; a comparação usa uma cópia temporária privada. Originais na galeria são opcionais.
      */
     var autoProcess get() = bool("auto_process", true); set(v) = put("auto_process", v)
 
@@ -90,3 +90,4 @@ class NovaSettings(context: Context) {
     var idleTimeoutSeconds get() = int("idle_timeout", 120); set(v) = put("idle_timeout", v)
     var lastMode get() = enum("last_mode", CaptureMode.FOTO); set(v) = put("last_mode", v.name)
 }
+

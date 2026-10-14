@@ -24,6 +24,7 @@ object CameraDiagnostics {
             appendLine("Nova Camera ${BuildConfigInfo.version(context)} — Diagnóstico")
             appendLine("Aparelho: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
             appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
+            appendLine(com.novacamera.s24.camera.NovaCamera.sensorReport)
             if (extra.isNotBlank()) { appendLine(); append(extra.trimEnd()); appendLine() }
             val ids = runCatching { manager.cameraIdList.toList() }.getOrElse {
                 appendLine("Falha ao listar câmeras: ${it.message}"); return@buildString
@@ -172,3 +173,4 @@ object BuildConfigInfo {
         "${info.versionName} (${info.longVersionCode})"
     }.getOrDefault("?")
 }
+

@@ -202,6 +202,8 @@ object Engine {
         val ff = a.fieldsF
         if (k == 0 || ff == null || ref == null) {
             val s = if (k == 0) Shift(0, 0) else shiftFor(a, k, x0, y0, tw, th)
+            if (ref != null && (x0 + s.dx < 0 || y0 + s.dy < 0 ||
+                    x0 + s.dx + tw > frame.width || y0 + s.dy + th > frame.height)) return ref.copyOf()
             return IntArray(n).also { frame.read(x0 + s.dx, y0 + s.dy, tw, th, it) }
         }
         val f = Align.shiftAtF(ff[k], a.gx, a.gy, a.lw, a.lh, (x0 + tw / 2f) / a.scale, (y0 + th / 2f) / a.scale, a.scale)
@@ -209,9 +211,12 @@ object Engine {
         // Janela com 2 px de margem em cada lado (medir ±1 e interpolar com 4×4 vizinhos).
         val m = 2
         val rw = tw + 2 * m; val rh = th + 2 * m
-        if (rw > frame.width || rh > frame.height) return IntArray(n).also { frame.read(x0 + ix, y0 + iy, tw, th, it) }
+        // Não limitar a origem da janela: isso deslocaria todos os pixels do bloco.
+        // Sem suporte para interpolar nas bordas, conservar o quadro de referência.
+        if (x0 + ix - m < 0 || y0 + iy - m < 0 ||
+            x0 + ix - m + rw > frame.width || y0 + iy - m + rh > frame.height) return ref.copyOf()
         val src = IntArray(rw * rh).also { frame.read(x0 + ix - m, y0 + iy - m, rw, rh, it) }
-        val lumaSrc = FloatArray(src.size) { Px.luma(src[it]) }
+        val lumaSrc = FloatArray(src.size) { a.luts[k].map(Px.luma(src[it])) }
         val lumaRef = FloatArray(n) { Px.luma(ref[it]) }
         fun ssd(ox: Int, oy: Int): Double {
             var e = 0.0
@@ -324,10 +329,14 @@ object Engine {
         val lumas = used.map { k ->
             val l = frames[k].luma(factor)
             if (k == 0) l else {
-                // Desloca a luminância reduzida pelo alinhamento (centro) para os pesos coincidirem.
-                val s = shiftFor(a, k, w / 2, h / 2, 1, 1)
-                val dx = s.dx / factor; val dy = s.dy / factor
-                Plane(l.w, l.h, FloatArray(l.w * l.h) { i -> l[(i % l.w + dx).coerceIn(0, l.w - 1), (i / l.w + dy).coerceIn(0, l.h - 1)] })
+                val field = a.fieldsF?.get(k) ?: Array(a.fields[k].size) { j -> FShift(a.fields[k][j].dx.toFloat(), a.fields[k][j].dy.toFloat()) }
+                Plane(l.w, l.h, FloatArray(l.w * l.h) { i ->
+                    val x = i % l.w; val y = i / l.w
+                    val shift = Align.shiftAtF(
+                        field, a.gx, a.gy, a.lw, a.lh,
+                        (x + 0.5f) * factor / a.scale, (y + 0.5f) * factor / a.scale, a.scale / factor)
+                    l.sample(x + shift.x, y + shift.y)
+                })
             }
         }
         val weights = Fusion.weights(lumas, lumas[0])
@@ -339,24 +348,15 @@ object Engine {
             val n = tw * th
             val ref0 = IntArray(tw * th).also { frames[0].read(x0, y0, tw, th, it) }
             val tilesK = used.map { k -> if (k == 0) ref0 else readAligned(frames[k], a, k, x0, y0, tw, th, ref0) }
-            // Pixels não confiáveis de cada quadro são trocados pela previsão a partir da referência
-            // (mesma exposição daquele quadro): sem fantasma e sem "buraco" de tom no formato do objeto.
-            for ((j, k) in used.withIndex()) {
-                if (k == 0) continue
-                val r = reliabilityTile(a, k, x0, y0, tw, th)!!
-                val lut = a.luts[k]
-                val t = tilesK[j]; val ref = tilesK[0]
-                for (i in 0 until n) {
-                    val p = if (r[i] > 0f) r[i] * Consistency.agreement(ref[i], t[i], lut, noise) else 0f
-                    if (p >= 0.999f) continue
-                    val sub = Consistency.predicted(ref[i], lut)
-                    t[i] = if (p <= 0.001f) sub else Px.argb(
-                        (Px.r(sub) + (Px.r(t[i]) - Px.r(sub)) * p).toInt(),
-                        (Px.g(sub) + (Px.g(t[i]) - Px.g(sub)) * p).toInt(),
-                        (Px.b(sub) + (Px.b(t[i]) - Px.b(sub)) * p).toInt())
+            // Rejeitar a contribuição, sem fabricar uma exposição prevista da referência.
+            // Onde nenhum outro quadro é verificável, a referência sai intacta.
+            val pixelWeights = used.mapIndexed { j, k ->
+                if (k == 0) null else {
+                    val r = reliabilityTile(a, k, x0, y0, tw, th)!!
+                    FloatArray(n) { i -> r[i] * Consistency.agreement(ref0[i], tilesK[j][i], a.luts[k], noise) }
                 }
             }
-            out.setPixels(Fusion.blendTile(tilesK, weights, tw, th, x0, y0, w, h), 0, tw, x0, y0, tw, th)
+            out.setPixels(Fusion.blendTile(tilesK, weights, tw, th, x0, y0, w, h, pixelWeights), 0, tw, x0, y0, tw, th)
             done++; progress(done.toFloat() / total)
         }
         return used.size
@@ -467,3 +467,4 @@ object Engine {
         return if (out.isMutable) out else out.copy(Bitmap.Config.ARGB_8888, true).also { out.recycle() }
     }
 }
+

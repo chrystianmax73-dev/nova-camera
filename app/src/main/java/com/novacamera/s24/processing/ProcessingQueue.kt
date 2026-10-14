@@ -134,7 +134,7 @@ object ProcessingQueue {
     private val queued = ArrayList<Job>()
     @Volatile private var current: Job? = null
     @Volatile var heat: DeviceHeat? = null
-    @Volatile var keepOriginals = true
+    @Volatile var keepOriginals = false
     /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
     @Volatile var aiDenoise = false
 
@@ -176,7 +176,24 @@ object ProcessingQueue {
         val session = Session(File(sessionsDir(context), "${job.id}"))
         session.dir.mkdirs()
         session.kind = job.kind
-        val frame0 = job.frames[0]
+        // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
+        // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
+        val orderedFrames = if (job.kind == JobKind.NIGHT && job.frames.size > 1) runCatching {
+            val first = job.frames[0]
+            if (job.frames.any { it.evIndex != first.evIndex || it.rotationDegrees != first.rotationDegrees || it.crop != first.crop }) job.frames
+            else {
+                val scores = job.frames.map { frame ->
+                    val src = JpegSource(frame)
+                    try {
+                        com.novacamera.s24.core.imaging.FrameQuality.score(src.luma(kotlin.math.max(1, kotlin.math.max(src.width, src.height) / 768)))
+                    } finally { src.close() }
+                }
+                val index = com.novacamera.s24.core.imaging.FrameQuality.best(scores)
+                session.meta.setProperty("referenceIndex", index.toString())
+                listOf(job.frames[index]) + job.frames.filterIndexed { i, _ -> i != index }
+            }
+        }.getOrDefault(job.frames) else job.frames
+        val frame0 = orderedFrames[0]
         session.exif = MediaWriter.exifOf(frame0.jpeg)
         var originalUri: Uri? = null
         fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
@@ -202,7 +219,7 @@ object ProcessingQueue {
                 return
             }
             // Com aquecimento severo, a fusão multiquadro é pulada (um quadro só, processamento leve).
-            val frames = if (h != null && h.thermalStatus >= ThermalPolicy.SEVERE) job.frames.take(1) else job.frames
+            val frames = if (h != null && h.thermalStatus >= ThermalPolicy.SEVERE) orderedFrames.take(1) else orderedFrames
 
             // 2. Fusão (orientação do sensor), lendo os quadros por faixas.
             var base: Bitmap
@@ -390,3 +407,4 @@ object ProcessingQueue {
         dirs.drop(KEEP_SESSIONS).forEach { it.deleteRecursively() }
     }
 }
+

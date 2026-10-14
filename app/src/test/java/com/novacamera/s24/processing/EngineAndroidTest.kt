@@ -39,6 +39,24 @@ class EngineAndroidTest {
     }
 
     @Test
+    fun shiftedBorderKeepsReferenceInsteadOfMovingWholeTile() {
+        val ref = IntArray(16 * 16) { 0xFF777777.toInt() }
+        val bmp = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(0xFFFF0000.toInt())
+        val field = Array(1) { com.novacamera.s24.core.imaging.Shift(-4, 0) }
+        for (subpixel in listOf(false, true)) {
+            val a = Engine.Alignment(listOf(Array(1) { com.novacamera.s24.core.imaging.Shift(0, 0) }, field),
+                1, 1, 1f, 64, 64,
+                listOf(com.novacamera.s24.core.imaging.ExposureLut.IDENTITY, com.novacamera.s24.core.imaging.ExposureLut.IDENTITY),
+                listOf(null, null), listOf(0f, 0f), 0.002f,
+                if (subpixel) listOf(Array(1) { com.novacamera.s24.core.imaging.FShift(0f, 0f) },
+                    Array(1) { com.novacamera.s24.core.imaging.FShift(-4f, 0f) }) else null)
+            org.junit.Assert.assertArrayEquals(ref, Engine.readAligned(BitmapSource(bmp), a, 1, 0, 16, 16, 16, ref))
+        }
+        bmp.recycle()
+    }
+
+    @Test
     fun bandedJpegSourceMatchesFullDecode() {
         val frame = CapturedFrame(scene(0, 0, 1, 4f), 0, Rect(10, 20, 910, 700))
         val src = JpegSource(frame)
@@ -222,3 +240,4 @@ class EngineAndroidTest {
         for (k in integer.indices) assertTrue("quadro ${k + 1}: subpixel ${sub[k]} ≥ inteiro ${integer[k]}", sub[k] < integer[k] * 0.9)
     }
 }
+
