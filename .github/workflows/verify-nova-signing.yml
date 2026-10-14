@@ -46,7 +46,7 @@ jobs:
           umask 077
           work_dir="$(mktemp -d)"
           trap 'rm -rf "$work_dir"' EXIT
-          if ! printf '%s' "$NOVA_KEYSTORE_BASE64" | base64 --decode > "$work_dir/nova-upload-key.p12"; then
+          if ! printf '%s' "$NOVA_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$work_dir/nova-upload-key.p12"; then
             echo "::error::Base64 inválido: verifique o conteúdo do arquivo .txt."
             exit 1
           fi
