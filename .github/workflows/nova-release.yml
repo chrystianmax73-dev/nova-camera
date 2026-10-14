@@ -4,8 +4,8 @@ on:
   push:
     branches: [codex/reference-performance]
 concurrency:
-  group: nova-signed-validation
-  cancel-in-progress: false
+  group: nova-signed-validation-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:

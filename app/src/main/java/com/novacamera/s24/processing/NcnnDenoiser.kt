@@ -131,7 +131,8 @@ object NcnnDenoiser {
                     firstTileMs = elapsed
                     if (!DenoisePolicy.projectedFits(elapsed, nx * ny, loadMs)) {
                         status = "fallback: custo projetado excede orçamento"
-                        retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
+                        // A primeira inferência pode incluir preparação Vulkan: manter o cache
+                        // permite medir novamente já aquecido na próxima foto, sem recarregar pesos.
                         return false
                     }
                     result = IntArray(w * h)
