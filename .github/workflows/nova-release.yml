@@ -31,8 +31,24 @@ jobs:
             echo 'Faltam os quatro Secrets NOVA_KEYSTORE_BASE64 / NOVA_KEYSTORE_PASSWORD / NOVA_KEY_ALIAS / NOVA_KEY_PASSWORD' >&2
             exit 1
           fi
-          printf '%s' "$KS_BASE64" | base64 --decode > "$RUNNER_TEMP/nova-upload-key.jks"
-          chmod 600 "$RUNNER_TEMP/nova-upload-key.jks"
+          KS_FILE="$RUNNER_TEMP/nova-upload-key.jks"
+          # Tolera colagem com quebras de linha, CRLF, espaços, aspas ou cabeçalho -----BEGIN/END-----.
+          CLEAN="$(printf '%s' "$KS_BASE64" | sed '/^-----/d' | tr -d ' \r\n\t"')"
+          echo "NOVA_KEYSTORE_BASE64 após limpeza: ${#CLEAN} caracteres (chave RSA 3072 ≈ 4400)"
+          if ! printf '%s' "$CLEAN" | base64 --decode > "$KS_FILE" 2>/dev/null; then
+            echo 'NOVA_KEYSTORE_BASE64 não é base64 válido: texto incompleto ou com caracteres extras. Gere de novo e cole o conteúdo inteiro.' >&2
+            exit 1
+          fi
+          chmod 600 "$KS_FILE"
+          if ! keytool -list -keystore "$KS_FILE" -storepass:env KS_PASS >/dev/null 2>&1; then
+            echo 'A keystore não abre com NOVA_KEYSTORE_PASSWORD (senha errada) ou o arquivo está truncado (compare o tamanho acima).' >&2
+            exit 1
+          fi
+          if ! keytool -list -keystore "$KS_FILE" -storepass:env KS_PASS -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo 'A keystore abre, mas não contém o alias informado em NOVA_KEY_ALIAS.' >&2
+            exit 1
+          fi
+          echo 'Keystore, senha e alias conferidos.'
       - name: Compilar APK assinado
         env:
           NOVA_KEYSTORE_FILE: ${{ runner.temp }}/nova-upload-key.jks
