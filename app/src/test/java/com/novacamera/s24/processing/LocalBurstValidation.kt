@@ -34,9 +34,10 @@ class LocalBurstValidation {
         val tMerge = (System.nanoTime() - t0) / 1e6
         val ref = sources[0].decodeFull()
         sources.forEach { it.close() }
-        val (p, base) = Engine.planTone(out, ToneIntent.NIGHT)
+        val plan = Engine.planTone(out, ToneIntent.NIGHT)
+        val p = plan.reason
         val toned = out.copy(Bitmap.Config.ARGB_8888, true)
-        Engine.toneInPlace(toned, p, base, 1f, false, CancelToken()) {}
+        Engine.toneInPlace(toned, plan, 1f, false, CancelToken()) {}
         val o = File(dir, "out").apply { mkdirs() }
         File(o, "ref.jpg").outputStream().use { ref.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         File(o, "merged.jpg").outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 95, it) }

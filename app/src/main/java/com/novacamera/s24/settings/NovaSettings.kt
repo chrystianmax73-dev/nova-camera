@@ -6,7 +6,7 @@ import com.novacamera.s24.core.CaptureMode
 
 enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), RATIO_1_1("1:1"), FULL("Tela") }
 /** HDR da FOTO: desligado, fusão própria de exposições (Nova) ou extensão do fabricante. */
-enum class HdrOption(val label: String) { OFF("Desligado"), NOVA("Nova"), OEM("Fabricante") }
+enum class HdrOption(val label: String) { OFF("Desligado"), NOVA("Automático (Nova)"), OEM("Fabricante") }
 enum class FlashOption(val label: String) { OFF("Desligado"), AUTO("Automático"), ON("Ligado") }
 enum class VideoQualityOption(val label: String) { AUTO("Automática"), MAX("Máxima"), UHD("4K UHD"), FHD("Full HD"), HD("HD") }
 
@@ -45,8 +45,17 @@ class NovaSettings(context: Context) {
     var oemNight get() = bool("oem_night", false); set(v) = put("oem_night", v)
     /** Guarda o original sem processamento em "Nova Camera/Originais". */
     var keepOriginals get() = bool("keep_originals", true); set(v) = put("keep_originals", v)
-    /** FOTO: grava também uma cópia com aprimoramento leve (tons e sombras), sem tocar no original. */
-    var autoEnhance get() = bool("auto_enhance", false); set(v) = put("auto_enhance", v)
+    /**
+     * FOTO: ajuste automático e adaptativo (só quando melhora a foto em medidas objetivas). A foto
+     * da galeria vira a versão pronta; o original fica em "Originais".
+     */
+    var autoProcess get() = bool("auto_process", true); set(v) = put("auto_process", v)
+
+    // Assinatura
+    var signatureEnabled get() = bool("signature", false); set(v) = put("signature", v)
+    var signaturePosition get() = enum("signature_pos", com.novacamera.s24.processing.SignaturePosition.LEFT); set(v) = put("signature_pos", v.name)
+    var signatureSize get() = enum("signature_size", com.novacamera.s24.processing.SignatureSize.MEDIUM); set(v) = put("signature_size", v.name)
+    var signatureOpacity get() = int("signature_opacity", 85) / 100f; set(v) = put("signature_opacity", (v * 100).toInt())
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)
 

@@ -95,4 +95,83 @@ class EngineAndroidTest {
         assertEquals(0xFFFF0000.toInt(), m.getPixel(0, 0))
         assertTrue(m.isMutable)
     }
+
+    /** Cena com linhas finas (rejunte), exposição em [ev] EV, deslocada/girada e com um cabo em [barX]. */
+    private fun bracketFrame(ev: Float, dx: Float, dy: Float, rotDeg: Float, barX: Int, seed: Long): ByteArray {
+        val rnd = Random(seed)
+        val c = kotlin.math.cos(Math.toRadians(rotDeg.toDouble())); val s = kotlin.math.sin(Math.toRadians(rotDeg.toDouble()))
+        val px = IntArray(w * h)
+        val gain = Math.pow(2.0, ev.toDouble())
+        for (y in 0 until h) for (x in 0 until w) {
+            // Coordenada da cena vista por este quadro (rotação em torno do centro + translação).
+            val cx = x - w / 2.0; val cy = y - h / 2.0
+            val sx = c * cx - s * cy + w / 2.0 + dx; val sy = s * cx + c * cy + h / 2.0 + dy
+            val grout = (sx.toInt() % 80 < 3) || (sy.toInt() % 80 < 3)
+            var lin = if (grout) 0.08 else 0.35 + 0.25 * sin(sx / 90.0)
+            var r = lin; var g = lin * 0.95; var b = lin * 0.85
+            if (x in barX until barX + 14 && y in 200 until 520) { r = 0.55; g = 0.02; b = 0.03 }
+            fun enc(v: Double) = ((Math.pow((v * gain).coerceIn(0.0, 1.0), 1 / 2.2) + rnd.nextGaussian() * 0.01) * 255).toInt().coerceIn(0, 255)
+            px[y * w + x] = (0xFF shl 24) or (enc(r) shl 16) or (enc(g) shl 8) or enc(b)
+        }
+        val bmp = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        return ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 95, it) }.toByteArray()
+    }
+
+    /**
+     * Regressão das falhas da 0.6 (vassoura/cadeira duplicadas): exposições −2/+1 EV deslocadas e
+     * giradas pela mão, com um objeto que se move entre os quadros. A fusão não pode criar cópias
+     * do objeto nem duplicar linhas finas.
+     */
+    @Test
+    fun hdrFusionNeverCreatesGhosts() {
+        val frames = listOf(
+            bracketFrame(0f, 0f, 0f, 0f, 400, 1),
+            bracketFrame(-2f, 6f, -4f, 0.4f, 460, 2),
+            bracketFrame(1f, -5f, 5f, -0.35f, 520, 3),
+        ).map { CapturedFrame(it, 0, null) }
+        val sources = frames.map(::JpegSource)
+        val a = Engine.align(sources, CancelToken()) {}
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Engine.fuseInto(sources, out, a, CancelToken()) {}
+        sources.forEach { it.close() }
+        val ref = JpegSource(frames[0]).decodeFull()
+        fun red(c: Int) = ((c shr 16) and 0xFF) > 110 && ((c shr 8) and 0xFF) < 70
+        // O cabo dos outros quadros (x≈460 e x≈520 antes do alinhamento) não pode aparecer.
+        var ghostRed = 0
+        for (y in 220 until 500 step 2) for (x in 430 until 560) if (red(out.getPixel(x, y))) ghostRed++
+        assertEquals("cópias do objeto em movimento", 0, ghostRed)
+        // O cabo verdadeiro continua lá.
+        assertTrue(red(out.getPixel(407, 360)))
+        // Linhas finas: onde a referência é lisa, a fusão não pode ter uma borda nova forte.
+        fun luma(c: Int) = (0.2126f * ((c shr 16) and 0xFF) + 0.7152f * ((c shr 8) and 0xFF) + 0.0722f * (c and 0xFF)) / 255f
+        var phantom = 0; var flat = 0
+        for (y in 4 until h - 4 step 2) for (x in 4 until w - 4 step 2) {
+            var refMax = 0f
+            for (k in -3..3) refMax = maxOf(refMax, kotlin.math.abs(luma(ref.getPixel(x + k, y)) - luma(ref.getPixel(x + k + 1, y))),
+                kotlin.math.abs(luma(ref.getPixel(x, y + k)) - luma(ref.getPixel(x, y + k + 1))))
+            if (refMax > 0.04f) continue
+            flat++
+            val g = maxOf(kotlin.math.abs(luma(out.getPixel(x, y)) - luma(out.getPixel(x + 1, y))),
+                kotlin.math.abs(luma(out.getPixel(x, y)) - luma(out.getPixel(x, y + 1))))
+            if (g > 0.08f) phantom++
+        }
+        assertTrue("bordas fantasma: $phantom de $flat", phantom.toFloat() / flat < 0.001f)
+    }
+
+    /** Quadro impossível de alinhar (giro grande): é descartado e a referência sai intacta. */
+    @Test
+    fun unsafeFusionFallsBackToReference() {
+        val frames = listOf(
+            bracketFrame(0f, 0f, 0f, 0f, 400, 1),
+            bracketFrame(-2f, 30f, 25f, 6f, 460, 2),
+        ).map { CapturedFrame(it, 0, null) }
+        val sources = frames.map(::JpegSource)
+        val a = Engine.align(sources, CancelToken()) {}
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val used = Engine.fuseInto(sources, out, a, CancelToken()) {}
+        sources.forEach { it.close() }
+        assertEquals("fusão insegura deve usar só a referência (inseguro=${a.unsafe})", 1, used)
+        val ref = JpegSource(frames[0]).decodeFull()
+        for ((x, y) in listOf(10 to 10, 400 to 300, 700 to 600)) assertEquals(ref.getPixel(x, y), out.getPixel(x, y))
+    }
 }

@@ -359,7 +359,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
 
         val controls = FrameLayout(this)
-        thumbnail = ThumbnailView(this).apply { setOnClickListener { openLastMedia() } }
+        thumbnail = ThumbnailView(this).apply {
+            setOnClickListener { openLastMedia() }
+            // Comparação Original × Nova é opcional: toque e segure (o toque simples abre a galeria).
+            setOnLongClickListener { openReview(); true }
+        }
         shutter = ShutterButton(this).apply { setOnClickListener { onShutter() } }
         flipButton = icon(Icon.FLIP) { onFlip() }.apply {
             background = Nova.pill(0x33FFFFFF, dp(24f))
@@ -863,16 +867,20 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun onProcessingProgress(p: JobProgress) {
         if (isDestroyed) return
+        val auto = p.kind == JobKind.AUTO
         if (p.finished) {
-            procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
-            val shown = p.enhancedUri ?: p.originalUri
-            if (shown != null) {
+            if (!auto || p.pending == 0) procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
+            val shown = p.enhancedUri ?: if (auto) null else p.originalUri
+            // AUTO regrava a mesma foto: só atualiza a miniatura se ela ainda for a última.
+            if (shown != null && (!auto || lastMedia?.first == shown)) {
                 showMedia(shown, "image/jpeg", animate = true)
                 lastSession = if (p.sessionId != null && p.enhancedUri != null) p.sessionId to p.enhancedUri else null
             }
             p.message?.let { hint.show(it, 3200) }
             return
         }
+        // O ajuste automático da FOTO é rápido e silencioso: sem selo de progresso.
+        if (auto) return
         procChip.text = "${p.kind.label} · ${p.stage} ${Math.round(p.fraction * 100)}%  ✕"
         procChip.contentDescription = "Processando ${p.kind.label}, ${Math.round(p.fraction * 100)} por cento. Toque para cancelar"
         procChip.visibility = View.VISIBLE
@@ -1035,11 +1043,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
     }
 
+    private fun openReview() {
+        val (id, uri) = lastSession ?: return hint.show("Sem comparação para esta foto (ela não foi ajustada)", 1800)
+        if (lastMedia?.first != uri) return hint.show("Sem comparação para esta foto", 1400)
+        Haptics.heavy(thumbnail)
+        startActivity(Intent(this, ReviewActivity::class.java).putExtra(ReviewActivity.EXTRA_SESSION, id))
+    }
+
     private fun openLastMedia() {
         val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
-        lastSession?.takeIf { it.second == uri }?.let { (id, _) ->
-            return startActivity(Intent(this, ReviewActivity::class.java).putExtra(ReviewActivity.EXTRA_SESSION, id))
-        }
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         }.onFailure { Log.w(TAG, "Sem visualizador para $uri", it); hint.show("Nenhum app de galeria disponível") }

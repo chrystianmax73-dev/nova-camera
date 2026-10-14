@@ -62,6 +62,7 @@ import com.novacamera.s24.capture.TimelapseEncoder
 import com.novacamera.s24.core.TimelapsePlan
 import com.novacamera.s24.core.CaptureMode
 import com.novacamera.s24.core.DeviceHeat
+import com.novacamera.s24.core.CaptureDecision
 import com.novacamera.s24.core.DeviceModeFacts
 import com.novacamera.s24.core.EnginePrefs
 import com.novacamera.s24.core.PhotoSizes
@@ -898,6 +899,8 @@ class NovaCamera(
         if (cam.cameraInfo.isFocusMeteringSupported(action)) cam.cameraControl.startFocusAndMetering(action)
     }
 
+    @Volatile private var lowLightFpsWarned = false
+
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
             val iso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
@@ -911,6 +914,13 @@ class NovaCamera(
             val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
             if (lensChanged) handler.post { listener.onActiveLens(lensLabel(physical)) }
             val now = System.currentTimeMillis()
+            // Vídeo a 60 fps em pouca luz: a exposição bate no teto de 1/60 s com ISO alto e a imagem
+            // escurece (visto nos vídeos 1×→10× do dossiê 0.6, sobretudo nas teles). Avisa uma vez.
+            if (mode.isVideo && (state?.videoFps ?: 30) >= 60 && !lowLightFpsWarned &&
+                iso >= 1600 && exp >= 15_000_000L) {
+                lowLightFpsWarned = true
+                handler.post { listener.onMessage("Pouca luz a 60 fps: a imagem escurece, sobretudo no zoom. Use 30 fps para mais luz") }
+            }
             // Só o modo Pro exibe esses valores; limite de 4 atualizações por segundo.
             if (mode.isPro && now - lastStatsPost > 250) {
                 lastStatsPost = now
@@ -1018,12 +1028,19 @@ class NovaCamera(
         val cam = camera ?: return
         val h = heat
         val exposure = cam.cameraInfo.exposureState
-        val steps: List<Int> = when (kind) {
-            JobKind.NIGHT -> List(when {
-                h != null && h.thermalStatus >= ThermalPolicy.SEVERE -> 1
-                h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE) -> 3
-                else -> ModeResolver.NIGHT_FRAMES
-            }) { 0 }
+        var captureNote: String? = null
+        var steps: List<Int> = when (kind) {
+            JobKind.NIGHT -> {
+                val max = when {
+                    h != null && h.thermalStatus >= ThermalPolicy.SEVERE -> 1
+                    h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE) -> 3
+                    else -> ModeResolver.NIGHT_FRAMES
+                }
+                val st = latestStats
+                val (n, note) = CaptureDecision.nightFrames(st?.iso, st?.exposureNs, max)
+                captureNote = note
+                List(n) { 0 }
+            }
             JobKind.HDR -> if (exposure.isExposureCompensationSupported && aeAdjustable())
                 ModeResolver.hdrBracket(exposure.exposureCompensationStep.numerator, exposure.exposureCompensationStep.denominator,
                     exposure.exposureCompensationRange.lower - evIndex, exposure.exposureCompensationRange.upper - evIndex)
@@ -1039,7 +1056,8 @@ class NovaCamera(
             if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
-            ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror))
+            ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
+                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote))
             listener.onProcessingQueued(kind)
         }
 
@@ -1053,6 +1071,12 @@ class NovaCamera(
                             val buffer = image.planes[0].buffer
                             val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
                             frames += CapturedFrame(bytes, image.imageInfo.rotationDegrees, android.graphics.Rect(image.cropRect), baseEv + steps[i])
+                            // HDR: depois da referência, decide se os quadros extras valem a pena.
+                            if (i == 0 && kind == JobKind.HDR && steps.size > 1) {
+                                val (clip, deep) = frameStats(bytes)
+                                val (keep, note) = CaptureDecision.hdrSteps(steps, clip, deep)
+                                steps = keep; captureNote = note
+                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "quadro $i inválido", e)
                         } finally { image.close() }
@@ -1079,18 +1103,43 @@ class NovaCamera(
         shoot(0)
     }
 
+    /** Fração estourada e de sombras profundas de um JPEG (decodificado bem reduzido, rápido). */
+    private fun frameStats(jpeg: ByteArray): Pair<Float, Float> = runCatching {
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size,
+            android.graphics.BitmapFactory.Options().apply { inSampleSize = 16 }) ?: return 0f to 0f
+        val px = IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }
+        bmp.recycle()
+        var clip = 0; var deep = 0
+        for (c in px) {
+            val l = com.novacamera.s24.core.imaging.Px.luma(c)
+            if (l > 0.97f) clip++ else if (l < 0.06f) deep++
+        }
+        clip.toFloat() / px.size to deep.toFloat() / px.size
+    }.getOrDefault(0f to 0f)
+
+    private fun signatureStyle(): com.novacamera.s24.processing.SignatureStyle? =
+        if (!settings.signatureEnabled) null else com.novacamera.s24.processing.SignatureStyle(
+            settings.signaturePosition, settings.signatureSize, settings.signatureOpacity)
+
     /** Sem exposição manual nem extensão: a compensação de EV realmente muda a exposição. */
     private fun aeAdjustable() = !manual.manualExposure && activeExtension == ExtensionMode.NONE
 
-    /** FOTO com "Aprimorar fotos": a foto comum já está salva; uma cópia aprimorada é feita em segundo plano. */
+    /**
+     * FOTO: a foto comum já está salva; em segundo plano ela é analisada e, se valer a pena (ou se
+     * a assinatura estiver ligada), substituída pela versão pronta.
+     */
     private fun enhanceIfEnabled(uri: android.net.Uri) {
-        if (!settings.autoEnhance || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
+        val sig = signatureStyle()
+        if ((!settings.autoProcess && sig == null) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
+        val zoom = equivalent(zoomOnLens)
         io.execute {
             val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return@execute
             val rotation = runCatching {
                 androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
             }.getOrDefault(0)
-            handler.post { ProcessingQueue.submit(activity, Job(JobKind.ENHANCE, listOf(CapturedFrame(bytes, rotation, null)), mirror = false)) }
+            val job = Job(JobKind.AUTO, listOf(CapturedFrame(bytes, rotation, null)), mirror = false, zoom = zoom,
+                sourceUri = uri, signature = sig, autoTone = settings.autoProcess)
+            handler.post { ProcessingQueue.submit(activity, job) }
         }
     }
 

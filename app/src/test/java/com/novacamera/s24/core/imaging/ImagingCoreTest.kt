@@ -228,3 +228,61 @@ class FusionDeghostTest {
         assertEquals(0.5f, Fusion.exposureGain(ref, dark), 0.02f)
     }
 }
+
+/** Regressões das reclamações da 0.6: o processamento não pode piorar a foto. */
+class AdaptiveToneTest {
+    private val w = 160; private val h = 120
+
+    private fun scene(blackLift: Int, green: Boolean = false): IntArray = IntArray(w * h) { i ->
+        val x = i % w; val y = i / w
+        val v = (20 + 200 * x / w + if ((x / 8 + y / 8) % 2 == 0) 12 else 0).coerceIn(0, 255)
+        val lifted = blackLift + v * (255 - blackLift) / 255
+        if (green) Px.argb(lifted * 40 / 100, lifted * 75 / 100, lifted * 42 / 100)
+        else Px.argb(lifted, lifted * 96 / 100, lifted * 90 / 100)
+    }
+
+    @Test
+    fun cleanSceneIsLeftUntouched() {
+        // Cena limpa (pretos reais) e cena verde saturada (pano verde): nenhum ajuste.
+        for (px in listOf(scene(0), scene(0, green = true))) {
+            val plan = Adaptive.plan(px, w, h, ToneIntent.LIGHT)
+            assertTrue(plan.reason, plan.skip)
+        }
+    }
+
+    @Test
+    fun greyBlacksAreAnchoredWithoutLosingContrast() {
+        val px = scene(45)
+        val plan = Adaptive.plan(px, w, h, ToneIntent.LIGHT)
+        assertTrue(plan.reason, !plan.skip)
+        val out = px.copyOf()
+        ToneMap(plan.base, plan.params, w, h, plan.mid).applyTile(out, w, h, 0, 0, plan.strength)
+        val q0 = Adaptive.quality(px, w, h); val q1 = Adaptive.quality(out, w, h)
+        assertTrue("preto ${q0.black} → ${q1.black}", q1.black < q0.black - 0.05f)
+        assertTrue(q1.contrast >= q0.contrast)
+        assertTrue(Adaptive.acceptable(q0, q1))
+    }
+
+    @Test
+    fun guardRejectsFlatteningResult() {
+        val px = scene(0)
+        val q0 = Adaptive.quality(px, w, h)
+        // Simula a 0.6: sombras levantadas → pretos acinzentados e menos contraste.
+        val flat = IntArray(px.size) { i -> val c = px[i]; Px.argb(60 + Px.r(c) * 3 / 4, 60 + Px.g(c) * 3 / 4, 60 + Px.b(c) * 3 / 4) }
+        assertTrue(!Adaptive.acceptable(q0, Adaptive.quality(flat, w, h)))
+    }
+
+    @Test
+    fun portraitNeverGetsClarityAndBarelyLifts() {
+        val p = ToneParams.plan(SceneStats(0.2f, 0.02f, 0.05f, 0.15f, 0.7f, 0.9f, 0.3f, 0.12f), ToneIntent.PORTRAIT, zoom = 5f)
+        assertEquals(0f, p.clarity, 0f)
+        assertTrue(p.shadowLiftEv <= 0.25f)
+    }
+
+    @Test
+    fun clarityOnlyWhenZoomed() {
+        val s = SceneStats(0.4f, 0.05f, 0.1f, 0.4f, 0.7f, 0.8f, 0.02f, 0.05f)
+        assertEquals(0f, ToneParams.plan(s, ToneIntent.LIGHT, 1f).clarity, 0f)
+        assertTrue(ToneParams.plan(s, ToneIntent.LIGHT, 10f).clarity > 0.15f)
+    }
+}

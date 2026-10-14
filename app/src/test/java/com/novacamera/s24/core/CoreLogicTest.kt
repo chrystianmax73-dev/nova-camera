@@ -264,3 +264,20 @@ class TimelapsePlanTest {
         assertEquals("0,5 s", TimelapsePlan.intervalLabel(500))
     }
 }
+
+class CaptureDecisionTest {
+    @Test
+    fun nightBurstOnlyInRealLowLight() {
+        assertEquals(1, CaptureDecision.nightFrames(200, 10_000_000L, 5).first)
+        assertEquals(5, CaptureDecision.nightFrames(1600, 66_000_000L, 5).first)
+        assertEquals(5, CaptureDecision.nightFrames(null, null, 5).first)
+        assertEquals(1, CaptureDecision.nightFrames(3200, 100_000_000L, 1).first)
+    }
+
+    @Test
+    fun hdrBracketOnlyWhatTheSceneNeeds() {
+        assertEquals(listOf(0), CaptureDecision.hdrSteps(listOf(0, -6, 3), 0.001f, 0.01f).first)
+        assertEquals(listOf(0, -6), CaptureDecision.hdrSteps(listOf(0, -6, 3), 0.05f, 0.01f).first)
+        assertEquals(listOf(0, -6, 3), CaptureDecision.hdrSteps(listOf(0, -6, 3), 0.05f, 0.08f).first)
+    }
+}

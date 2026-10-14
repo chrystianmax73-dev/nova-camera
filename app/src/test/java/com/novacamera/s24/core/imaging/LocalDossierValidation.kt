@@ -13,24 +13,29 @@ import java.util.Locale
  * Aplica o motor real (mesmo código do app) e grava .rgb de saída + relatório para medição.
  */
 class LocalDossierValidation {
+    /**
+     * Pasta com .rgb e um plan.txt ("nome INTENCAO zoom" por linha). Aplica o plano adaptativo
+     * real (mesmo código do app) e registra a decisão de cada foto.
+     */
     @Test
     fun runOnLocalPhotos() {
         val dir = System.getenv("DOSSIE_RAW")?.let(::File)
-        assumeTrue(dir != null && dir.isDirectory)
+        assumeTrue(dir != null && dir.isDirectory && File(dir, "plan.txt").exists())
         val out = File(dir, "out").apply { mkdirs() }
-        val report = StringBuilder("arquivo;intencao;liftEV;compressao;preto;p50;p01;sombras;veiled\n")
-        dir!!.listFiles().orEmpty().filter { it.extension == "rgb" }.sortedBy { it.name }.forEach { f ->
-            val (w, h, px) = read(f)
-            for (intent in listOf(ToneIntent.LIGHT, ToneIntent.NIGHT)) {
-                val luma = Planes.downsampleLuma(px, w, h, 4)
-                val stats = SceneStats.of(luma)
-                val params = ToneParams.plan(stats, intent)
-                val res = px.copyOf()
-                ToneMap(ToneMap.baseFrom(luma), params, w, h).applyTile(res, w, h, 0, 0)
-                report.append(String.format(Locale.US, "%s;%s;%.2f;%.2f;%.3f;%.3f;%.3f;%.3f;%s\n", f.nameWithoutExtension, intent,
-                    params.shadowLiftEv, params.highlightCompression, params.blackLevel, stats.p50, stats.p01, stats.shadowFraction, stats.veiled))
-                write(File(out, "${f.nameWithoutExtension}_$intent.rgb"), w, h, res)
-            }
+        val report = StringBuilder("arquivo;intencao;zoom;forca;preto;liftEV;compressao;clareza;canal_escuro;motivo\n")
+        File(dir!!, "plan.txt").readLines().filter { it.isNotBlank() }.forEach { line ->
+            val (name, intentName, zoomS) = line.trim().split(Regex("\\s+"))
+            val (w, h, px) = read(File(dir, "$name.rgb"))
+            val f = maxOf(1, maxOf(w, h) / 1024)
+            val pw = w / f; val ph = h / f
+            val preview = IntArray(pw * ph) { i -> px[(i / pw) * f * w + (i % pw) * f] }
+            val plan = Adaptive.plan(preview, pw, ph, ToneIntent.valueOf(intentName), zoomS.toFloat())
+            val res = px.copyOf()
+            if (!plan.skip) ToneMap(plan.base, plan.params, w, h, plan.mid).applyTile(res, w, h, 0, 0, plan.strength)
+            val p = plan.params
+            report.append(String.format(Locale.US, "%s;%s;%s;%.2f;%.3f;%.2f;%.2f;%.2f;%.3f;%s\n", name, intentName, zoomS, plan.strength,
+                p.blackLevel, p.shadowLiftEv, p.highlightCompression, p.clarity, Adaptive.darkChannel(preview), plan.reason))
+            write(File(out, "$name.rgb"), w, h, res)
         }
         File(out, "relatorio.csv").writeText(report.toString())
     }

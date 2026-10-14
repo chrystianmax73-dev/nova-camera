@@ -83,14 +83,24 @@ object Fusion {
     }
 
     /** Mistura uma região: [tiles] alinhados, mesmos índices de [weights] (resolução reduzida). */
-    fun blendTile(tiles: List<IntArray>, weights: List<Plane>, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int): IntArray {
+    fun blendTile(
+        tiles: List<IntArray>, weights: List<Plane>, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int,
+        /** Peso extra por pixel de cada quadro (confiabilidade); null = 1. O índice 0 é a referência. */
+        pixelWeights: List<FloatArray?>? = null,
+    ): IntArray {
         val out = IntArray(tw * th)
         val sx = weights[0].w.toFloat() / fullW; val sy = weights[0].h.toFloat() / fullH
         val wk = FloatArray(tiles.size)
         for (ty in 0 until th) for (tx in 0 until tw) {
             val fx = (x0 + tx + 0.5f) * sx - 0.5f; val fy = (y0 + ty + 0.5f) * sy - 0.5f
             var s = 0f
-            for (k in tiles.indices) { wk[k] = weights[k].sample(fx, fy); s += wk[k] }
+            val i0 = ty * tw + tx
+            for (k in tiles.indices) {
+                wk[k] = weights[k].sample(fx, fy) * (pixelWeights?.get(k)?.get(i0) ?: 1f)
+                s += wk[k]
+            }
+            // Onde os outros quadros foram rejeitados, a referência fica sozinha (sem fantasma).
+            if (s < 1e-6f) { wk.fill(0f); wk[0] = 1f; s = 1f }
             var r = 0f; var g = 0f; var b = 0f
             val i = ty * tw + tx
             for (k in tiles.indices) {

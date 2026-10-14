@@ -105,7 +105,7 @@ Construir **um aplicativo de câmera realmente funcional, fluido e confiável**,
 
 ## 6. Estado do repositório (não confundir proposta e implementação)
 
-**Versão 0.6.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
+**Versão 0.7.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
 
 Resumo: nova interface própria (visor WYSIWYG 4:3/16:9/tela cheia, áreas seguras, controles que giram com o aparelho); foco por toque com medição preservada, bloqueio AE/AF real via Camera2, exposição por gesto, prioridade a rostos quando suportada; selfie salva como visualizada (EXIF, sem recodificar); zoom suave com paradas reais; modos OEM só quando o fabricante libera (caso contrário o modo aparece indisponível e não captura); Noite básica por exposição estendida; Pro com ISO/velocidade/foco/balanço/EV reais; vídeo com qualidade/fps/estabilização conforme suporte; monitor térmico que distingue carregamento; diagnóstico ampliado.
 
@@ -113,7 +113,9 @@ Resumo: nova interface própria (visor WYSIWYG 4:3/16:9/tela cheia, áreas segur
 
 **0.6:** motor próprio de processamento no aparelho — Noturno multiquadro (alinhamento + fusão robusta + tom), HDR por fusão de exposições com antifantasma, Retrato Nova (segmentação offline + borda refinada + desfoque gradual, sem suavizar a pele), Food, Timelapse (H.264 no aparelho), original sempre preservado, fila em segundo plano com progresso/cancelamento, tela de revisão Original × Nova com intensidade/desfoque ajustáveis, resolução por lente a partir do que cada câmera anuncia (o bloqueado pelo fabricante é informado).
 
-**Não implementado ainda:** Panorâmica, Vídeo Retrato, pós-processamento de vídeo, super-resolução 20×/30×, alinhamento subpixel, 200 MP via modo de resolução máxima do sensor. **Nada da 0.6 foi testado em aparelho físico** — a validação foi por testes automatizados e por quadros reais do dossiê processados localmente (ver docs/STATUS.md).
+**0.7:** correções dos defeitos do teste da 0.6 — fusão HDR/Noturno sem fantasmas (verificação por pixel e recuo para o quadro de referência), tom adaptativo com proteção contra piora (pretos firmes, pano verde intacto), multiquadro só quando a cena pede, FOTO pronta automaticamente com comparação opcional (tocar e segurar a miniatura), assinatura Nova Camera opcional. Avaliação open-source/licenças em docs/OPEN_SOURCE.md.
+
+**Não implementado ainda:** Panorâmica, Vídeo Retrato, pós-processamento de vídeo, super-resolução 20×/30×, alinhamento subpixel, 200 MP via modo de resolução máxima do sensor. **Nada da 0.7 foi testado em aparelho físico** — a validação foi por testes automatizados e por quadros reais do dossiê processados localmente (ver docs/STATUS.md).
 
 **Arquitetura:** `core/` (lógica pura testada), `camera/` (sessão CameraX + interop Camera2), `device/` (temperatura/bateria), `settings/`, `ui/` (componentes desenhados em Canvas), `MainActivity`, `SettingsActivity`/`DiagnosticsActivity`. O teste `MainScreenRenderTest` renderiza a tela real via Robolectric e grava PNGs em `app/build/ui-renders`.
 

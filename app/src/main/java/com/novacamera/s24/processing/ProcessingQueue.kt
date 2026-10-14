@@ -28,7 +28,8 @@ enum class JobKind(val label: String, val tone: ToneIntent) {
     HDR("HDR", ToneIntent.HDR),
     PORTRAIT("Retrato", ToneIntent.PORTRAIT),
     FOOD("Food", ToneIntent.FOOD),
-    ENHANCE("Aprimorar", ToneIntent.LIGHT),
+    /** FOTO: ajuste automático e adaptativo da foto comum (muitas vezes nenhum). */
+    AUTO("Automático", ToneIntent.LIGHT),
 }
 
 class Job(
@@ -36,6 +37,16 @@ class Job(
     /** Índice 0 = referência (exposição normal). */
     val frames: List<CapturedFrame>,
     val mirror: Boolean,
+    /** Ampliação equivalente da captura (contraste local só no zoom). */
+    val zoom: Float = 1f,
+    /** AUTO: a foto comum já gravada na galeria, que será substituída pela versão pronta. */
+    val sourceUri: Uri? = null,
+    /** Assinatura a desenhar na versão final (null = desligada). */
+    val signature: SignatureStyle? = null,
+    /** Por que a captura usou um quadro só (multiquadro dispensado), para a revisão. */
+    val captureNote: String? = null,
+    /** AUTO: ajuste de tom permitido (desligado = só a assinatura). */
+    val autoTone: Boolean = true,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -63,7 +74,7 @@ class Session(val dir: File) {
     val meta = Properties().also { p -> if (metaFile.exists()) metaFile.inputStream().use(p::load) }
 
     var kind: JobKind
-        get() = JobKind.valueOf(meta.getProperty("kind", JobKind.ENHANCE.name))
+        get() = JobKind.valueOf(meta.getProperty("kind", JobKind.AUTO.name))
         set(v) { meta.setProperty("kind", v.name) }
     var tone: Float
         get() = meta.getProperty("tone", "1").toFloat()
@@ -83,6 +94,12 @@ class Session(val dir: File) {
     var note: String
         get() = meta.getProperty("note", "")
         set(v) { meta.setProperty("note", v) }
+    var zoom: Float
+        get() = meta.getProperty("zoom", "1").toFloat()
+        set(v) { meta.setProperty("zoom", v.toString()) }
+    var signature: SignatureStyle?
+        get() = SignatureStyle.fromMeta(meta.getProperty("signature"))
+        set(v) { if (v == null) meta.remove("signature") else meta.setProperty("signature", v.toMeta()) }
     var exif: Map<String, String>
         get() = meta.stringPropertyNames().filter { it.startsWith("exif.") }.associate { it.removePrefix("exif.") to meta.getProperty(it) }
         set(v) { v.forEach { (k, value) -> meta.setProperty("exif.$k", value) } }
@@ -162,22 +179,21 @@ object ProcessingQueue {
         var originalUri: Uri? = null
         fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
 
+        session.zoom = job.zoom
+        session.signature = job.signature
         try {
+            if (job.kind == JobKind.AUTO) { runAuto(context, job, session, name); return }
             // 1. Original (quadro de referência, sem processamento) — salvo primeiro, sempre.
             progress(0.02f, "Salvando original")
             val orig = Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror)
             MediaWriter.writeFile(session.original, orig, 95)
-            if (keepOriginals || job.kind == JobKind.ENHANCE) {
-                // No modo Aprimorar o original já está na galeria (é a foto comum); nos demais ele vai para "Originais".
-                if (job.kind != JobKind.ENHANCE)
-                    originalUri = MediaWriter.insert(resolver, orig, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS,
-                        session.exif, "Original (sem processamento Nova)")
-            }
+            // Original byte a byte (o JPEG da câmera, sem recompressão) em "Originais".
+            if (keepOriginals) originalUri = MediaWriter.insertBytes(resolver, frame0.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS)
             session.originalUri = originalUri
             val h = heat
             val critical = h != null && h.thermalStatus >= ThermalPolicy.CRITICAL
             if (critical) {
-                if (originalUri == null && job.kind != JobKind.ENHANCE)
+                if (originalUri == null && job.kind != JobKind.AUTO)
                     originalUri = MediaWriter.insert(resolver, orig, "NOVA_$name.jpg", MediaWriter.GALLERY, session.exif, null)
                 orig.recycle()
                 finish(job, session, null, originalUri, "Aparelho muito quente: salvo só o original, sem processamento")
@@ -198,16 +214,21 @@ object ProcessingQueue {
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind == JobKind.NIGHT) {
                         val rejected = Engine.mergeInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
-                        note = "${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
+                        val n = a.usedFrames
+                        note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
+                               else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
                     } else {
-                        Engine.fuseInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Combinando exposições") }
-                        note = "${frames.size} exposições combinadas"
+                        val n = Engine.fuseInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Combinando exposições") }
+                        note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
+                               else "$n de ${frames.size} exposições combinadas (só onde coincidem)"
                     }
+                    session.meta.setProperty("unsafe", a.unsafe.joinToString { "%.2f".format(java.util.Locale.US, it) })
                 } finally { sources.forEach { it.close() } }
                 base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
             } else {
                 base = orig
-                if (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR) note = "Um quadro (multiquadro indisponível nesta captura)"
+                if (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)
+                    note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
             MediaWriter.writeFile(session.base, base, 95)
@@ -229,8 +250,9 @@ object ProcessingQueue {
 
             // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
             render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") }
+            job.signature?.let { Signature.draw(base, it) }
             progress(0.96f, "Salvando")
-            val label = if (job.kind == JobKind.ENHANCE) "aprimorada" else job.kind.name.lowercase(Locale.US)
+            val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
             val enhanced = MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
                 "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "")
             base.recycle()
@@ -250,9 +272,49 @@ object ProcessingQueue {
         }
     }
 
+    /**
+     * FOTO: a foto comum já está na galeria ([Job.sourceUri]). Se o plano adaptativo achar que
+     * vale ajustar (ou se a assinatura estiver ligada), o original vai byte a byte para
+     * "Originais" e a foto da galeria é substituída pela versão pronta — uma foto só, sem passos
+     * extras. Se não valer, nada muda.
+     */
+    private fun runAuto(context: Context, job: Job, session: Session, name: String) {
+        val resolver = context.contentResolver
+        val frame = job.frames[0]
+        val target = job.sourceUri ?: return finish(job, session, null, null, null)
+        // Aquecimento severo/crítico: a foto comum fica como está.
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { session.dir.deleteRecursively(); return finish(job, session, null, null, null) }
+        post(JobProgress(job.id, job.kind, 0.1f, "Analisando", pending))
+        val bmp = Engine.orient(JpegSource(frame).let { s -> s.decodeFull().also { s.close() } }, frame.rotationDegrees, false)
+        val plan = Engine.planTone(bmp, JobKind.AUTO.tone, job.zoom)
+        val tone = job.autoTone && !plan.skip
+        if (!tone && job.signature == null) {
+            bmp.recycle()
+            session.dir.deleteRecursively()
+            return finish(job, session, null, null, null)
+        }
+        if (job.cancel.cancelled) throw CancelledException()
+        MediaWriter.writeFile(session.original, bmp, 95)
+        session.base.delete(); session.original.copyTo(session.base)
+        val originalUri = if (keepOriginals && tone)
+            MediaWriter.insertBytes(resolver, frame.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS) else null
+        session.originalUri = originalUri
+        session.note = if (tone) plan.reason else "Só assinatura (ajuste automático desligado)"
+        if (!tone) session.tone = 0f
+        session.save()
+        if (tone) Engine.toneInPlace(bmp, plan, 1f, false, job.cancel) { post(JobProgress(job.id, job.kind, 0.2f + 0.7f * it, "Ajustando", pending)) }
+        job.signature?.let { Signature.draw(bmp, it) }
+        if (job.cancel.cancelled) throw CancelledException()
+        MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
+        bmp.recycle()
+        session.enhancedUri = target
+        session.save()
+        finish(job, session, target, originalUri, null)
+    }
+
     /** Se o usuário desativou "manter originais" e o processamento não terminou, o original vai para a galeria. */
     private fun saveOriginalFallback(context: Context, session: Session, name: String, job: Job): Uri? {
-        if (job.kind == JobKind.ENHANCE || !session.original.exists()) return null
+        if (job.kind == JobKind.AUTO || !session.original.exists()) return null
         return runCatching {
             val bmp = BitmapFactory.decodeFile(session.original.path) ?: return null
             MediaWriter.insert(context.contentResolver, bmp, "NOVA_$name.jpg", MediaWriter.GALLERY, session.exif, null).also { bmp.recycle() }
@@ -270,8 +332,8 @@ object ProcessingQueue {
      */
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
         val kind = session.kind
-        val (params, baseLayer) = Engine.planTone(bmp, kind.tone)
-        Engine.toneInPlace(bmp, params, baseLayer, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
+        val plan = Engine.planTone(bmp, kind.tone, session.zoom)
+        Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
             if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel) { progress(0.5f + 0.5f * it) }
@@ -300,6 +362,7 @@ object ProcessingQueue {
                     ?: error("base ausente")
                 session.tone = tone; session.blur = blur
                 render(session, bmp, tone, blur, CancelToken()) {}
+                session.signature?.let { Signature.draw(bmp, it) }
                 val uri = session.enhancedUri ?: error("sem versão aprimorada")
                 MediaWriter.write(app.contentResolver, uri, bmp, session.exif, "Nova ${session.kind.label}")
                 bmp.recycle()

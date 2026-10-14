@@ -46,7 +46,7 @@ object Merge {
      * Funde uma região: [ref] é a referência; [others] já recortados com o deslocamento de alinhamento.
      * [sigma] em unidades 0..255; [k] controla a tolerância (múltiplos de σ).
      */
-    fun mergeTile(ref: IntArray, others: List<IntArray>, sigma: Float, k: Float = 4.5f): Result {
+    fun mergeTile(ref: IntArray, others: List<IntArray>, sigma: Float, k: Float = 4.5f, frameWeights: List<FloatArray?>? = null): Result {
         val out = IntArray(ref.size)
         // Peso total até 2σ (diferença típica entre dois quadros só com ruído); cai suavemente até kσ.
         val lo = 2f * sigma
@@ -57,12 +57,13 @@ object Merge {
             val c = ref[i]
             val rr = Px.r(c); val rg = Px.g(c); val rb = Px.b(c)
             var sr = rr.toFloat(); var sg = rg.toFloat(); var sb = rb.toFloat(); var sw = 1f
-            for (o in others) {
+            for ((oi, o) in others.withIndex()) {
                 val q = o[i]
+                val fw = frameWeights?.get(oi)?.get(i) ?: 1f
                 val dr = (Px.r(q) - rr).toFloat(); val dg = (Px.g(q) - rg).toFloat(); val db = (Px.b(q) - rb).toFloat()
                 // Distância de cor dominada pela luminância; cor também conta para não misturar objetos diferentes.
                 val d2 = (0.2126f * dr + 0.7152f * dg + 0.0722f * db).let { it * it } * 0.7f + (dr * dr + dg * dg + db * db) / 3f * 0.3f
-                val w = when {
+                val w = fw * when {
                     d2 <= lo2 -> 1f
                     d2 >= hi2 -> 0f
                     else -> { val t = (sqrt(d2) - lo) / (hi - lo); 1f - t * t * (3f - 2f * t) }

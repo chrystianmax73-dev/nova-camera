@@ -14,6 +14,7 @@ import java.io.FileOutputStream
 object MediaWriter {
     const val GALLERY = "Pictures/Nova Camera"
     const val ORIGINALS = "Pictures/Nova Camera/Originais"
+    const val SOFTWARE = "Nova Camera 0.7"
 
     private val EXIF_TAGS = listOf(
         ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED,
@@ -34,7 +35,8 @@ object MediaWriter {
         tags.forEach { (k, v) -> exif.setAttribute(k, v) }
         // Os pixels já estão na orientação real (rotação/espelho aplicados).
         exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Nova Camera")
+        // Identificação do app; fabricante/modelo/lente reais vêm do JPEG da câmera (copiados acima).
+        exif.setAttribute(ExifInterface.TAG_SOFTWARE, SOFTWARE)
         description?.let { exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, it) }
         exif.saveAttributes()
     }
@@ -60,6 +62,22 @@ object MediaWriter {
             throw e
         }
     }
+
+    /** Grava os bytes do JPEG como estão (original da câmera, sem recompressão nem perda). */
+    fun insertBytes(resolver: ContentResolver, jpeg: ByteArray, displayName: String, relativePath: String): Uri? = runCatching {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        try {
+            resolver.openOutputStream(uri)?.use { it.write(jpeg) } ?: error("sem fluxo de saída")
+            resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            uri
+        } catch (e: Exception) { runCatching { resolver.delete(uri, null, null) }; throw e }
+    }.getOrNull()
 
     /** Regrava uma entrada que o próprio app criou (ex.: nova intensidade escolhida na revisão). */
     fun write(resolver: ContentResolver, uri: Uri, bmp: Bitmap, tags: Map<String, String>, description: String?, quality: Int = 95) {

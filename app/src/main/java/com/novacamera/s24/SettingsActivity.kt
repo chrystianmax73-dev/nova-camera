@@ -28,6 +28,9 @@ import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.device.DeviceMonitor
 import com.novacamera.s24.settings.NovaSettings
 import com.novacamera.s24.settings.HdrOption
+import com.novacamera.s24.processing.Signature
+import com.novacamera.s24.processing.SignaturePosition
+import com.novacamera.s24.processing.SignatureSize
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Nova
 import com.novacamera.s24.ui.NovaIconView
@@ -89,13 +92,32 @@ class SettingsActivity : NovaScreen() {
         switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
 
-        section("Processamento Nova")
-        switch("Guardar originais", "Noturno, HDR, Retrato e Food salvam também a foto sem processamento em " +
+        section("Foto Nova")
+        switch("Processamento automático", "Cada foto é analisada e só é ajustada quando isso a melhora em medidas " +
+            "objetivas (pretos, véu, contraste). Fica uma foto pronta na galeria. A comparação Original × Nova é " +
+            "opcional: toque e segure na miniatura.", { settings.autoProcess }, { settings.autoProcess = it })
+        switch("Guardar originais", "Quando a foto é ajustada, o JPEG original da câmera (sem recompressão) fica em " +
             "Pictures › Nova Camera › Originais.", { settings.keepOriginals }, { settings.keepOriginals = it })
-        switch("Aprimorar fotos (leve)", "No modo FOTO, grava também uma cópia com sombras e tons ajustados no aparelho. " +
-            "A foto original continua intacta.", { settings.autoEnhance }, { settings.autoEnhance = it })
-        choice("HDR da FOTO", "Nova: 3 exposições combinadas no aparelho, com proteção contra fantasmas. " +
-            "Fabricante: só quando a extensão está disponível nesta câmera.",
+
+        section("Assinatura")
+        switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
+            "Nunca é aplicada ao original. Em vídeo: em desenvolvimento.",
+            { settings.signatureEnabled }, { settings.signatureEnabled = it })
+        choice("Posição", null, SignaturePosition.entries.map { it.label }, { settings.signaturePosition.ordinal }) {
+            settings.signaturePosition = SignaturePosition.entries[it]
+        }
+        choice("Tamanho", null, SignatureSize.entries.map { it.label }, { settings.signatureSize.ordinal }) {
+            settings.signatureSize = SignatureSize.entries[it]
+        }
+        val opacities = listOf(1f, 0.85f, 0.65f, 0.45f)
+        choice("Transparência", null, listOf("Opaca", "Leve", "Média", "Alta"),
+            { opacities.indexOfFirst { kotlin.math.abs(it - settings.signatureOpacity) < 0.02f }.coerceAtLeast(0) }) {
+            settings.signatureOpacity = opacities[it]
+        }
+
+        section("Avançado")
+        choice("HDR da FOTO", "Automático: só captura exposições extras quando a cena tem altas luzes estouradas ou " +
+            "sombras profundas, e só funde onde os quadros coincidem. Fabricante: quando disponível nesta câmera.",
             HdrOption.entries.map { it.label }, { settings.hdr.ordinal }) { settings.hdr = HdrOption.entries[it] }
         switch("Retrato do fabricante", "Usa o desfoque da Samsung quando disponível. Ele costuma suavizar a pele; " +
             "o Retrato Nova não suaviza.", { settings.oemPortrait }, { settings.oemPortrait = it })

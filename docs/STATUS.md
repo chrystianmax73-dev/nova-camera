@@ -6,6 +6,39 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.7 — correções dos defeitos comprovados no pacote de testes da 0.6
+
+Material analisado localmente (não versionado): 16 fotos (JPEG/HEIC, reduzidas e sem EXIF) e 2 vídeos. **Nada foi testado em aparelho.** A validação usou as próprias fotos do pacote e testes de regressão que reproduzem cada falha e **falham na 0.6**.
+
+| Defeito (arquivo) | Causa medida | Correção | Evidência |
+|---|---|---|---|
+| Vassoura/rejunte duplicados (133987), cadeira com transparência (133771) | Cena parada com rejunte duplicado na imagem inteira ⇒ **falha de alinhamento**, não movimento. O antifantasma da 0.6 trabalhava numa grade ~5× reduzida (não via linhas finas) e comparava exposições por um ganho único (errado depois da curva de tom do JPEG). Onde rejeitava, a mistura perdia aquela exposição e ficava uma "sombra" no formato do objeto | Curva de exposição por casamento de histogramas; alinhamento em grade 12×16 (absorve rotação leve); **mapa de confiabilidade por pixel** em meia resolução + verificação em resolução cheia; pixel rejeitado é **substituído pela previsão da referência na exposição daquele quadro** (sem buraco de tom); quadro com > 22% de área inconsistente é descartado; sem quadro seguro ⇒ **a foto é o quadro de referência** | Fotos reais (133770) com exposições −2/+1 EV simuladas, deslocamento e rotação de mão e um objeto em movimento: 0.6 duplica o objeto; 0.7 não. Teste `hdrFusionNeverCreatesGhosts` falha na 0.6 (96 px do objeto duplicado) e passa na 0.7; `unsafeFusionFallsBackToReference` |
+| Pretos acinzentados, imagem "chapada" (carvão 133765, cadeira 133771, aspirador 133772/3) | Canal escuro (p0,5 do menor RGB) 0,14–0,17 na Nova contra 0,05–0,10 na Samsung: a elevação de sombras da 0.6 levantava o próprio preto; a fusão HDR somava isso | Elevação de sombras protege pretos profundos e é bem menor; véu corrigido pelo canal escuro (o pano verde, 0,035, não é tocado); compressão de altas luzes menor | Carvão: p05 0,227 → **0,151** (Samsung 0,183), saturação 0,185 → 0,234. Aspirador 10×: p05 0,165 → 0,100, ruído medido 7,84 → 7,31. Cadeira: p05 0,211 → 0,157 |
+| "Algumas fotos ficam piores" | Correção forte e uniforme | **Plano adaptativo com proteção contra piora**: o ajuste é testado numa prévia e só é aceito se não reduzir contraste nem textura, não levantar o preto e não estourar luzes; senão cai para 65%/35% ou a foto fica como capturada | Pano verde (3 versões), selfie e fotos Samsung: **sem ajuste**. Testes `AdaptiveToneTest` |
+| Zoom 5×/10× com véu | — | Contraste local de média escala (forma, não textura fina) só com zoom ≥ 2,5× ou véu; sem nitidez artificial, sem reconstruir letras | Recorte 10× sem halo e sem ruído amplificado |
+| Selfie sem acabamento (133782) | O Retrato da 0.6 ainda clareava sombras | Retrato: sem contraste local, elevação mínima; transições semitransparentes (cabelo, barba, armação) pendem para a pessoa (não desfocam); desfoque gradual mantido. **A diferença principal para a Samsung (nitidez/microtextura da frontal) vem do ISP da câmera, não do pós-processamento** — a foto do pacote é de outra cena, sem par direto | Teste: Retrato nunca recebe contraste local |
+| UX confusa (133980) | Muitas opções; comparação aberta ao tocar a miniatura | FOTO: **processamento automático** (padrão) — analisa e, só se melhorar, substitui a foto da galeria pela pronta (original byte a byte em "Originais"); sem selo de progresso na FOTO; comparação Original × Nova **opcional: tocar e segurar a miniatura**; ajustes avançados em "Avançado" | Compilação + testes de interface |
+| Multiquadro indiscriminado | — | Noturno só faz rajada com pouca luz real (ISO ≥ 500 ou exposição ≥ 1/25 s); HDR só captura o quadro escuro se a referência tem altas luzes estouradas e o claro se tem sombras profundas | `CaptureDecisionTest` |
+| Vídeos 133776/133777 (1×→10×) | Ambos a ~60 fps: o brilho cai de ~0,52 para ~0,17 ao aproximar; em 133776 um degrau de 0,50 → 0,23 em 0,1 s (troca de lente). A 60 fps a exposição fica presa em 1/60 s e as teles têm abertura menor. **Não foi possível atribuir qual arquivo é de qual app** | Aviso no vídeo a 60 fps quando o sensor está no limite (ISO ≥ 1600 e exposição no teto): sugere 30 fps | Compilação |
+
+**Assinatura Nova Camera** (nova): "NOVA CAMERA · Shot on Galaxy S24 Ultra" (nome comercial a partir do modelo real), desligada por padrão; posição, tamanho e transparência configuráveis; aplicada só na foto final, nunca no original. EXIF: fabricante, modelo, lente e exposição reais copiados do JPEG da câmera; `Software = Nova Camera 0.7`. Vídeo: em desenvolvimento.
+
+**Open-source:** avaliação e licenças em [OPEN_SOURCE.md](OPEN_SOURCE.md). Nenhum código de terceiros novo nesta versão; GPL (PhotonCamera original, MotionCam) só como referência de algoritmo.
+
+**Limitações que continuam:** alinhamento de pixel inteiro (sem subpixel); fusão sobre JPEG (não RAW); segmentação de uma classe (cabelo não separado); nenhuma medição de latência, memória, consumo ou temperatura no aparelho — itens 6–9 do roteiro abaixo.
+
+### Roteiro de teste físico — 0.7 (Original × Nova × Samsung, mesma cena e luz)
+
+1. **HDR Automático**: repetir a vassoura e a cadeira do pacote, segurando o aparelho na mão. Não pode haver duplicação. Se a revisão disser "usado o quadro de referência", a fusão foi recusada por segurança (esperado com muito movimento).
+2. **FOTO automática**: carvão, aspirador 5×/10× e pano verde. Conferir que o pano verde **não muda** e que o carvão/aspirador ganham preto mais firme sem perder textura. Tocar e segurar a miniatura para comparar.
+3. **Selfie/Retrato**: cabelo, barba, óculos; comparar com a Samsung na **mesma cena**.
+4. **Noturno** com luz baixa e com luz normal (com luz normal deve dizer "um quadro, sem fusão").
+5. **Vídeo 1×→10×** a 30 fps e a 60 fps em ambiente interno; observar o aviso a 60 fps.
+6. Tempo do salvamento ao "pronto" em FOTO, HDR, Noturno e Retrato.
+7. Memória: abrir Diagnóstico após 10 fotos seguidas de Noturno (o app não deve fechar).
+8. Temperatura/consumo: 15 min de uso misto, com e sem carregador.
+9. Assinatura: ligar, testar as 3 posições e conferir que o original em "Originais" não tem assinatura.
+
 ## 0.6 — motor próprio de processamento (dossiê consolidado)
 
 Todo processamento roda **no aparelho**, sobre os JPEGs que a câmera entrega (o processamento proprietário da Samsung continua inacessível a apps de terceiros). Nada é inventado: cada pixel final é média ponderada de valores medidos ou o original com ganho de tom.
