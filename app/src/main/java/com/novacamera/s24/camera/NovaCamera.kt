@@ -30,6 +30,7 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
 import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -57,9 +58,18 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.novacamera.s24.capture.MirroredPhotoSaver
+import com.novacamera.s24.capture.TimelapseEncoder
+import com.novacamera.s24.core.TimelapsePlan
 import com.novacamera.s24.core.CaptureMode
 import com.novacamera.s24.core.DeviceHeat
 import com.novacamera.s24.core.DeviceModeFacts
+import com.novacamera.s24.core.EnginePrefs
+import com.novacamera.s24.core.PhotoSizes
+import com.novacamera.s24.core.SizeOption
+import com.novacamera.s24.processing.CapturedFrame
+import com.novacamera.s24.processing.Job
+import com.novacamera.s24.processing.JobKind
+import com.novacamera.s24.processing.ProcessingQueue
 import com.novacamera.s24.core.LensOption
 import com.novacamera.s24.core.LensSelection
 import com.novacamera.s24.core.ModeEngine
@@ -71,7 +81,7 @@ import com.novacamera.s24.core.ZoomRequestGate
 import com.novacamera.s24.core.ZoomTelemetry
 import com.novacamera.s24.settings.AspectRatioOption
 import com.novacamera.s24.settings.FlashOption
-import com.novacamera.s24.settings.PhotoResolutionOption
+import com.novacamera.s24.settings.HdrOption
 import com.novacamera.s24.settings.NovaSettings
 import com.novacamera.s24.settings.VideoQualityOption
 import java.text.SimpleDateFormat
@@ -138,7 +148,7 @@ class NovaCamera(
     private var stallCheckFrames = -1
 
     val ready get() = camera != null && !paused
-    val isRecording get() = recording != null
+    val isRecording get() = recording != null || timelapse != null
 
     // ------------------------------------------------------------------ ciclo de vida
 
@@ -168,7 +178,7 @@ class NovaCamera(
 
     /** Libera a câmera (economia de energia por inatividade). */
     fun pause() {
-        if (recording != null || paused) return
+        if (isRecording || paused) return
         paused = true
         provider?.unbindAll()
         camera = null
@@ -185,6 +195,7 @@ class NovaCamera(
         handler.removeCallbacksAndMessages(null)
         provider?.unbindAll()
         io.shutdown()
+        timelapseExecutor.shutdown()
     }
 
     // ------------------------------------------------------------------ seleção
@@ -194,7 +205,7 @@ class NovaCamera(
      * o ViewPort precisa ser lido depois do novo layout para a foto corresponder ao enquadramento.
      */
     fun setMode(m: CaptureMode, rebind: Boolean = true) {
-        if (recording != null || m == mode) return
+        if (isRecording || m == mode) return
         mode = m
         settings.lastMode = m
         resetFocusState()
@@ -204,7 +215,7 @@ class NovaCamera(
     }
 
     fun switchFacing(rebind: Boolean = true) {
-        if (recording != null) return
+        if (isRecording) return
         isFront = !isFront
         resetFocusState()
         evIndex = 0
@@ -219,18 +230,18 @@ class NovaCamera(
         targetRotation = surfaceRotation
         imageCapture?.targetRotation = surfaceRotation
         // Durante a gravação a orientação do MP4 já está fixada.
-        if (recording == null) videoCapture?.targetRotation = surfaceRotation
+        if (!isRecording) videoCapture?.targetRotation = surfaceRotation
     }
 
     fun onHeat(h: DeviceHeat) {
         val before = heat?.let(ThermalPolicy::limitVideo)
         heat = h
-        if (ThermalPolicy.stopRecording(h) && recording != null) {
+        if (ThermalPolicy.stopRecording(h) && isRecording) {
             listener.onMessage("Gravação finalizada para proteger o aparelho do aquecimento")
             stopRecording()
         }
         // Reconfigura o vídeo só quando o limite muda e não há gravação em andamento.
-        if (mode.isVideo && before != null && before != ThermalPolicy.limitVideo(h) && recording == null) bind()
+        if (mode.isVideo && before != null && before != ThermalPolicy.limitVideo(h) && !isRecording) bind()
     }
 
     fun supportFor(m: CaptureMode, front: Boolean = isFront): ModeSupport {
@@ -238,7 +249,7 @@ class NovaCamera(
         val info = defaultInfo(front)
         val ranges = info?.supportedFrameRateRanges?.map { it.lower to it.upper }.orEmpty()
         return ModeResolver.resolve(m, DeviceModeFacts(bokeh, night, ModeResolver.extendedExposureMinFps(ranges),
-            highSpeedFps = highSpeedFps(front, info)))
+            highSpeedFps = highSpeedFps(front, info)), EnginePrefs(settings.oemPortrait, settings.oemNight))
     }
 
     private val highSpeedCache = mutableMapOf<Boolean, Int?>()
@@ -286,7 +297,7 @@ class NovaCamera(
 
     fun bind() {
         val p = provider ?: return
-        if (recording != null || paused) return
+        if (isRecording || paused) return
         val support = supportFor(mode)
         val (_, _, oemHdr) = oemFacts[isFront] ?: Triple(false, false, false)
 
@@ -295,7 +306,7 @@ class NovaCamera(
             !support.canCapture -> ExtensionMode.NONE
             mode == CaptureMode.RETRATO && support.engine == ModeEngine.OEM_EXTENSION -> ExtensionMode.BOKEH
             mode == CaptureMode.NOITE && support.engine == ModeEngine.OEM_EXTENSION -> ExtensionMode.NIGHT
-            mode == CaptureMode.FOTO && oemHdr && settings.oemHdr -> ExtensionMode.HDR
+            mode == CaptureMode.FOTO && oemHdr && settings.hdr == HdrOption.OEM -> ExtensionMode.HDR
             else -> ExtensionMode.NONE
         }
         if (wantedExtension != ExtensionMode.NONE) currentLensId = defaultLensId
@@ -329,13 +340,15 @@ class NovaCamera(
         if (wantedExtension == ExtensionMode.NONE && !highSpeed) {
             Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(statsCallback)
         }
-        if (mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA_BASIC) {
+        if (mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA) {
             val minFps = ModeResolver.extendedExposureMinFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
             val range = info.supportedFrameRateRanges.firstOrNull { it.lower == minFps && it.upper <= 30 }
             if (range != null) previewBuilder.setTargetFrameRate(range)
         }
 
         val useCases = mutableListOf<UseCase>()
+        analysis = null
+        sizeOptions = emptyList(); sizeBlocked = emptyList(); chosenSize = null
         imageCapture = null
         videoCapture = null
         var highSpeedConfig: HighSpeedVideoSessionConfig? = null
@@ -354,6 +367,18 @@ class NovaCamera(
             videoCapture = vc
             highSpeedConfig = HighSpeedVideoSessionConfig(vc, pv, range, true)
             qualityLabel = if (q == Quality.FHD) "FHD" else "HD"
+        } else if (mode == CaptureMode.TIMELAPSE) {
+            // Timelapse: quadros da análise (RGBA, ~1080p), um por intervalo, codificados no aparelho.
+            analysis = ImageAnalysis.Builder()
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setResolutionSelector(ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                    .setResolutionStrategy(ResolutionStrategy(android.util.Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                    .build())
+                .setTargetRotation(targetRotation)
+                .build()
+            qualityLabel = "1080p"
         } else if (mode.isVideo) {
             val capabilities = Recorder.getVideoCapabilities(info)
             val supported = capabilities.getSupportedQualities(DynamicRange.SDR)
@@ -399,15 +424,29 @@ class NovaCamera(
             if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
             videoCapture = vb.build()
         } else if (support.canCapture) {
-            val photoSelector = if (settings.photoResolution == PhotoResolutionOption.MAX)
+            // Resoluções reais desta câmera (por lente); o processamento Nova usa a padrão (memória/tempo).
+            val lists = JpegSizeLists.from { k ->
+                @Suppress("UNCHECKED_CAST")
+                Camera2CameraInfo.from(info).getCameraCharacteristic(k as android.hardware.camera2.CameraCharacteristics.Key<Any?>)
+            }
+            val aspect = PhotoSizes.aspectFor(settings.aspect.label)
+            sizeOptions = PhotoSizes.options(lists.regular, lists.highRes, aspect)
+            sizeBlocked = PhotoSizes.blocked(sizeOptions, lists.maxResOnly, aspect)
+            val processing = processingKind(support) != null
+            chosenSize = if (processing) PhotoSizes.standard(sizeOptions)
+                         else PhotoSizes.pick(sizeOptions, settings.photoPixels(currentLensKey()))
+            val photoSelector = chosenSize?.let { c ->
                 ResolutionSelector.Builder()
                     .setAspectRatioStrategy(aspectStrategy)
-                    .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
-                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                    .apply { if (c.highResolution) setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE) }
+                    .setResolutionStrategy(ResolutionStrategy(android.util.Size(c.width, c.height),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
                     .build()
-            else resolution
+            } ?: resolution
+            // Rajadas (Noturno/HDR Nova) precisam de intervalo curto entre quadros.
+            val burst = processingKind(support) == JobKind.NIGHT || processingKind(support) == JobKind.HDR
             val ib = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setCaptureMode(if (burst) ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY else ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .setResolutionSelector(photoSelector)
                 .setTargetRotation(targetRotation)
             val formats = runCatching { ImageCapture.getImageCaptureCapabilities(info).supportedOutputFormats }.getOrDefault(emptySet())
@@ -422,6 +461,7 @@ class NovaCamera(
             useCases += preview
             imageCapture?.let { useCases += it }
             videoCapture?.let { useCases += it }
+            analysis?.let { useCases += it }
             UseCaseGroup.Builder().apply {
                 // O ViewPort faz a foto salva corresponder exatamente ao que a pré-visualização mostra.
                 previewView.viewPort?.let(::setViewPort)
@@ -446,9 +486,9 @@ class NovaCamera(
                     settings.raw = false
                     listener.onMessage("RAW indisponível nesta configuração; usando só JPEG")
                 }
-                settings.photoResolution == PhotoResolutionOption.MAX && !mode.isVideo -> {
-                    settings.photoResolution = PhotoResolutionOption.STANDARD
-                    listener.onMessage("Resolução máxima indisponível nesta combinação; usando a padrão")
+                settings.photoPixels(currentLensKey()) != null && !mode.isVideo -> {
+                    settings.setPhotoPixels(currentLensKey(), null)
+                    listener.onMessage("${chosenSize?.label ?: "Esta resolução"} indisponível nesta combinação; usando a padrão")
                 }
                 currentLensId != defaultLensId -> {
                     currentLensId = defaultLensId
@@ -507,18 +547,56 @@ class NovaCamera(
             evIndex = evIndex,
             hasFlash = cam.cameraInfo.hasFlashUnit(),
             oemHdrAvailable = oemHdr && mode == CaptureMode.FOTO,
+            hdr = if (mode == CaptureMode.FOTO) when {
+                wantedExtension == ExtensionMode.HDR -> HdrOption.OEM
+                settings.hdr == HdrOption.NOVA -> HdrOption.NOVA
+                else -> HdrOption.OFF
+            } else HdrOption.OFF,
+            processing = processingKind(support),
             oemHdrActive = wantedExtension == ExtensionMode.HDR,
             extensionActive = wantedExtension != ExtensionMode.NONE,
             canLockExposure = wantedExtension == ExtensionMode.NONE && caps!!.aeLockAvailable,
             videoQualityLabel = qualityLabel, videoFps = fps, stabilization = stabilization,
             screenFlash = isFront && !cam.cameraInfo.hasFlashUnit(),
             photoResolution = imageCapture?.resolutionInfo?.resolution,
-            maxResolutionAvailable = !mode.isVideo && maxPhotoPixels(info) > standardPhotoPixels(info) * 1.2,
+            photoSizeOptions = if (processingKind(support) == null) sizeOptions else emptyList(),
+            photoSize = chosenSize, photoSizeBlocked = sizeBlocked,
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
+            timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
         )
         state = s
         listener.onCameraState(s)
+        // A resolução escolhida tem de ser a gravada: se o CameraX recuou para outra, o usuário é avisado.
+        val actual = s.photoResolution
+        val wanted = chosenSize
+        if (actual != null && wanted != null && actual.width.toLong() * actual.height < wanted.pixels * 0.9)
+            listener.onMessage("${wanted.label} indisponível nesta combinação; a foto sairá com " +
+                "${Math.round(actual.width.toLong() * actual.height / 1e6)} MP")
+    }
+
+    private var sizeOptions: List<SizeOption> = emptyList()
+    private var sizeBlocked: List<SizeOption> = emptyList()
+    private var chosenSize: SizeOption? = null
+
+    /** Chave da câmera para a resolução escolhida (cada lente exposta tem a sua). */
+    private fun currentLensKey() = "${if (isFront) "f" else "b"}:${currentLensId ?: defaultLensId}"
+
+    /** Define a resolução da lente atual (null = padrão) e reconfigura. */
+    fun setPhotoSize(option: SizeOption?) {
+        val standard = PhotoSizes.standard(sizeOptions)
+        settings.setPhotoPixels(currentLensKey(), option?.takeIf { it != standard }?.pixels)
+        bind()
+    }
+
+    /** Qual processamento Nova este modo usa (null = foto comum). */
+    private fun processingKind(support: ModeSupport = supportFor(mode)): JobKind? = when {
+        !support.canCapture -> null
+        mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA -> JobKind.NIGHT
+        mode == CaptureMode.RETRATO && support.engine == ModeEngine.NOVA -> JobKind.PORTRAIT
+        mode == CaptureMode.FOOD -> JobKind.FOOD
+        mode == CaptureMode.FOTO && settings.hdr == HdrOption.NOVA -> JobKind.HDR
+        else -> null
     }
 
     private fun applyFlash(cam: Camera) {
@@ -544,19 +622,6 @@ class NovaCamera(
         }
     }
 
-    /** Maior saída JPEG anunciada (inclui tamanhos de alta resolução de captura lenta). */
-    private fun maxPhotoPixels(info: CameraInfo): Long = runCatching {
-        val map = Camera2CameraInfo.from(info).getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val sizes = map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.toList().orEmpty() +
-            map?.getHighResolutionOutputSizes(android.graphics.ImageFormat.JPEG)?.toList().orEmpty()
-        sizes.maxOfOrNull { it.width.toLong() * it.height } ?: 0L
-    }.getOrDefault(0L)
-
-    private fun standardPhotoPixels(info: CameraInfo): Long = runCatching {
-        val map = Camera2CameraInfo.from(info).getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.maxOfOrNull { it.width.toLong() * it.height } ?: 0L
-    }.getOrDefault(0L)
-
     fun refreshFlash() { camera?.let(::applyFlash) }
 
     fun setTorch(on: Boolean) {
@@ -570,7 +635,7 @@ class NovaCamera(
     /** Toque numa parada: anima até [equivalentZoom]; troca de câmera se outra cobrir melhor (fora da gravação). */
     fun zoomTo(equivalentZoom: Float, allowLensSwitch: Boolean = true) {
         val lens = currentLens
-        if (allowLensSwitch && recording == null && activeExtension == ExtensionMode.NONE) {
+        if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val choice = LensSelection.choose(lenses, currentLensId, defaultLensId, equivalentZoom)
             if (choice != null && choice.cameraId != currentLensId) {
                 currentLensId = choice.cameraId
@@ -864,6 +929,7 @@ class NovaCamera(
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Nova Camera")
         }
+        processingKind()?.let { return captureForProcessing(ic, it) }
         if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values)
         if (state?.rawActive == true) return captureRawPlusJpeg(ic, values)
         val metadata = ImageCapture.Metadata()
@@ -872,7 +938,10 @@ class NovaCamera(
         ).setMetadata(metadata).build()
         ic.takePicture(output, main, object : ImageCapture.OnImageSavedCallback {
             override fun onCaptureStarted() = listener.onCaptureStarted()
-            override fun onImageSaved(result: ImageCapture.OutputFileResults) = listener.onPhotoSaved(result.savedUri)
+            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                listener.onPhotoSaved(result.savedUri)
+                result.savedUri?.let(::enhanceIfEnabled)
+            }
             override fun onError(exception: ImageCaptureException) {
                 Log.e(TAG, "Falha na foto", exception)
                 listener.onPhotoSaved(null)
@@ -927,7 +996,7 @@ class NovaCamera(
                 }
                 handler.post {
                     listener.onPhotoSaved(uri)
-                    if (uri == null) listener.onMessage("A selfie não foi salva")
+                    if (uri == null) listener.onMessage("A selfie não foi salva") else enhanceIfEnabled(uri)
                 }
             }
             override fun onError(exception: ImageCaptureException) {
@@ -937,9 +1006,174 @@ class NovaCamera(
         })
     }
 
+    // ------------------------------------------------------------------ processamento Nova
+
+    /**
+     * Captura em memória os quadros que o processamento precisa (rajada para Noturno, bracketing
+     * de exposição para HDR, um quadro para Retrato/Food) e entrega à fila em segundo plano.
+     * O obturador fica livre assim que os quadros chegam; o processamento não bloqueia a câmera.
+     */
+    private fun captureForProcessing(ic: ImageCapture, kind: JobKind) {
+        if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: ainda processando as fotos anteriores")
+        val cam = camera ?: return
+        val h = heat
+        val exposure = cam.cameraInfo.exposureState
+        val steps: List<Int> = when (kind) {
+            JobKind.NIGHT -> List(when {
+                h != null && h.thermalStatus >= ThermalPolicy.SEVERE -> 1
+                h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE) -> 3
+                else -> ModeResolver.NIGHT_FRAMES
+            }) { 0 }
+            JobKind.HDR -> if (exposure.isExposureCompensationSupported && aeAdjustable())
+                ModeResolver.hdrBracket(exposure.exposureCompensationStep.numerator, exposure.exposureCompensationStep.denominator,
+                    exposure.exposureCompensationRange.lower - evIndex, exposure.exposureCompensationRange.upper - evIndex)
+                else listOf(0)
+            else -> listOf(0)
+        }
+        val mirror = isFront && settings.mirrorFrontPhoto
+        val frames = ArrayList<CapturedFrame>()
+        val baseEv = evIndex
+        ic.targetRotation = targetRotation
+
+        fun submit() {
+            if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
+            if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
+            // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
+            ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror))
+            listener.onProcessingQueued(kind)
+        }
+
+        fun shoot(i: Int) {
+            if (i == steps.size || camera !== cam) return submit()
+            val take = {
+                ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureStarted() { if (i == 0) handler.post { listener.onCaptureStarted() } }
+                    override fun onCaptureSuccess(image: ImageProxy) {
+                        try {
+                            val buffer = image.planes[0].buffer
+                            val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
+                            frames += CapturedFrame(bytes, image.imageInfo.rotationDegrees, android.graphics.Rect(image.cropRect), baseEv + steps[i])
+                        } catch (e: Exception) {
+                            Log.e(TAG, "quadro $i inválido", e)
+                        } finally { image.close() }
+                        handler.post {
+                            if (steps.size > 1 && i + 1 < steps.size) listener.onBurstProgress(i + 1, steps.size)
+                            shoot(i + 1)
+                        }
+                    }
+                    override fun onError(exception: ImageCaptureException) {
+                        Log.e(TAG, "Falha no quadro $i", exception)
+                        // Com parte dos quadros já capturada, o processamento segue com o que houver.
+                        handler.post { submit() }
+                    }
+                })
+            }
+            if (steps[i] != 0) {
+                val f = cam.cameraControl.setExposureCompensationIndex(baseEv + steps[i])
+                // O futuro termina quando o AE converge na nova compensação.
+                f.addListener({ take() }, main)
+            } else if (i > 0 && steps[i - 1] != 0) {
+                cam.cameraControl.setExposureCompensationIndex(baseEv).addListener({ take() }, main)
+            } else take()
+        }
+        shoot(0)
+    }
+
+    /** Sem exposição manual nem extensão: a compensação de EV realmente muda a exposição. */
+    private fun aeAdjustable() = !manual.manualExposure && activeExtension == ExtensionMode.NONE
+
+    /** FOTO com "Aprimorar fotos": a foto comum já está salva; uma cópia aprimorada é feita em segundo plano. */
+    private fun enhanceIfEnabled(uri: android.net.Uri) {
+        if (!settings.autoEnhance || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
+        io.execute {
+            val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return@execute
+            val rotation = runCatching {
+                androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
+            }.getOrDefault(0)
+            handler.post { ProcessingQueue.submit(activity, Job(JobKind.ENHANCE, listOf(CapturedFrame(bytes, rotation, null)), mirror = false)) }
+        }
+    }
+
     // ------------------------------------------------------------------ vídeo
 
+    // ------------------------------------------------------------------ timelapse
+
+    private var analysis: ImageAnalysis? = null
+    private var timelapse: TimelapseRun? = null
+    private val timelapseExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private class TimelapseRun(val plan: TimelapsePlan, val startMs: Long) {
+        var encoder: TimelapseEncoder? = null
+        var lastFrameMs: Long? = null
+        @Volatile var stopping = false
+        var failed: String? = null
+    }
+
+    private fun startTimelapse() {
+        val a = analysis ?: return listener.onMessage("A câmera ainda não está pronta")
+        if (timelapse != null) return
+        val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
+        if (free < MIN_FREE_BYTES) return listener.onMessage("Pouco espaço livre para gravar")
+        val run = TimelapseRun(TimelapsePlan(settings.timelapseIntervalMs, settings.timelapseMaxSeconds), SystemClock.elapsedRealtime())
+        timelapse = run
+        a.targetRotation = targetRotation
+        val name = "NOVA_${timestamp()}_timelapse.mp4"
+        recordingPhase = RecordingPhase.RECORDING
+        listener.onRecording(recordingPhase, 0)
+        listener.onMessage("Timelapse: 1 quadro a cada ${TimelapsePlan.intervalLabel(run.plan.intervalMs)} · ${run.plan.speedup}× mais rápido")
+        a.setAnalyzer(timelapseExecutor) { image ->
+            try {
+                if (run.stopping || run.failed != null) return@setAnalyzer
+                val now = SystemClock.elapsedRealtime()
+                if (!run.plan.due(now, run.lastFrameMs)) return@setAnalyzer
+                run.lastFrameMs = now
+                val bmp = image.toBitmap()
+                // toBitmap() pode já vir recortado conforme a versão; só aplica o recorte se não veio.
+                val crop = if (bmp.width == image.width && bmp.height == image.height) android.graphics.Rect(image.cropRect)
+                           else android.graphics.Rect(0, 0, bmp.width, bmp.height)
+                val rot = image.imageInfo.rotationDegrees
+                val enc = run.encoder ?: run {
+                    val (w, h) = if (rot % 180 == 0) TimelapsePlan.outputSize(crop.width(), crop.height())
+                                 else TimelapsePlan.outputSize(crop.height(), crop.width())
+                    TimelapseEncoder(activity.contentResolver, w, h, name).also { run.encoder = it }
+                }
+                enc.addFrame(bmp, crop, rot)
+                bmp.recycle()
+                val elapsed = now - run.startMs
+                handler.post { if (timelapse === run) listener.onRecording(RecordingPhase.RECORDING, elapsed / 1000) }
+                if (run.plan.finished(elapsed)) handler.post { stopRecording() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Falha no timelapse", e)
+                run.failed = "Falha ao gravar o timelapse"
+                handler.post { stopRecording() }
+            } finally {
+                image.close()
+            }
+        }
+    }
+
+    private fun stopTimelapse() {
+        val run = timelapse ?: return
+        if (run.stopping) return
+        run.stopping = true
+        analysis?.clearAnalyzer()
+        timelapseExecutor.execute {
+            val uri = runCatching { run.encoder?.finish() }.onFailure { Log.e(TAG, "finalizar timelapse", it) }.getOrNull()
+            val frames = run.encoder?.frames ?: 0
+            handler.post {
+                timelapse = null
+                recordingPhase = RecordingPhase.IDLE
+                val err = run.failed ?: if (uri == null) "Timelapse curto demais: nenhum vídeo salvo" else null
+                listener.onRecordingFinished(uri, err)
+                if (uri != null) listener.onMessage("Timelapse salvo: $frames quadros · " +
+                    String.format(Locale.US, "%.1f s de vídeo", frames / run.plan.outputFps.toFloat()).replace('.', ','))
+                if (settingsChangedDuringRecording) { settingsChangedDuringRecording = false; bind() }
+            }
+        }
+    }
+
     fun startRecording() {
+        if (mode == CaptureMode.TIMELAPSE) return startTimelapse()
         val vc = videoCapture ?: return listener.onMessage("A câmera ainda não está pronta")
         if (recording != null) return
         val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
@@ -999,16 +1233,18 @@ class NovaCamera(
     private var settingsChangedDuringRecording = false
 
     fun requestRebind() {
-        if (recording != null) settingsChangedDuringRecording = true else bind()
+        if (isRecording) settingsChangedDuringRecording = true else bind()
     }
 
     fun pauseOrResumeRecording() {
+        if (timelapse != null) return listener.onMessage("O timelapse não pode ser pausado; toque no obturador para finalizar")
         val r = recording ?: return
         if (recordingPhase == RecordingPhase.PAUSED) r.resume() else r.pause()
     }
 
     fun stopRecording() {
         recording?.stop()
+        stopTimelapse()
     }
 
     private fun describeVideoError(code: Int): String? = when (code) {

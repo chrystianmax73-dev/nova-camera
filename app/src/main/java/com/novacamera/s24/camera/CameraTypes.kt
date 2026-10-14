@@ -48,13 +48,21 @@ data class CameraState(
     val screenFlash: Boolean,
     /** Resolução real da foto configurada (lida do caso de uso após a configuração). */
     val photoResolution: android.util.Size? = null,
-    /** A resolução máxima é maior que a padrão nesta câmera (vale oferecer a opção). */
-    val maxResolutionAvailable: Boolean = false,
+    /** Resoluções reais desta lente (vazio quando o modo usa a padrão, como no processamento Nova). */
+    val photoSizeOptions: List<com.novacamera.s24.core.SizeOption> = emptyList(),
+    val photoSize: com.novacamera.s24.core.SizeOption? = null,
+    /** Resoluções do sensor que o fabricante não libera pela API pública (só informadas). */
+    val photoSizeBlocked: List<com.novacamera.s24.core.SizeOption> = emptyList(),
+    val hdr: com.novacamera.s24.settings.HdrOption = com.novacamera.s24.settings.HdrOption.OFF,
+    /** Processamento Nova aplicado às fotos deste modo (null = foto comum). */
+    val processing: com.novacamera.s24.processing.JobKind? = null,
     val rawAvailable: Boolean = false,
     val rawActive: Boolean = false,
     /** Opções reais para os seletores de vídeo. */
     val videoQualityOptions: List<com.novacamera.s24.settings.VideoQualityOption> = emptyList(),
     val videoFpsOptions: List<Int> = emptyList(),
+    /** Intervalo entre quadros do Timelapse (só nesse modo). */
+    val timelapseIntervalMs: Long? = null,
 )
 
 interface CameraListener {
@@ -72,4 +80,8 @@ interface CameraListener {
     fun onActiveLens(label: String?) {}
     /** O vigia do modo manual devolveu ISO/velocidade ao automático. */
     fun onManualReverted(m: ManualControls) {}
+    /** Quadros capturados e entregues ao processamento em segundo plano. */
+    fun onProcessingQueued(kind: com.novacamera.s24.processing.JobKind) {}
+    /** Rajada em andamento (quadro [done] de [total]). */
+    fun onBurstProgress(done: Int, total: Int) {}
 }

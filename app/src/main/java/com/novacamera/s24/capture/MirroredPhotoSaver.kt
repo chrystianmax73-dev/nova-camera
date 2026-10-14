@@ -41,12 +41,12 @@ object MirroredPhotoSaver {
         quality: Int = 95,
     ): Uri? {
         val original = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
-        // O JPEG pode vir com orientação EXIF própria; somamos à rotação informada pela câmera.
         val exifIn = runCatching { ExifInterface(ByteArrayInputStream(jpeg)) }.getOrNull()
         val r = crop?.takeIf { it.width() > 0 && it.height() > 0 && it.right <= original.width && it.bottom <= original.height }
             ?: Rect(0, 0, original.width, original.height)
-        val totalRotation = (rotationDegrees + (exifIn?.rotationDegrees ?: 0)) % 360
-        val out = Bitmap.createBitmap(original, r.left, r.top, r.width(), r.height(), transform(totalRotation), true)
+        // Só a rotação do CameraX: para JPEG ela já é derivada da orientação EXIF do arquivo.
+        // (A 0.5 somava as duas e podia girar a selfie 180° em firmwares que gravam EXIF.)
+        val out = Bitmap.createBitmap(original, r.left, r.top, r.width(), r.height(), transform(rotationDegrees % 360), true)
         if (out !== original) original.recycle()
 
         values.put(MediaStore.MediaColumns.IS_PENDING, 1)

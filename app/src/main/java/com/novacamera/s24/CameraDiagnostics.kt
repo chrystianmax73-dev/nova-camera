@@ -8,7 +8,9 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.os.Build
 import android.util.Size
+import com.novacamera.s24.camera.JpegSizeLists
 import com.novacamera.s24.camera.LensCatalog
+import com.novacamera.s24.core.PhotoSizes
 import java.util.Locale
 
 /**
@@ -44,6 +46,7 @@ object CameraDiagnostics {
                                 val rel = if (eq != null && mainEq != null) String.format(Locale.US, " ≈ %.1fx", eq / mainEq) else ""
                                 appendLine("  · ID $pid: ${eq?.let { String.format(Locale.US, "%.0f mm eq.", it) } ?: "?"}$rel, " +
                                     "sensor ${pc.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)}")
+                                appendLine("    " + resolutionVerdict(pc).replace("\n", "\n    "))
                             }
                         }
                     }
@@ -94,6 +97,7 @@ object CameraDiagnostics {
         }
         val highRes = runCatching { map?.getHighResolutionOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width.toLong() * it.height } }.getOrNull()
         appendLine("JPEG alta resolução (captura lenta): ${highRes?.pixels() ?: "não anunciado"}")
+        appendLine(resolutionVerdict(c))
         if (Build.VERSION.SDK_INT >= 31) {
             val ultra = 16 in caps // REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR
             val maxMap = runCatching { c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION) }.getOrNull()
@@ -107,6 +111,26 @@ object CameraDiagnostics {
             val fpsList = hsSizes.flatMap { s -> runCatching { map!!.getHighSpeedVideoFpsRangesFor(s).map { it.upper } }.getOrDefault(emptyList()) }.distinct().sorted()
             appendLine("Vídeo em alta velocidade: ${hsSizes.joinToString { "${it.width}×${it.height}" }} · até ${fpsList.lastOrNull()} fps")
         } else appendLine("Vídeo em alta velocidade: não anunciado")
+    }
+
+    /** Resoluções de foto que o app consegue oferecer nesta câmera e as que o fabricante não libera. */
+    fun resolutionVerdict(c: CameraCharacteristics): String {
+        @Suppress("UNCHECKED_CAST")
+        val lists = JpegSizeLists.from { k -> c.get(k as CameraCharacteristics.Key<Any?>) }
+        val opts = PhotoSizes.options(lists.regular, lists.highRes, 4f / 3f)
+        val blocked = PhotoSizes.blocked(opts, lists.maxResOnly, 4f / 3f)
+        val pixelArray = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        val maxArray = if (Build.VERSION.SDK_INT >= 31) c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION) else null
+        val sensorMp = ((maxArray ?: pixelArray)?.let { it.width.toLong() * it.height / 1e6 } ?: 0.0)
+        return buildString {
+            append("Resoluções de foto 4:3 oferecidas: ")
+            append(opts.joinToString { it.label + if (it.highResolution) " (alta res.)" else "" }.ifEmpty { "nenhuma" })
+            append("\nBloqueadas (só no modo de resolução máxima do sensor): ")
+            append(blocked.joinToString { it.label }.ifEmpty { "nenhuma anunciada" })
+            val best = opts.maxOfOrNull { it.megapixels } ?: 0.0
+            if (sensorMp > best * 1.5) append(String.format(Locale.US,
+                "\nO sensor tem ≈ %.0f MP, mas só ≈ %.0f MP são anunciados a outros apps pela API pública.", sensorMp, best))
+        }
     }
 
     private fun equivalent(c: CameraCharacteristics) = LensCatalog.equivalentFocal(

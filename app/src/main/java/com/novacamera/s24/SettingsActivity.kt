@@ -27,7 +27,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.device.DeviceMonitor
 import com.novacamera.s24.settings.NovaSettings
-import com.novacamera.s24.settings.PhotoResolutionOption
+import com.novacamera.s24.settings.HdrOption
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Nova
 import com.novacamera.s24.ui.NovaIconView
@@ -82,15 +82,25 @@ class SettingsActivity : NovaScreen() {
         section("Foto")
         switch("Salvar selfie como visualizada", "A foto frontal mantém o mesmo lado da pré-visualização (sem recodificar a imagem).",
             { settings.mirrorFrontPhoto }, { settings.mirrorFrontPhoto = it })
-        choice("Resolução", "Máxima usa a maior saída que o aparelho libera a outros apps (pode ser mais lenta). " +
-            "O valor real aparece no botão da barra superior.",
-            PhotoResolutionOption.entries.map { it.label }, { settings.photoResolution.ordinal }) {
-            settings.photoResolution = PhotoResolutionOption.entries[it]
-        }
+        info("Resolução", "Escolhida por lente no botão de megapixels da barra superior, entre as resoluções que cada câmera " +
+            "realmente libera a outros apps. O que o fabricante bloqueia aparece como bloqueado ao tocar no botão.")
         switch("Grade de composição", null, { settings.grid }, { settings.grid = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
         switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
+
+        section("Processamento Nova")
+        switch("Guardar originais", "Noturno, HDR, Retrato e Food salvam também a foto sem processamento em " +
+            "Pictures › Nova Camera › Originais.", { settings.keepOriginals }, { settings.keepOriginals = it })
+        switch("Aprimorar fotos (leve)", "No modo FOTO, grava também uma cópia com sombras e tons ajustados no aparelho. " +
+            "A foto original continua intacta.", { settings.autoEnhance }, { settings.autoEnhance = it })
+        choice("HDR da FOTO", "Nova: 3 exposições combinadas no aparelho, com proteção contra fantasmas. " +
+            "Fabricante: só quando a extensão está disponível nesta câmera.",
+            HdrOption.entries.map { it.label }, { settings.hdr.ordinal }) { settings.hdr = HdrOption.entries[it] }
+        switch("Retrato do fabricante", "Usa o desfoque da Samsung quando disponível. Ele costuma suavizar a pele; " +
+            "o Retrato Nova não suaviza.", { settings.oemPortrait }, { settings.oemPortrait = it })
+        switch("Noturno do fabricante", "Usa a Noite da Samsung quando disponível, em vez da fusão própria.",
+            { settings.oemNight }, { settings.oemNight = it })
 
         section("Vídeo")
         choice("Qualidade", "Aplicada se a câmera suportar; caso contrário usa a próxima disponível.",
@@ -105,6 +115,11 @@ class SettingsActivity : NovaScreen() {
             { settings.mirrorFrontVideo }, { settings.mirrorFrontVideo = it })
         switch("Gravar áudio", "Sem permissão do microfone, o vídeo é gravado sem som e o app avisa.",
             { settings.recordAudio }, { settings.recordAudio = it })
+        val tlMax = com.novacamera.s24.core.TimelapsePlan.MAX_DURATIONS_S
+        choice("Duração do timelapse", "A captura para sozinha após o tempo escolhido. O intervalo entre quadros " +
+            "fica no botão da barra superior do modo Timelapse.",
+            listOf("Até parar", "1 minuto", "5 minutos", "15 minutos", "30 minutos"),
+            { tlMax.indexOf(settings.timelapseMaxSeconds).takeIf { it >= 0 } ?: 0 }) { settings.timelapseMaxSeconds = tlMax[it] }
         switch("Exposição estável no zoom", "Sem ponto escolhido, o vídeo mede a exposição pelo centro: ao aproximar, " +
             "áreas claras que saem do quadro não fazem a imagem saltar de brilho.",
             { settings.videoCenterMetering }, { settings.videoCenterMetering = it })
@@ -136,8 +151,10 @@ class SettingsActivity : NovaScreen() {
             startActivity(Intent(this, DiagnosticsActivity::class.java))
         }
         info("Privacidade", "Sem internet, conta, anúncios ou telemetria. Fotos e vídeos ficam no aparelho (Pictures/Movies › Nova Camera).")
-        info("Em desenvolvimento", "Retrato com segmentação própria, HDR por fusão de exposições, Noite multiquadro e super-resolução. " +
-            "Esses recursos ainda não estão no app; quando um modo depende deles, ele aparece como indisponível.")
+        info("Processamento local", "Todo processamento (fusão, tons, retrato) roda no aparelho. A segmentação do Retrato usa um " +
+            "modelo embutido no app (ML Kit); o app não tem permissão de internet, então nada é enviado.")
+        info("Em desenvolvimento", "Panorâmica, Vídeo Retrato, processamento de vídeo e super-resolução para 20×/30×. " +
+            "Quando um modo depende deles, ele aparece como indisponível.")
         info("Versão", BuildConfigInfo.version(this))
     }
 

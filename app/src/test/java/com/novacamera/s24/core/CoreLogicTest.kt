@@ -110,19 +110,40 @@ class LensSelectionTest {
 
 class ModeResolverTest {
     @Test
-    fun portraitWithoutOemIsHonestlyUnavailable() {
+    fun portraitDefaultsToNovaEngineEvenWithoutOem() {
         val s = ModeResolver.resolve(CaptureMode.RETRATO, DeviceModeFacts(false, false, null))
-        assertFalse(s.canCapture)
+        assertEquals(ModeEngine.NOVA, s.engine)
+        // Mesmo com a extensão disponível, o padrão é o motor próprio (o do fabricante suaviza a pele).
+        assertEquals(ModeEngine.NOVA, ModeResolver.resolve(CaptureMode.RETRATO, DeviceModeFacts(true, false, null)).engine)
+        assertEquals(ModeEngine.OEM_EXTENSION,
+            ModeResolver.resolve(CaptureMode.RETRATO, DeviceModeFacts(true, false, null), EnginePrefs(oemPortrait = true)).engine)
+        // Preferir o fabricante sem a extensão disponível não deixa o modo indisponível.
+        assertEquals(ModeEngine.NOVA,
+            ModeResolver.resolve(CaptureMode.RETRATO, DeviceModeFacts(false, false, null), EnginePrefs(oemPortrait = true)).engine)
     }
 
     @Test
-    fun nightFallsBackToExtendedExposureOnlyWhenSensorAllows() {
-        val basic = ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, false, 10))
-        assertEquals(ModeEngine.NOVA_BASIC, basic.engine)
-        val none = ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, false, null))
-        assertEquals(ModeEngine.UNAVAILABLE, none.engine)
-        val oem = ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, true, 10))
-        assertEquals(ModeEngine.OEM_EXTENSION, oem.engine)
+    fun nightUsesNovaMultiFrameUnlessOemPreferred() {
+        assertEquals(ModeEngine.NOVA, ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, false, 10)).engine)
+        assertEquals(ModeEngine.NOVA, ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, false, null)).engine)
+        assertEquals(ModeEngine.OEM_EXTENSION,
+            ModeResolver.resolve(CaptureMode.NOITE, DeviceModeFacts(false, true, 10), EnginePrefs(oemNight = true)).engine)
+    }
+
+    @Test
+    fun unimplementedModesDoNotCapture() {
+        for (m in listOf(CaptureMode.PANORAMA, CaptureMode.VIDEO_RETRATO))
+            assertFalse(ModeResolver.resolve(m, DeviceModeFacts(true, true, 10)).canCapture)
+    }
+
+    @Test
+    fun hdrBracketRespectsStepAndRange() {
+        // Passo 1/3 EV, faixa ±12 (±4 EV): 0, −2 EV, +1 EV.
+        assertEquals(listOf(0, -6, 3), ModeResolver.hdrBracket(1, 3, -12, 12))
+        // Passo 1/2 EV, faixa só até +0,5 EV: o quadro claro ficaria pequeno demais e é descartado.
+        assertEquals(listOf(0, -4), ModeResolver.hdrBracket(1, 2, -4, 1))
+        // Sem compensação disponível: um quadro só.
+        assertEquals(listOf(0), ModeResolver.hdrBracket(1, 3, 0, 0))
     }
 
     @Test
@@ -172,5 +193,74 @@ class ProMeterTest {
         // O que acontecia na 0.4: auto em ISO 1600, régua saltava para ISO 50 com o mesmo tempo.
         assertEquals(-5.0, CameraMath.meterEv(50, 33_333_333L, 1600, 33_333_333L), 0.01)
         assertEquals(1.0, CameraMath.meterEv(100, 20_000_000L, 100, 10_000_000L), 0.01)
+    }
+}
+
+class PhotoSizesTest {
+    // Tamanhos no estilo de um sensor de 200 MP com saída agrupada de 12 MP e 50 MP.
+    private val regular = listOf(4000 to 3000, 4000 to 2252, 3000 to 3000, 1920 to 1080, 1440 to 1080, 640 to 480)
+    private val highRes = listOf(8160 to 6120, 8160 to 4592)
+
+    @Test
+    fun listsOnlyStandardAndLargerPerAspect() {
+        val o = PhotoSizes.options(regular, highRes, 4f / 3f)
+        assertEquals(listOf("8160x6120", "4000x3000"), o.map { it.key })
+        assertTrue(o[0].highResolution)
+        assertEquals("50 MP", o[0].label)
+        assertEquals("12 MP", o[1].label)
+        val wide = PhotoSizes.options(regular, highRes, 16f / 9f)
+        assertEquals(listOf("8160x4592", "4000x2252"), wide.map { it.key })
+    }
+
+    @Test
+    fun frontCameraWithSingleSizeHasOneOption() {
+        val o = PhotoSizes.options(listOf(3648 to 2736, 1920 to 1440), emptyList(), 4f / 3f)
+        assertEquals(1, o.size)
+        assertEquals("10 MP", o[0].label)
+    }
+
+    @Test
+    fun pickKeepsMegapixelClassAcrossAspectRatios() {
+        val four3 = PhotoSizes.options(regular, highRes, 4f / 3f)
+        val wide = PhotoSizes.options(regular, highRes, 16f / 9f)
+        val chosen = four3[0]
+        assertEquals("8160x4592", PhotoSizes.pick(wide, chosen.pixels)!!.key)
+        assertEquals("4000x3000", PhotoSizes.pick(four3, null)!!.key)
+    }
+
+    @Test
+    fun maximumResolutionOnlySizesAreReportedAsBlocked() {
+        val o = PhotoSizes.options(regular, emptyList(), 4f / 3f)
+        val blocked = PhotoSizes.blocked(o, listOf(16320 to 12240, 8160 to 6120), 4f / 3f)
+        assertEquals(listOf("16320x12240", "8160x6120"), blocked.map { it.key })
+        assertEquals("200 MP", blocked[0].label)
+    }
+}
+
+class TimelapsePlanTest {
+    @Test
+    fun framesAndSpeedup() {
+        val p = TimelapsePlan(intervalMs = 1000, maxCaptureSeconds = 300)
+        assertEquals(30, p.speedup)
+        assertEquals(61, p.framesAfter(60_000))
+        assertEquals(61f / 30f, p.videoSecondsAfter(60_000), 1e-4f)
+        assertFalse(p.finished(299_000)); assertTrue(p.finished(300_000))
+        assertFalse(TimelapsePlan(1000, 0).finished(10_000_000))
+    }
+
+    @Test
+    fun dueOncePerInterval() {
+        val p = TimelapsePlan(intervalMs = 500, maxCaptureSeconds = 0)
+        assertTrue(p.due(0, null))
+        assertFalse(p.due(300, 0))
+        assertTrue(p.due(490, 0))
+    }
+
+    @Test
+    fun outputSizeIsEncoderFriendly() {
+        assertEquals(1920 to 1072, TimelapsePlan.outputSize(1920, 1080))
+        assertEquals(1072 to 1920, TimelapsePlan.outputSize(1080, 1920))
+        assertEquals(1440 to 1920, TimelapsePlan.outputSize(3000, 4000))
+        assertEquals("0,5 s", TimelapsePlan.intervalLabel(500))
     }
 }

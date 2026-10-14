@@ -4,6 +4,10 @@ plugins {
 }
 
 android {
+    lint {
+        // O AppCompat só entra como dependência transitiva do ML Kit; o app não usa temas/widgets AppCompat.
+        disable += "AppCompatCustomView"
+    }
     namespace = "com.novacamera.s24"
     compileSdk = 36
 
@@ -12,7 +16,9 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.5.0"
+        versionName = "0.6.0"
+        // Alvo: Galaxy S24/S25 Ultra (arm64). Evita levar as bibliotecas nativas do ML Kit de 4 arquiteturas.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     compileOptions {
@@ -64,6 +70,8 @@ dependencies {
     implementation("androidx.camera:camera-video:$camerax")
     implementation("androidx.camera:camera-extensions:$camerax")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    // Segmentação de pessoa do Retrato próprio: modelo embutido no APK, roda offline no aparelho.
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     testImplementation("junit:junit:4.13.2")
     // Renderiza a interface real em JVM (sem aparelho) para teste de fumaça e capturas de layout.
     testImplementation("org.robolectric:robolectric:4.17")

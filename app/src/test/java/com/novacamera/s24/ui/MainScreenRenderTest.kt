@@ -46,7 +46,15 @@ class MainScreenRenderTest {
         canLockExposure = true, videoQualityLabel = if (mode.isVideo) "4K" else null, videoFps = 30,
         stabilization = true, screenFlash = false,
         photoResolution = if (mode.isVideo) null else android.util.Size(4000, 3000),
-        maxResolutionAvailable = !mode.isVideo,
+        photoSizeOptions = if (mode.isVideo || engine == ModeEngine.NOVA) emptyList() else listOf(
+            com.novacamera.s24.core.SizeOption(8160, 6120, true), com.novacamera.s24.core.SizeOption(4000, 3000, false)),
+        photoSize = if (mode.isVideo) null else com.novacamera.s24.core.SizeOption(4000, 3000, false),
+        processing = when {
+            engine != ModeEngine.NOVA -> null
+            mode == CaptureMode.NOITE -> com.novacamera.s24.processing.JobKind.NIGHT
+            mode == CaptureMode.RETRATO -> com.novacamera.s24.processing.JobKind.PORTRAIT
+            else -> com.novacamera.s24.processing.JobKind.FOOD
+        },
         rawAvailable = mode == CaptureMode.PRO, rawActive = false,
         videoQualityOptions = if (mode.isVideo) listOf(com.novacamera.s24.settings.VideoQualityOption.AUTO,
             com.novacamera.s24.settings.VideoQualityOption.UHD, com.novacamera.s24.settings.VideoQualityOption.FHD) else emptyList(),
@@ -66,8 +74,11 @@ class MainScreenRenderTest {
             "pro" to state(CaptureMode.PRO),
             "video-pro" to state(CaptureMode.VIDEO_PRO),
             "mais" to state(CaptureMode.FOTO),
-            "retrato-indisponivel" to state(CaptureMode.RETRATO, ModeEngine.UNAVAILABLE,
-                "O fabricante não libera o Retrato para outros apps nesta câmera. O Retrato próprio ainda está em desenvolvimento."),
+            "retrato-nova" to state(CaptureMode.RETRATO, ModeEngine.NOVA,
+                com.novacamera.s24.core.ModeResolver.resolve(CaptureMode.RETRATO, com.novacamera.s24.core.DeviceModeFacts(true, true, 10)).note),
+            "noturno-processando" to state(CaptureMode.NOITE, ModeEngine.NOVA),
+            "panoramica-indisponivel" to state(CaptureMode.PANORAMA, ModeEngine.UNAVAILABLE,
+                com.novacamera.s24.core.ModeResolver.resolve(CaptureMode.PANORAMA, com.novacamera.s24.core.DeviceModeFacts(true, true, 10)).note),
         )
         for ((name, s) in cases) {
             activity.onCameraState(s)
@@ -75,6 +86,11 @@ class MainScreenRenderTest {
             if (name == "video") activity.onRecording(RecordingPhase.RECORDING, 83)
             if (name == "video-pro") activity.onActiveLens("Tele 5×")
             if (name == "mais") MainActivity::class.java.getDeclaredMethod("showGrid").apply { isAccessible = true }.invoke(activity)
+            if (name == "noturno-processando") MainActivity::class.java
+                .getDeclaredMethod("onProcessingProgress", com.novacamera.s24.processing.JobProgress::class.java)
+                .apply { isAccessible = true }
+                .invoke(activity, com.novacamera.s24.processing.JobProgress(1L, com.novacamera.s24.processing.JobKind.NIGHT,
+                    0.46f, "Reduzindo ruído", 1))
             shadowOf(Looper.getMainLooper()).idle()
             val root = activity.window.decorView
             root.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),

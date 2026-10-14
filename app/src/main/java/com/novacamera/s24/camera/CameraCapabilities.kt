@@ -123,3 +123,34 @@ object LensCatalog {
         }
     }
 }
+
+/** Listas públicas de tamanhos JPEG de uma câmera (ver [com.novacamera.s24.core.PhotoSizes]). */
+class JpegSizeLists(
+    val regular: List<Pair<Int, Int>>,
+    val highRes: List<Pair<Int, Int>>,
+    /** Só no mapa de resolução máxima do sensor (API 31+): exigem sessão Camera2 especial. */
+    val maxResOnly: List<Pair<Int, Int>>,
+    val ultraHighResolutionSensor: Boolean,
+) {
+    companion object {
+        fun from(get: (android.hardware.camera2.CameraCharacteristics.Key<*>) -> Any?): JpegSizeLists {
+            @Suppress("UNCHECKED_CAST")
+            fun <T> key(k: android.hardware.camera2.CameraCharacteristics.Key<T>): T? = runCatching { get(k) as T? }.getOrNull()
+            val map = key(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val jpeg = android.graphics.ImageFormat.JPEG
+            fun conv(a: Array<android.util.Size>?) = a?.map { it.width to it.height }.orEmpty()
+            val regular = runCatching { conv(map?.getOutputSizes(jpeg)) }.getOrDefault(emptyList())
+            val high = runCatching { conv(map?.getHighResolutionOutputSizes(jpeg)) }.getOrDefault(emptyList())
+            var maxOnly = emptyList<Pair<Int, Int>>()
+            var ultra = false
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                ultra = key(android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.contains(16) == true
+                val maxMap = key(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
+                val known = (regular + high).toSet()
+                maxOnly = runCatching { conv(maxMap?.getOutputSizes(jpeg)) + conv(maxMap?.getOutputSizes(android.graphics.ImageFormat.RAW_SENSOR)) }
+                    .getOrDefault(emptyList()).filter { it !in known }
+            }
+            return JpegSizeLists(regular, high, maxOnly, ultra)
+        }
+    }
+}

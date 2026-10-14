@@ -5,8 +5,8 @@ import android.content.SharedPreferences
 import com.novacamera.s24.core.CaptureMode
 
 enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), RATIO_1_1("1:1"), FULL("Tela") }
-/** STANDARD = resolução padrão (sensor agrupado, ex. 12 MP); MAX = maior saída que o aparelho libera ao app. */
-enum class PhotoResolutionOption(val label: String) { STANDARD("Padrão"), MAX("Máxima") }
+/** HDR da FOTO: desligado, fusão própria de exposições (Nova) ou extensão do fabricante. */
+enum class HdrOption(val label: String) { OFF("Desligado"), NOVA("Nova"), OEM("Fabricante") }
 enum class FlashOption(val label: String) { OFF("Desligado"), AUTO("Automático"), ON("Ligado") }
 enum class VideoQualityOption(val label: String) { AUTO("Automática"), MAX("Máxima"), UHD("4K UHD"), FHD("Full HD"), HD("HD") }
 
@@ -31,8 +31,22 @@ class NovaSettings(context: Context) {
     var aspect get() = enum("aspect", AspectRatioOption.RATIO_4_3); set(v) = put("aspect", v.name)
     var flash get() = enum("flash", FlashOption.OFF); set(v) = put("flash", v.name)
     var timerSeconds get() = int("timer", 0); set(v) = put("timer", v)
-    var oemHdr get() = bool("oem_hdr", false); set(v) = put("oem_hdr", v)
-    var photoResolution get() = enum("photo_resolution", PhotoResolutionOption.STANDARD); set(v) = put("photo_resolution", v.name)
+    var hdr get() = enum("hdr", if (bool("oem_hdr", false)) HdrOption.OEM else HdrOption.OFF); set(v) = put("hdr", v.name)
+    /** Megapixels escolhidos por câmera (id do Camera2); ausente = resolução padrão. */
+    fun photoPixels(cameraId: String?): Long? = prefs.getLong("photo_px_$cameraId", -1L).takeIf { it > 0 }
+    fun setPhotoPixels(cameraId: String?, pixels: Long?) =
+        prefs.edit().apply { if (pixels == null) remove("photo_px_$cameraId") else putLong("photo_px_$cameraId", pixels) }.apply()
+    /** Assinatura das escolhas de resolução (para saber quando reconfigurar). */
+    val photoPixelsSignature get() = prefs.all.filterKeys { it.startsWith("photo_px_") }.toSortedMap().toString()
+
+    // Processamento Nova
+    /** Retrato/Noturno com a extensão do fabricante em vez do motor próprio (só se disponível). */
+    var oemPortrait get() = bool("oem_portrait", false); set(v) = put("oem_portrait", v)
+    var oemNight get() = bool("oem_night", false); set(v) = put("oem_night", v)
+    /** Guarda o original sem processamento em "Nova Camera/Originais". */
+    var keepOriginals get() = bool("keep_originals", true); set(v) = put("keep_originals", v)
+    /** FOTO: grava também uma cópia com aprimoramento leve (tons e sombras), sem tocar no original. */
+    var autoEnhance get() = bool("auto_enhance", false); set(v) = put("auto_enhance", v)
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)
 
@@ -45,6 +59,10 @@ class NovaSettings(context: Context) {
     var recordAudio get() = bool("record_audio", true); set(v) = put("record_audio", v)
     /** Vídeo sem ponto escolhido mede a exposição pelo centro (menos saltos ao aproximar). */
     var videoCenterMetering get() = bool("video_center_metering", true); set(v) = put("video_center_metering", v)
+
+    var timelapseIntervalMs get() = prefs.getLong("timelapse_interval", 1000L); set(v) = prefs.edit().putLong("timelapse_interval", v).apply()
+    /** Duração máxima da captura do Timelapse (s); 0 = até parar. */
+    var timelapseMaxSeconds get() = int("timelapse_max", 0); set(v) = put("timelapse_max", v)
 
     // Foco e exposição
     var facePriority get() = bool("face_priority", true); set(v) = put("face_priority", v)

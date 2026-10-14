@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
-    <!-- Sem permissão de internet: nenhum dado sai do aparelho. -->
+    <!-- Sem permissão de internet: nenhum dado sai do aparelho. A biblioteca de segmentação (ML Kit)
+         declara estas permissões para telemetria de uso; elas são removidas aqui, então ela não tem
+         como enviar nada. O modelo é embutido no APK e roda offline. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <application
         android:label="Nova Camera"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
+        android:largeHeap="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nova">
         <!-- Visor travado em retrato: a sessão da câmera não reinicia ao girar; a interface gira os controles. -->
@@ -24,5 +30,7 @@
         </activity>
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <activity android:name=".ReviewActivity" android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>

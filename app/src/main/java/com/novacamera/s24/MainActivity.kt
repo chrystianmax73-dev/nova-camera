@@ -51,7 +51,11 @@ import com.novacamera.s24.device.DeviceMonitor
 import com.novacamera.s24.settings.AspectRatioOption
 import com.novacamera.s24.settings.FlashOption
 import com.novacamera.s24.settings.NovaSettings
-import com.novacamera.s24.settings.PhotoResolutionOption
+import com.novacamera.s24.settings.HdrOption
+import com.novacamera.s24.processing.JobKind
+import com.novacamera.s24.core.TimelapsePlan
+import com.novacamera.s24.processing.JobProgress
+import com.novacamera.s24.processing.ProcessingQueue
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Haptics
 import com.novacamera.s24.ui.HintView
@@ -106,6 +110,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var lockChip: TextView
     private lateinit var evChip: TextView
     private lateinit var heatChip: TextView
+    private lateinit var procChip: TextView
     private lateinit var hint: HintView
     private lateinit var infoCard: TextView
     private lateinit var bottom: LinearLayout
@@ -131,6 +136,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var idlePaused = false
     private var announcedMode: CaptureMode? = null
     private var settingsSignature = ""
+    /** Sessão de revisão da última foto processada (a miniatura abre a revisão em vez da galeria). */
+    private var lastSession: Pair<String, Uri>? = null
+    private val onProcessing: (JobProgress) -> Unit = { p -> onProcessingProgress(p) }
 
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startCamera() else showPermissionOverlay()
@@ -175,6 +183,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateTopBar()
         if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
         loadLatestMedia()
+        ProcessingQueue.addListener(onProcessing)
     }
 
     override fun onStart() {
@@ -190,6 +199,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         super.onResume()
         Haptics.enabled = settings.haptics
         overlay.showGrid = settings.grid
+        ProcessingQueue.keepOriginals = settings.keepOriginals
         val sig = signature()
         if (sig != settingsSignature) {
             settingsSignature = sig
@@ -209,6 +219,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onDestroy() {
+        ProcessingQueue.removeListener(onProcessing)
         camera.release()
         sound.release()
         io.shutdown()
@@ -222,7 +233,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun signature() = listOf(settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
-        settings.videoCenterMetering, settings.photoResolution,
+        settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
         settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
 
     // ------------------------------------------------------------------ interface
@@ -263,12 +274,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ratioChip = TextChip(this).apply { setOnClickListener { cycleAspect() }; contentDescription = "Proporção da foto" }
         hdrChip = TextChip(this).apply {
             text = "HDR"
-            setOnClickListener { toggleHdr() }
-            contentDescription = "HDR do fabricante"
+            setOnClickListener { cycleHdr() }
+            contentDescription = "HDR"
         }
         qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
-        resChip = TextChip(this).apply { setOnClickListener { togglePhotoResolution() }; contentDescription = "Resolução da foto" }
+        resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
         listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, qualityChip, fpsChip, hdrChip, rawChip).forEach { v ->
             val cell = FrameLayout(this)
@@ -294,7 +305,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
         evChip = statusChip(Nova.TEXT).apply { setOnClickListener { unlockAll() } }
         heatChip = statusChip(Nova.WARN).apply { isClickable = false }
-        listOf(lockChip, evChip, heatChip).forEach {
+        procChip = statusChip(Nova.ACCENT_SOFT).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener {
+                ProcessingQueue.cancelAll()
+                this@MainActivity.hint.show("Cancelando… o original fica salvo", 1600)
+            }
+        }
+        listOf(lockChip, evChip, heatChip, procChip).forEach {
             it.visibility = View.GONE
             statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
         }
@@ -575,7 +593,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun startVideo() {
-        if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
+        // Timelapse e câmera lenta não gravam som: não pede o microfone à toa.
+        val silent = camera.mode == CaptureMode.TIMELAPSE || camera.mode == CaptureMode.CAMERA_LENTA
+        if (!silent && settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
             askAudio.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
@@ -641,11 +661,22 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         relayoutThenBind { camera.bind() }
     }
 
-    private fun toggleHdr() {
-        settings.oemHdr = !settings.oemHdr
+    /** HDR: desligado → Nova (fusão própria) → fabricante (se disponível) → desligado. */
+    private fun cycleHdr() {
+        val oem = cameraState?.oemHdrAvailable == true
+        settings.hdr = when (settings.hdr) {
+            HdrOption.OFF -> HdrOption.NOVA
+            HdrOption.NOVA -> if (oem) HdrOption.OEM else HdrOption.OFF
+            HdrOption.OEM -> HdrOption.OFF
+        }
+        settingsSignature = signature()
         showTransition()
         camera.bind()
-        hint.show(if (settings.oemHdr) "HDR do fabricante ativado" else "HDR desativado", 1400)
+        hint.show(when (settings.hdr) {
+            HdrOption.OFF -> "HDR desligado"
+            HdrOption.NOVA -> "HDR Nova: 3 exposições combinadas no aparelho"
+            HdrOption.OEM -> "HDR do fabricante"
+        }, 1800)
     }
 
     /** Percorre só as resoluções que esta câmera realmente grava. */
@@ -661,6 +692,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Percorre só as taxas aceitas (24/30/60; 120/240 na câmera lenta). */
     private fun cycleFps() {
         val s = cameraState ?: return
+        if (s.mode == CaptureMode.TIMELAPSE) {
+            val list = TimelapsePlan.INTERVALS_MS
+            settings.timelapseIntervalMs = list[(list.indexOf(settings.timelapseIntervalMs) + 1) % list.size]
+            val plan = TimelapsePlan(settings.timelapseIntervalMs, settings.timelapseMaxSeconds)
+            camera.bind()
+            return hint.show("1 quadro a cada ${TimelapsePlan.intervalLabel(plan.intervalMs)} · ${plan.speedup}× mais rápido", 1800)
+        }
         val options = s.videoFpsOptions.takeIf { it.size > 1 } ?: return hint.show("Esta câmera só oferece ${s.videoFps} fps aqui", 1600)
         val next = options[(options.indexOf(s.videoFps) + 1) % options.size]
         if (s.mode == CaptureMode.CAMERA_LENTA) settings.slowMotionFps = next else settings.videoFps = next
@@ -669,11 +707,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         hint.show("$next fps", 1200)
     }
 
-    private fun togglePhotoResolution() {
-        settings.photoResolution = if (settings.photoResolution == PhotoResolutionOption.MAX) PhotoResolutionOption.STANDARD else PhotoResolutionOption.MAX
+    /** Percorre as resoluções reais desta lente; o que o fabricante bloqueia é só informado. */
+    private fun cyclePhotoResolution() {
+        val s = cameraState ?: return
+        val blocked = s.photoSizeBlocked.joinToString { it.label }
+        val blockedNote = if (blocked.isNotEmpty()) "\n$blocked: bloqueado pelo fabricante para outros apps" else ""
+        if (s.processing != null) return hint.show("${s.mode.label} usa a resolução padrão (processamento multiquadro)$blockedNote", 3000)
+        val options = s.photoSizeOptions
+        if (options.size <= 1) {
+            return hint.show("Esta lente libera só ${options.firstOrNull()?.label ?: s.photoResolution?.let { mp(it) } ?: "uma resolução"} a outros apps$blockedNote", 3500)
+        }
+        val i = options.indexOf(s.photoSize).coerceAtLeast(0)
+        // Da padrão para a maior e de volta: a lista vem da maior para a menor.
+        val next = options[(i - 1 + options.size) % options.size]
         showTransition()
-        camera.bind()
+        camera.setPhotoSize(next)
+        settingsSignature = signature()
+        hint.show(next.label + if (next.highResolution) " · alta resolução (captura mais lenta)" else "", 1800)
     }
+
+    private fun mp(size: Size) = "${Math.round(size.width.toLong() * size.height / 1e6)} MP"
 
     private fun toggleRaw() {
         settings.raw = !settings.raw
@@ -710,13 +763,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
         qualityChip.text = s?.videoQualityLabel ?: ""
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
-        fpsChip.text = "${s?.videoFps ?: 30} fps"
-        hdrChip.visibility = if (s?.oemHdrAvailable == true) View.VISIBLE else View.GONE
-        hdrChip.active = s?.oemHdrActive == true
+        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: "${s?.videoFps ?: 30} fps"
+        hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
+        hdrChip.active = s?.hdr != null && s.hdr != HdrOption.OFF
+        hdrChip.text = if (s?.hdr == HdrOption.OEM) "HDR·S" else "HDR"
         val res = s?.photoResolution
-        resChip.visibility = if (!video && res != null && (s.maxResolutionAvailable || settings.photoResolution == PhotoResolutionOption.MAX)) View.VISIBLE else View.GONE
-        resChip.text = res?.let { "${Math.round(it.width.toLong() * it.height / 1e6)} MP" } ?: ""
-        resChip.active = settings.photoResolution == PhotoResolutionOption.MAX
+        // Sempre visível nos modos de foto: mostra a resolução real que será gravada nesta lente.
+        resChip.visibility = if (!video && photoCapable && res != null) View.VISIBLE else View.GONE
+        resChip.text = res?.let(::mp) ?: ""
+        resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
         listOf<View>(hdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
@@ -737,7 +792,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             infoCard.text = "${state.mode.label} indisponível neste aparelho\n\n${state.support.note}"
             infoCard.visibility = View.VISIBLE
         } else infoCard.visibility = View.GONE
-        if (state.support.engine == ModeEngine.NOVA_BASIC && announcedMode != state.mode) hint.show(state.support.note, 4500)
+        if (state.support.engine == ModeEngine.NOVA && state.support.note.isNotBlank() && announcedMode != state.mode) hint.show(state.support.note, 4500)
         announcedMode = state.mode
         proPanel.visibility = if (state.mode.isPro) View.VISIBLE else View.GONE
         if (state.mode.isPro) {
@@ -797,7 +852,30 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onPhotoSaved(uri: Uri?) {
         shutter.busy = false
-        if (uri != null) showMedia(uri, "image/jpeg", animate = true)
+        if (uri != null) { lastSession = null; showMedia(uri, "image/jpeg", animate = true) }
+    }
+
+    override fun onBurstProgress(done: Int, total: Int) = hint.show("Segure firme · $done/$total", 900)
+
+    override fun onProcessingQueued(kind: JobKind) {
+        shutter.busy = false
+    }
+
+    private fun onProcessingProgress(p: JobProgress) {
+        if (isDestroyed) return
+        if (p.finished) {
+            procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
+            val shown = p.enhancedUri ?: p.originalUri
+            if (shown != null) {
+                showMedia(shown, "image/jpeg", animate = true)
+                lastSession = if (p.sessionId != null && p.enhancedUri != null) p.sessionId to p.enhancedUri else null
+            }
+            p.message?.let { hint.show(it, 3200) }
+            return
+        }
+        procChip.text = "${p.kind.label} · ${p.stage} ${Math.round(p.fraction * 100)}%  ✕"
+        procChip.contentDescription = "Processando ${p.kind.label}, ${Math.round(p.fraction * 100)} por cento. Toque para cancelar"
+        procChip.visibility = View.VISIBLE
     }
 
     override fun onRecording(phase: RecordingPhase, seconds: Long) {
@@ -880,6 +958,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun onHeat(h: DeviceHeat) {
         camera.onHeat(h)
+        ProcessingQueue.heat = h
         heatChip.visibility = if (ThermalPolicy.showBadge(h)) View.VISIBLE else View.GONE
         heatChip.text = ThermalPolicy.badgeText(h)
     }
@@ -945,7 +1024,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             ).mapNotNull { (base, mime) ->
                 runCatching {
                     contentResolver.query(base, arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATE_ADDED),
-                        "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?", arrayOf("%Nova Camera%"),
+                        "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} NOT LIKE ?",
+                        arrayOf("%Nova Camera%", "%Originais%"),
                         "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { c ->
                         if (c.moveToFirst()) Triple(Uri.withAppendedPath(base, c.getLong(0).toString()), mime, c.getLong(1)) else null
                     }
@@ -957,6 +1037,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun openLastMedia() {
         val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
+        lastSession?.takeIf { it.second == uri }?.let { (id, _) ->
+            return startActivity(Intent(this, ReviewActivity::class.java).putExtra(ReviewActivity.EXTRA_SESSION, id))
+        }
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         }.onFailure { Log.w(TAG, "Sem visualizador para $uri", it); hint.show("Nenhum app de galeria disponível") }

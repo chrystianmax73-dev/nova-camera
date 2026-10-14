@@ -1,0 +1,149 @@
+package com.novacamera.s24.core.imaging
+
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
+
+/**
+ * Retrato próprio: a pessoa (máscara de segmentação refinada) fica intacta — sem suavizar pele,
+ * barba ou cabelo — e só o fundo recebe desfoque, mais forte quanto mais longe do contorno
+ * (aproximação de profundidade sem sensor de profundidade).
+ */
+object Portrait {
+    /**
+     * Refina a máscara grosseira da segmentação com filtro guiado na luminância da foto:
+     * a transição acompanha bordas reais (fios de cabelo, barba, armação de óculos).
+     */
+    fun refineMatte(coarse: Plane, luma: Plane): Plane {
+        val m = if (coarse.w != luma.w || coarse.h != luma.h) Planes.resize(coarse, luma.w, luma.h) else coarse
+        val r = max(2, min(luma.w, luma.h) / 90)
+        val refined = Planes.guidedFilter(luma, m, r, 1e-3f)
+        for (i in refined.data.indices) refined.data[i] = refined.data[i].coerceIn(0f, 1f)
+        return refined
+    }
+
+    /**
+     * Distância normalizada (0 no contorno → 1 longe) de cada ponto do fundo até a pessoa,
+     * usada para o desfoque gradual. Transformada de distância em duas passadas (chanfro).
+     */
+    fun backgroundDistance(matte: Plane): Plane {
+        val w = matte.w; val h = matte.h
+        val inf = (w + h).toFloat()
+        val d = Plane(w, h)
+        for (i in d.data.indices) d.data[i] = if (matte.data[i] >= 0.5f) 0f else inf
+        for (y in 0 until h) for (x in 0 until w) {
+            var v = d[x, y]
+            if (x > 0) v = min(v, d[x - 1, y] + 1f)
+            if (y > 0) v = min(v, d[x, y - 1] + 1f)
+            if (x > 0 && y > 0) v = min(v, d[x - 1, y - 1] + 1.414f)
+            if (x < w - 1 && y > 0) v = min(v, d[x + 1, y - 1] + 1.414f)
+            d[x, y] = v
+        }
+        for (y in h - 1 downTo 0) for (x in w - 1 downTo 0) {
+            var v = d[x, y]
+            if (x < w - 1) v = min(v, d[x + 1, y] + 1f)
+            if (y < h - 1) v = min(v, d[x, y + 1] + 1f)
+            if (x < w - 1 && y < h - 1) v = min(v, d[x + 1, y + 1] + 1.414f)
+            if (x > 0 && y < h - 1) v = min(v, d[x - 1, y + 1] + 1.414f)
+            d[x, y] = v
+        }
+        val norm = max(1f, sqrt((w * w + h * h).toFloat()) * 0.35f)
+        for (i in d.data.indices) d.data[i] = (d.data[i] / norm).coerceIn(0f, 1f)
+        return d
+    }
+
+    /**
+     * Desfoque do fundo em resolução reduzida ([small] = imagem reduzida, ARGB). O fundo é
+     * pré-multiplicado por (1−α) para que a cor da pessoa não "vaze" para o desfoque (sem halo).
+     * Realces recebem leve ênfase antes do desfoque (bolhas de luz como numa lente real).
+     */
+    fun blurBackground(small: IntArray, w: Int, h: Int, matte: Plane, radius: Int): IntArray {
+        if (radius <= 0) return small.copyOf()
+        val gamma = 2.2f
+        val chans = Array(3) { Plane(w, h) }
+        val weight = Plane(w, h)
+        for (i in 0 until w * h) {
+            val a = 1f - matte.sample(i % w * matte.w.toFloat() / w, i / w * matte.h.toFloat() / h)
+            val c = small[i]
+            chans[0].data[i] = (Px.r(c) / 255f).pow(gamma) * a
+            chans[1].data[i] = (Px.g(c) / 255f).pow(gamma) * a
+            chans[2].data[i] = (Px.b(c) / 255f).pow(gamma) * a
+            weight.data[i] = a
+        }
+        // Três passadas de média ≈ desfoque gaussiano largo (custo independente do raio).
+        fun blur3(p: Plane): Plane { var q = p; repeat(3) { q = Planes.boxBlur(q, max(1, radius / 2)) }; return q }
+        val br = blur3(chans[0]); val bg = blur3(chans[1]); val bb = blur3(chans[2]); val bw = blur3(weight)
+        val out = IntArray(w * h)
+        for (i in 0 until w * h) {
+            val s = max(bw.data[i], 1e-4f)
+            fun enc(v: Float) = ((v / s).coerceIn(0f, 1f).pow(1f / gamma) * 255f + 0.5f).toInt()
+            out[i] = if (bw.data[i] < 1e-3f) small[i] else Px.argb(enc(br.data[i]), enc(bg.data[i]), enc(bb.data[i]))
+        }
+        return out
+    }
+
+    /**
+     * Composição final de uma região em resolução cheia. [blurNear]/[blurFar] são o fundo
+     * desfocado com raio menor e maior; [distance] escolhe entre eles (desfoque gradual).
+     * Onde α = 1 (pessoa) o pixel original é copiado sem alteração.
+     */
+    fun compositeTile(
+        tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int,
+        matte: Plane, distance: Plane, blurNear: IntArray, blurFar: IntArray, smallW: Int, smallH: Int,
+    ) {
+        val mx = matte.w.toFloat() / fullW; val my = matte.h.toFloat() / fullH
+        val bx = smallW.toFloat() / fullW; val by = smallH.toFloat() / fullH
+        for (ty in 0 until th) for (tx in 0 until tw) {
+            val gx = x0 + tx + 0.5f; val gy = y0 + ty + 0.5f
+            val a = matte.sample(gx * mx - 0.5f, gy * my - 0.5f)
+            if (a >= 0.999f) continue
+            val t = distance.sample(gx * mx - 0.5f, gy * my - 0.5f)
+            val near = sampleArgb(blurNear, smallW, smallH, gx * bx - 0.5f, gy * by - 0.5f)
+            val far = sampleArgb(blurFar, smallW, smallH, gx * bx - 0.5f, gy * by - 0.5f)
+            val i = ty * tw + tx
+            val c = tile[i]
+            val k = smoothT(t)
+            fun mix(o: Int, n: Int, f: Int): Int { val bg = n + (f - n) * k; return (o * a + bg * (1f - a) + 0.5f).toInt() }
+            tile[i] = Px.argb(mix(Px.r(c), Px.r(near), Px.r(far)), mix(Px.g(c), Px.g(near), Px.g(far)), mix(Px.b(c), Px.b(near), Px.b(far)))
+        }
+    }
+
+    private fun smoothT(t: Float) = (t * 2.2f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+
+    fun sampleArgb(px: IntArray, w: Int, h: Int, x: Float, y: Float): Int {
+        val fx = x.coerceIn(0f, (w - 1).toFloat()); val fy = y.coerceIn(0f, (h - 1).toFloat())
+        val x0 = fx.toInt(); val y0 = fy.toInt(); val x1 = min(x0 + 1, w - 1); val y1 = min(y0 + 1, h - 1)
+        val tx = fx - x0; val ty = fy - y0
+        fun ch(sh: Int): Int {
+            fun v(c: Int) = ((c shr sh) and 0xFF).toFloat()
+            val a = v(px[y0 * w + x0]) + (v(px[y0 * w + x1]) - v(px[y0 * w + x0])) * tx
+            val b = v(px[y1 * w + x0]) + (v(px[y1 * w + x1]) - v(px[y1 * w + x0])) * tx
+            return (a + (b - a) * ty + 0.5f).toInt()
+        }
+        return Px.argb(ch(16), ch(8), ch(0))
+    }
+}
+
+/**
+ * Food: realce moderado de vivacidade (só cores pouco saturadas, sem "estourar" as já vivas),
+ * leve calor e contraste local suave via [ToneMap]. Preserva o equilíbrio de branco medido.
+ */
+object FoodLook {
+    fun applyTile(tile: IntArray, strength: Float = 1f) {
+        val s = strength.coerceIn(0f, 1f)
+        for (i in tile.indices) {
+            val c = tile[i]
+            var r = Px.r(c).toFloat(); var g = Px.g(c).toFloat(); var b = Px.b(c).toFloat()
+            val l = 0.2126f * r + 0.7152f * g + 0.0722f * b
+            val mx = max(r, max(g, b)); val mn = min(r, min(g, b))
+            val sat = if (mx > 0) (mx - mn) / mx else 0f
+            // Vivacidade: mais efeito em cores apagadas; cores já saturadas quase não mudam.
+            val vib = 1f + 0.22f * s * (1f - sat)
+            r = l + (r - l) * vib; g = l + (g - l) * vib; b = l + (b - l) * vib
+            // Calor sutil (+2% vermelho, −2% azul) — próximo de luz de mesa, sem virar filtro.
+            r *= 1f + 0.02f * s; b *= 1f - 0.02f * s
+            tile[i] = Px.argb((r + 0.5f).toInt(), (g + 0.5f).toInt(), (b + 0.5f).toInt())
+        }
+    }
+}

@@ -6,6 +6,76 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.6 — motor próprio de processamento (dossiê consolidado)
+
+Todo processamento roda **no aparelho**, sobre os JPEGs que a câmera entrega (o processamento proprietário da Samsung continua inacessível a apps de terceiros). Nada é inventado: cada pixel final é média ponderada de valores medidos ou o original com ganho de tom.
+
+### Motor (app/src/main/java/com/novacamera/s24/core/imaging e processing)
+
+| Componente | Como funciona | Validação |
+|---|---|---|
+| Alinhamento | Busca hierárquica global + campo por regiões (6×8), quadros de exposições diferentes normalizados pelo ganho. **Precisão de pixel inteiro** (sem subpixel) | Testes sintéticos + quadros reais do dossiê (vídeo 133608, mão livre): deslocamentos de até 18 px recuperados |
+| Fusão robusta (Noturno) | Média ponderada por pixel: peso total até 2σ do ruído, cai suavemente até 4,5σ; o que se moveu fica com o quadro de referência (sem fantasma) | Testes + dossiê: 5 quadros reais com ruído de sensor adicionado → ruído **4,93 → 2,55**, erro vs. quadro limpo **6,16 → 3,59**, sem fantasma visível. Leve perda de nitidez pela precisão de pixel inteiro |
+| Tom local | Base em log-luminância (filtro guiado); ganho igual em R, G, B ⇒ **matiz e saturação preservados**; correção de véu só quando a cena é "lavada" | Testes + dossiê (0.6): pano verde **inalterado**; aspirador 10× véu p05 0,43 → 0,29 (Samsung 0,31); cena noturna sombras 38,9% → 12,5% (Samsung 19,9%) |
+| HDR (fusão de exposições) | Bracketing 0 / ≈−2 / ≈+1 EV pela compensação de EV; pesos de boa exposição e contraste refinados por filtro guiado (sem halo); **antifantasma** compara cada quadro com o previsto pela referência | Testes (halo, antifantasma). **Sem validação em fotos reais com bracketing** |
+| Retrato Nova | Segmentação de pessoa ML Kit (modelo embutido, offline) → máscara refinada nas bordas reais (filtro guiado) → fundo desfocado em linear (gama 2,2), pré-multiplicado (sem halo), **mais forte longe da pessoa**. A pessoa é copiada **sem alteração** (sem suavizar pele/barba/cabelo) | Testes (pessoa intacta, sem halo, render da revisão). **Qualidade de borda (cabelo, óculos) só no aparelho**: o ML Kit não roda na JVM |
+| Food | Vivacidade só em cores pouco saturadas + leve calor + tom FOOD | Testes |
+| Execução | JPEGs mantidos em memória e decodificados **em faixas** (`BitmapRegionDecoder`): 5 quadros de 12 MP não ocupam 5 × 48 MB. Processamento em blocos de 256 px numa fila única de baixa prioridade | Teste Android (Robolectric): faixa = decodificação inteira; pipeline completo; cancelamento |
+
+### O que mudou para quem usa
+
+| Recurso | Comportamento | Validação | No aparelho |
+|---|---|---|---|
+| **Noturno Nova** (padrão) | 5 quadros em rajada (3 com economia de energia/aquecimento moderado; 1 com aquecimento severo) + exposição estendida quando o sensor permite; fusão + tom NIGHT. Funciona em **qualquer lente** (inclusive 3×/5×) e na frontal | Testes + dossiê | Cena escura parada e com pessoa se mexendo; comparar com a Noite Samsung |
+| **HDR Nova** | Botão HDR na FOTO: Desligado → Nova → Fabricante (se houver) | Testes | Janela clara + interior; pessoa andando (fantasmas?) |
+| **Retrato Nova** (padrão) | Desfoque ajustável depois da captura. Sem pessoa detectada (cobertura < 3%), salva sem desfoque e avisa. O Retrato da Samsung continua disponível em Configurações, avisando que suaviza a pele | Testes | Selfie com barba/cabelo solto/óculos; traseira 1× e 3× a 1–2 m |
+| **Food** | Disponível (antes "em breve") | Testes | Prato sob luz quente |
+| **Timelapse** | Quadros da análise (~1080p), 1 a cada 0,5/1/2/5 s (botão ⏱), H.264 a 30 fps, sem áudio, duração máxima configurável. Precisa do app aberto | Testes (regras) + Compilação. **Codificador não testado (não roda na JVM)** | 1 min a 1 s: vídeo de ~2 s, orientação correta |
+| **Original preservado** | O original é gravado **antes** do processamento ("Pictures/Nova Camera/Originais", opção ligada por padrão). Cancelar, falta de memória ou aquecimento crítico nunca perdem a foto | Compilação | Cancelar no meio (✕ no selo de progresso) |
+| **Progresso e cancelamento** | Selo "Noturno · Reduzindo ruído 46% ✕" sem bloquear o obturador (fila de até 3) | Teste de render | — |
+| **Revisão** | Tocar na miniatura após uma foto processada: Original × Nova com divisor arrastável, intensidade e desfoque reaplicados a partir da base salva, "Salvar ajuste" regrava em resolução cheia | Teste de render com sessão sintética | Fluidez dos controles |
+| **Aprimorar fotos (leve)** | Opcional (desligado): na FOTO grava uma cópia _aprimorada; o original fica intacto | Compilação | — |
+| **Resolução por lente** | Botão de MP sempre visível: percorre as resoluções **que a câmera anuncia** (saídas normais + alta resolução, por proporção). Escolha guardada por câmera; o arquivo sai com a resolução mostrada (se o CameraX recuar, o app avisa). O que só existe no modo de resolução máxima do sensor aparece como **bloqueado pelo fabricante** | Testes (`PhotoSizesTest`) | Ver item 6 do roteiro |
+| Térmico | Aquecimento severo: sem fusão multiquadro; crítico: só o original | Compilação | — |
+
+### Sobre 12 / 50 / 200 MP (prioridade alta do dossiê)
+
+A 0.5 escolhia "Máxima" de forma genérica e o botão só aparecia se a maior saída fosse 20% maior que a padrão, por isso na traseira não havia escolha. Agora as opções vêm das listas públicas do Camera2 de **cada câmera exposta** e o Diagnóstico mostra, por câmera e por lente física, "Resoluções oferecidas", "Bloqueadas" e o tamanho real do sensor.
+
+Limite que não depende do app: se a Samsung não anunciar 50/200 MP em `getOutputSizes`/`getHighResolutionOutputSizes`, nenhum app de terceiros consegue gravá-los pelo CameraX. Se o Diagnóstico mostrar 200 MP **só** no modo de resolução máxima (`ULTRA_HIGH_RESOLUTION_SENSOR`), dá para implementar uma captura Camera2 dedicada — **ainda não implementada**. Lentes físicas que não são expostas como câmeras separadas (comum na tele 5×/50 MP) não têm resolução própria acessível; nesse caso o app mostra a resolução da câmera lógica. **Não há upscaling em nenhum caso.**
+
+Os modos com fusão (Noturno, HDR Nova, Retrato, Food) usam a resolução padrão, por memória e tempo de processamento.
+
+### Bloqueado pelo fabricante/API × não implementado
+
+| Item | Situação |
+|---|---|
+| Processamento interno da Samsung (Nightography, IA de zoom, detalhes do Retrato) | **Bloqueado**: inacessível a terceiros |
+| 200 MP / 50 MP fora das listas públicas | **Bloqueado** se o Diagnóstico não os anunciar; **não implementado** se só existirem no modo de resolução máxima |
+| Panorâmica (captura guiada + costura) | **Não implementado** |
+| Vídeo Retrato (segmentação a 30 fps) | **Não implementado** |
+| Pós-processamento de vídeo em segundo plano | **Não implementado** |
+| Super-resolução multiquadro 20×/30× | **Não implementado** (o alinhamento atual é de pixel inteiro; super-resolução exige subpixel) |
+| Alinhamento subpixel e merge no domínio RAW | **Não implementado** (próximo passo de qualidade do Noturno) |
+
+### Custos desta versão
+
+- APK maior (~+25 MB): biblioteca nativa do ML Kit. Só arm64 é incluído (S24/S25 Ultra).
+- O ML Kit declara permissão de internet para telemetria de uso; **ela é removida no manifesto** — o app continua sem internet.
+- `largeHeap` ativado para a fusão de quadros.
+
+## Roteiro de teste físico — 0.6
+
+1. **Noturno**: cena escura parada (sala com luz baixa), segurando firme até o fim de "Segure firme · 4/5". Comparar com FOTO e com a Noite da Samsung: ruído, cor, sombras. Repetir com uma pessoa se mexendo (há fantasma?). Repetir na tele 3×.
+2. **Retrato**: selfie com cabelo solto/barba/óculos; traseira 1× e 3× a 1–2 m. Tocar na miniatura: o contorno respeita cabelo e armação? A pele ficou idêntica ao original? Ajustar o desfoque e salvar.
+3. **HDR**: FOTO › HDR até "Nova"; janela clara com interior escuro; depois com alguém passando.
+4. **Pano verde** (cena do dossiê) em FOTO com "Aprimorar fotos" ligado: a cópia aprimorada mantém a cor?
+5. **Aspirador 10×** em Noturno e em FOTO + Aprimorar: véu e contraste versus a 0.5.
+6. **Resolução**: em cada lente (0,6×, 1×, 3×, 5×, frontal) tocar no botão de MP e anotar as opções; capturar em cada uma e conferir as dimensões do arquivo. Enviar o Relatório técnico (seção "Resoluções de foto").
+7. **Timelapse**: 1 min a 1 s com o aparelho apoiado → vídeo de ~2 s; conferir orientação.
+8. **Cancelamento**: tirar uma foto no Noturno e tocar no ✕ do selo; o original deve estar em "Originais".
+9. Anotar tempo de processamento de cada modo e se o aparelho aqueceu (com e sem carregador).
+
 ## 0.5 — dossiê de testes de 14/10/2026 (S24 Ultra)
 
 O que o dossiê mostrou e o que foi feito. As fotos do dossiê chegaram reduzidas (1152×1536, sem EXIF), por isso não serviram para comparar nitidez fina; a origem dos dois vídeos não está confirmada.
@@ -53,16 +123,10 @@ O que o dossiê mostrou e o que foi feito. As fotos do dossiê chegaram reduzida
 
 ## Ainda NÃO implementado (não há botão fingindo que existe)
 
-- Retrato próprio (segmentação/profundidade locais e desfoque gradual).
-- HDR por fusão de múltiplas exposições e detecção de fantasmas.
-- Noite multiquadro (alinhamento + redução de ruído temporal).
-- Super-resolução 10×/20×/30×; pelo print do S24 Ultra, a câmera exposta vai até algo entre 10× e 20×.
-- Editor pós-captura com comparação Original × Aprimorado; pós-processamento de vídeo.
-- RAW/DNG, histograma, focus peaking, indicação visual de rostos detectados.
-
-Ordem proposta: (1) confirmar no diagnóstico quais extensões Camera2 o S24U/S25U expõem — se BOKEH/NIGHT/HDR existirem
-via Camera2 mesmo sem CameraX, implementar a sessão de extensão Camera2; (2) HDR por bracketing; (3) Noite multiquadro;
-(4) Retrato com segmentação local; (5) editor com original preservado.
+- Panorâmica, Vídeo Retrato, pós-processamento de vídeo.
+- Super-resolução 20×/30×, alinhamento subpixel, fusão em RAW.
+- Captura de 200 MP pelo modo de resolução máxima do sensor (depende do Diagnóstico do S24U/S25U).
+- Histograma, focus peaking, indicação visual de rostos detectados.
 
 ## Roteiro de teste físico — 0.5 (S24 Ultra, depois S25 Ultra)
 
