@@ -1,570 +1,887 @@
 package com.novacamera.s24
 
 import android.Manifest
-import android.content.ContentValues
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
+import android.graphics.Bitmap
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
-import android.os.BatteryManager
+import android.media.MediaActionSound
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
+import android.util.Size
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.OrientationEventListener
-import android.view.ScaleGestureDetector
-import android.view.Surface
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.SeekBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.Camera
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.extensions.ExtensionMode
-import androidx.camera.extensions.ExtensionsManager
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.MediaStoreOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnNextLayout
+import com.novacamera.s24.camera.AutoStats
+import com.novacamera.s24.camera.CameraListener
+import com.novacamera.s24.camera.CameraState
+import com.novacamera.s24.camera.ManualControls
+import com.novacamera.s24.camera.NovaCamera
+import com.novacamera.s24.camera.RecordingPhase
+import com.novacamera.s24.core.CameraMath
+import com.novacamera.s24.core.CaptureMode
+import com.novacamera.s24.core.DeviceHeat
+import com.novacamera.s24.core.ModeEngine
+import com.novacamera.s24.core.ThermalPolicy
+import com.novacamera.s24.device.DeviceMonitor
+import com.novacamera.s24.settings.AspectRatioOption
+import com.novacamera.s24.settings.FlashOption
+import com.novacamera.s24.settings.NovaSettings
+import com.novacamera.s24.settings.VideoQualityOption
+import com.novacamera.s24.ui.Haptics
+import com.novacamera.s24.ui.HintView
+import com.novacamera.s24.ui.ModeStrip
+import com.novacamera.s24.ui.Nova
+import com.novacamera.s24.ui.NovaIconView
+import com.novacamera.s24.ui.NovaIconView.Icon
+import com.novacamera.s24.ui.ProPanel
+import com.novacamera.s24.ui.ShutterButton
+import com.novacamera.s24.ui.TextChip
+import com.novacamera.s24.ui.ThumbnailView
+import com.novacamera.s24.ui.ViewfinderOverlay
+import com.novacamera.s24.ui.ZoomBar
+import com.novacamera.s24.ui.dp
+import com.novacamera.s24.ui.dpi
+import java.util.concurrent.Executors
 
 /**
- * Nova Camera: protótipo de captura local. Recursos OEM dependem de cada firmware.
- * Não implementa super-resolução, segmentação própria nem IA generativa.
+ * Tela da câmera. A interface é travada em retrato (a pré-visualização não reinicia ao girar);
+ * ícones e textos giram com o aparelho e a orientação real vai para os arquivos.
  */
-class MainActivity : ComponentActivity() {
-    private enum class Mode { FOTO, RETRATO, HDR, NOITE, VIDEO }
-    private var mode = Mode.FOTO
-    private var isFront = false
-    private var currentZoom = 1f
-    private var blurPercent = 65
-    private var askedForMicrophone = false
-    private var zoomMin = 1f
-    private var zoomMax = 1f
-    private var pinching = false
-    private var recordedSeconds = 0L
-    private var batteryCached = -1
-
-    private lateinit var preview: PreviewView
-    private lateinit var status: TextView
-    private lateinit var shutter: TextView
-    private lateinit var modes: LinearLayout
-    private lateinit var zooms: LinearLayout
-    private lateinit var blurSlider: SeekBar
-    private lateinit var blurTitle: TextView
-
-    private var provider: ProcessCameraProvider? = null
-    private var extensions: ExtensionsManager? = null
-    private var activeCamera: Camera? = null
-    private var imageCapture: ImageCapture? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var activeRecording: Recording? = null
-
+class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gestures {
+    private lateinit var settings: NovaSettings
+    private lateinit var camera: NovaCamera
+    private lateinit var monitor: DeviceMonitor
     private val handler = Handler(Looper.getMainLooper())
-    private val power by lazy { getSystemService(PowerManager::class.java) }
-    private val thermalTask = object : Runnable {
-        override fun run() {
-            batteryCached = batteryPercent()
-            updateStatus()
-            handler.postDelayed(this, 10_000L)
-        }
+    private val io = Executors.newSingleThreadExecutor()
+    private val sound = MediaActionSound()
+
+    // Views
+    private lateinit var root: FrameLayout
+    private lateinit var previewFrame: FrameLayout
+    private lateinit var preview: PreviewView
+    private lateinit var transitionImage: ImageView
+    private lateinit var overlay: ViewfinderOverlay
+    private lateinit var bottomScrim: View
+    private lateinit var topBar: LinearLayout
+    private lateinit var flashButton: NovaIconView
+    private lateinit var timerButton: NovaIconView
+    private lateinit var settingsButton: NovaIconView
+    private lateinit var ratioChip: TextChip
+    private lateinit var hdrChip: TextChip
+    private lateinit var qualityChip: TextChip
+    private lateinit var recChip: TextView
+    private lateinit var statusRow: LinearLayout
+    private lateinit var lockChip: TextView
+    private lateinit var evChip: TextView
+    private lateinit var heatChip: TextView
+    private lateinit var hint: HintView
+    private lateinit var infoCard: TextView
+    private lateinit var bottom: LinearLayout
+    private lateinit var proPanel: ProPanel
+    private lateinit var zoomBar: ZoomBar
+    private lateinit var modeStrip: ModeStrip
+    private lateinit var shutter: ShutterButton
+    private lateinit var thumbnail: ThumbnailView
+    private lateinit var flipButton: NovaIconView
+    private lateinit var idleOverlay: TextView
+    private lateinit var permissionOverlay: LinearLayout
+
+    // Estado da tela
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var orientation = 0
+    private var cameraState: CameraState? = null
+    private var lastMedia: Pair<Uri, String>? = null
+    private var torchOn = false
+    private var countdown = 0
+    private var evDragStart = 0
+    private var lastInteraction = SystemClock.elapsedRealtime()
+    private var idlePaused = false
+    private var announcedMode: CaptureMode? = null
+    private var settingsSignature = ""
+
+    private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCamera() else showPermissionOverlay()
+    }
+    private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) hint.show("Microfone negado: o vídeo será gravado sem áudio")
+        camera.startRecording()
     }
 
-    /** Tela travada em retrato: a rotação do arquivo vem do sensor de orientação, não do display. */
     private val orientationListener by lazy {
         object : OrientationEventListener(this) {
             override fun onOrientationChanged(degrees: Int) {
                 if (degrees == ORIENTATION_UNKNOWN) return
-                val rotation = when (degrees) {
-                    in 45 until 135 -> Surface.ROTATION_270
-                    in 135 until 225 -> Surface.ROTATION_180
-                    in 225 until 315 -> Surface.ROTATION_90
-                    else -> Surface.ROTATION_0
-                }
-                imageCapture?.targetRotation = rotation
-                // Durante a gravação a orientação do MP4 já foi fixada no início.
-                if (activeRecording == null) videoCapture?.targetRotation = rotation
+                val next = CameraMath.snapOrientation(degrees, orientation)
+                if (next != orientation) applyOrientation(next)
             }
         }
     }
 
-    private val askCamera = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) initializeCamera() else toast("Autorize a câmera nas configurações")
-    }
-    private val askAudio = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { startVideo() /* Se negado, grava sem áudio. */ }
+    // ------------------------------------------------------------------ ciclo de vida
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
-        setContentView(makeInterface())
-        updateControls()
-        handler.post(thermalTask)
-        if (hasPermission(Manifest.permission.CAMERA)) initializeCamera()
-        else askCamera.launch(Manifest.permission.CAMERA)
+        enableEdgeToEdge()
+        settings = NovaSettings(this)
+        Haptics.enabled = settings.haptics
+        buildInterface()
+        setContentView(root)
+        preview.setScreenFlashWindow(window)
+        camera = NovaCamera(this, preview, settings, this)
+        monitor = DeviceMonitor(this, ::onHeat)
+        settingsSignature = signature()
+        sound.load(MediaActionSound.SHUTTER_CLICK)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            insetTop = bars.top
+            insetBottom = bars.bottom
+            layoutAll()
+            insets
+        }
+        modeStrip.selected = settings.lastMode
+        updateTopBar()
+        if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
+        loadLatestMedia()
     }
-
-    private fun makeInterface(): View {
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-                pinching = true
-                return activeCamera != null
-            }
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                currentZoom = (currentZoom * detector.scaleFactor).coerceIn(zoomMin, zoomMax)
-                activeCamera?.cameraControl?.setZoomRatio(currentZoom)
-                updateStatus()
-                return true
-            }
-            override fun onScaleEnd(detector: ScaleGestureDetector) {
-                populateZoom(zoomMin, zoomMax)
-            }
-        })
-        preview = PreviewView(this).apply {
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
-            setOnTouchListener { _, event ->
-                pinch.onTouchEvent(event)
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) pinching = false
-                if (event.actionMasked == MotionEvent.ACTION_UP && !pinching) {
-                    val point = meteringPointFactory.createPoint(event.x, event.y)
-                    activeCamera?.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
-                }
-                true
-            }
-        }
-        root.addView(preview, FrameLayout.LayoutParams(-1, -1))
-
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            setBackgroundColor(0xBB070D19.toInt())
-        }
-        val titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        titleBar.addView(text("NOVA  CAMERA", 17f, Color.WHITE, true),
-            LinearLayout.LayoutParams(0, dp(46), 1f))
-        val diagnostic = pill("DIAGNÓSTICO") { shareDiagnostic() }
-        titleBar.addView(diagnostic)
-        top.addView(titleBar)
-        status = text("Inicializando…", 12f, 0xFFD1E7F7.toInt())
-        top.addView(status)
-        root.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(10), dp(14), dp(10), dp(20))
-            setBackgroundColor(0xEE070D19.toInt())
-        }
-        zooms = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val zoomScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(zooms)
-        }
-        bottom.addView(zoomScroll, LinearLayout.LayoutParams(-1, dp(50)))
-
-        modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val modeScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(modes)
-        }
-        bottom.addView(modeScroll, LinearLayout.LayoutParams(-1, dp(58)))
-
-        blurTitle = text("Desfoque: 65%", 12f, Color.WHITE)
-        blurTitle.gravity = Gravity.CENTER
-        bottom.addView(blurTitle)
-        blurSlider = SeekBar(this).apply {
-            max = 100
-            progress = blurPercent
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(b: SeekBar?, p: Int, fromUser: Boolean) {
-                    blurPercent = p
-                    blurTitle.text = "Desfoque: $p%"
-                    if (fromUser && mode == Mode.RETRATO) {
-                        activeCamera?.cameraControl?.let {
-                            extensions?.getCameraExtensionsControl(it)?.setExtensionStrength(p)
-                        }
-                    }
-                }
-                override fun onStartTrackingTouch(b: SeekBar?) {}
-                override fun onStopTrackingTouch(b: SeekBar?) {}
-            })
-        }
-        bottom.addView(blurSlider, LinearLayout.LayoutParams(-1, dp(35)))
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        controls.addView(pill("↻") {
-            if (activeRecording == null) {
-                isFront = !isFront
-                currentZoom = 1f
-                bindCamera()
-            }
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        shutter = text("●", 49f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            contentDescription = "Fotografar"
-            background = rounded(Color.WHITE, 42)
-            setTextColor(0xFF0A101C.toInt())
-            setOnClickListener {
-                if (mode == Mode.VIDEO) {
-                    if (activeRecording == null) startVideo() else activeRecording?.stop()
-                } else capturePhoto()
-            }
-        }
-        controls.addView(shutter, LinearLayout.LayoutParams(dp(76), dp(76)))
-        controls.addView(text("LOCAL • PRIVADO", 10f, 0xFF9AACBD.toInt()).apply {
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        bottom.addView(controls)
-        root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        return root
-    }
-
-    private fun text(value: String, sp: Float, color: Int, bold: Boolean = false) =
-        TextView(this).apply {
-            text = value
-            textSize = sp
-            setTextColor(color)
-            gravity = Gravity.CENTER_VERTICAL
-            if (bold) setTypeface(null, Typeface.BOLD)
-        }
-
-    private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
-        cornerRadius = dp(radius).toFloat()
-        setColor(color)
-    }
-
-    private fun pill(label: String, onTap: () -> Unit) = text(label, 12f, Color.WHITE, true).apply {
-        setPadding(dp(14), 0, dp(14), 0)
-        gravity = Gravity.CENTER
-        background = rounded(0xCC283849.toInt(), 24)
-        setOnClickListener { onTap() }
-    }
-
-    private fun updateControls() {
-        modes.removeAllViews()
-        Mode.entries.forEach { option ->
-            val selected = mode == option
-            val b = pill(option.name) {
-                if (activeRecording == null && mode != option) {
-                    mode = option
-                    bindCamera()
-                }
-            }
-            b.setTextColor(if (selected) 0xFF85DFFF.toInt() else Color.WHITE)
-            val lp = LinearLayout.LayoutParams(-2, dp(42))
-            lp.setMargins(dp(4), 0, dp(4), 0)
-            modes.addView(b, lp)
-        }
-        shutter.contentDescription = when {
-            activeRecording != null -> "Parar gravação"
-            mode == Mode.VIDEO -> "Iniciar gravação"
-            else -> "Capturar foto"
-        }
-        shutter.text = if (mode == Mode.VIDEO) "■" else "●"
-        shutter.setTextColor(if (mode == Mode.VIDEO) 0xFFE32F52.toInt() else 0xFF0A101C.toInt())
-        updateStatus()
-    }
-
-    private fun initializeCamera() {
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            try {
-                provider = future.get()
-                val e = ExtensionsManager.getInstanceAsync(this, future.get())
-                e.addListener({
-                    extensions = try { e.get() } catch (ex: Exception) {
-                        Log.w(TAG, "Extensões OEM indisponíveis", ex)
-                        null
-                    }
-                    bindCamera()
-                }, ContextCompat.getMainExecutor(this))
-            } catch (ex: Exception) {
-                Log.e(TAG, "Falha na inicialização CameraX", ex)
-                toast("Falha na câmera: ${ex.message}")
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun bindCamera() {
-        val p = provider ?: return
-        if (activeRecording != null) return
-        try {
-            p.unbindAll()
-            val base = if (isFront) CameraSelector.DEFAULT_FRONT_CAMERA
-                       else CameraSelector.DEFAULT_BACK_CAMERA
-            val extensionMode = when (mode) {
-                Mode.RETRATO -> ExtensionMode.BOKEH
-                Mode.HDR -> ExtensionMode.HDR
-                Mode.NOITE -> ExtensionMode.NIGHT
-                else -> ExtensionMode.NONE
-            }
-            if (extensionMode != ExtensionMode.NONE &&
-                extensions?.isExtensionAvailable(base, extensionMode) != true) {
-                mode = Mode.FOTO
-                toast("Modo OEM indisponível nesta câmera. Usando Foto.")
-            }
-            val activated = when (mode) {
-                Mode.RETRATO -> ExtensionMode.BOKEH
-                Mode.HDR -> ExtensionMode.HDR
-                Mode.NOITE -> ExtensionMode.NIGHT
-                else -> ExtensionMode.NONE
-            }
-            val chosen = if (activated != ExtensionMode.NONE)
-                extensions!!.getExtensionEnabledCameraSelector(base, activated) else base
-            val usePreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(preview.surfaceProvider)
-            }
-            imageCapture = null
-            videoCapture = null
-            if (mode == Mode.VIDEO) {
-                val qualities = if (thermalLimit())
-                    listOf(Quality.FHD, Quality.HD, Quality.SD)
-                else listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD)
-                val recorder = Recorder.Builder()
-                    .setQualitySelector(QualitySelector.fromOrderedList(qualities))
-                    .build()
-                videoCapture = VideoCapture.withOutput(recorder)
-                activeCamera = p.bindToLifecycle(this, chosen, usePreview, videoCapture)
-            } else {
-                imageCapture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                    .build()
-                activeCamera = p.bindToLifecycle(this, chosen, usePreview, imageCapture)
-            }
-            val hasStrength = activated == ExtensionMode.BOKEH &&
-                activeCamera?.let {
-                    extensions?.getCameraExtensionsInfo(it.cameraInfo)?.isExtensionStrengthAvailable
-                } == true
-            blurTitle.visibility = if (hasStrength) View.VISIBLE else View.GONE
-            blurSlider.visibility = if (hasStrength) View.VISIBLE else View.GONE
-            if (hasStrength) activeCamera?.cameraControl?.let {
-                extensions?.getCameraExtensionsControl(it)?.setExtensionStrength(blurPercent)
-            }
-            val zoomState = activeCamera?.cameraInfo?.zoomState?.value
-            val min = zoomState?.minZoomRatio ?: 1f
-            val max = zoomState?.maxZoomRatio ?: 1f
-            zoomMin = min
-            zoomMax = max
-            currentZoom = currentZoom.coerceIn(min, max)
-            activeCamera?.cameraControl?.setZoomRatio(currentZoom)
-            populateZoom(min, max)
-            updateControls()
-        } catch (ex: Exception) {
-            Log.e(TAG, "Erro ao configurar câmera", ex)
-            toast("Não foi possível ativar este modo: ${ex.message}")
-        }
-    }
-
-    private fun populateZoom(min: Float, max: Float) {
-        zooms.removeAllViews()
-        ZoomPresets.PRESETS.forEach { value ->
-            val supported = ZoomPresets.isSupported(value, min, max)
-            val b = pill(ZoomPresets.label(value)) {
-                currentZoom = value.coerceIn(min, max)
-                activeCamera?.cameraControl?.setZoomRatio(currentZoom)
-                populateZoom(min, max)
-                updateStatus()
-            }
-            b.alpha = if (supported) 1f else 0.28f
-            b.isEnabled = supported
-            if (!supported) b.contentDescription = "${ZoomPresets.label(value)} indisponível nesta câmera"
-            b.setTextColor(if (ZoomPresets.isActive(value, currentZoom)) 0xFF8BDFFF.toInt() else Color.WHITE)
-            val lp = LinearLayout.LayoutParams(-2, dp(42))
-            lp.setMargins(dp(4), 0, dp(4), 0)
-            zooms.addView(b, lp)
-        }
-    }
-
-    private fun capturePhoto() {
-        val cap = imageCapture ?: return toast("A câmera ainda não está pronta")
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "NOVA_${timestamp()}.jpg")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Nova Camera")
-        }
-        val output = ImageCapture.OutputFileOptions.Builder(
-            contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
-        ).build()
-        cap.takePicture(output, ContextCompat.getMainExecutor(this),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                    toast("Foto salva na galeria")
-                }
-                override fun onError(exception: ImageCaptureException) {
-                    Log.e(TAG, "Falha foto", exception)
-                    toast("Erro ao salvar foto: ${exception.message}")
-                }
-            })
-    }
-
-    private fun startVideo() {
-        val cap = videoCapture ?: return toast("A câmera ainda não está pronta")
-        if (activeRecording != null) return
-        val mic = hasPermission(Manifest.permission.RECORD_AUDIO)
-        if (!mic && !askedForMicrophone) {
-            askedForMicrophone = true
-            askAudio.launch(Manifest.permission.RECORD_AUDIO)
-            return
-        }
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "NOVA_${timestamp()}.mp4")
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Nova Camera")
-        }
-        val output = MediaStoreOutputOptions.Builder(
-            contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        ).setContentValues(values).build()
-        try {
-            var pending = cap.output.prepareRecording(this, output)
-            var audio = false
-            // Verificação direta no ponto de uso: a permissão pode ter sido revogada desde a checagem acima.
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED) {
-                try {
-                    pending = pending.withAudioEnabled()
-                    audio = true
-                } catch (ex: SecurityException) {
-                    Log.w(TAG, "Microfone recusado; gravando sem áudio", ex)
-                }
-            }
-            recordedSeconds = 0L
-            activeRecording = pending.start(ContextCompat.getMainExecutor(this)) { event ->
-                when (event) {
-                    is VideoRecordEvent.Status -> {
-                        val seconds = event.recordingStats.recordedDurationNanos / 1_000_000_000L
-                        if (seconds != recordedSeconds) {
-                            recordedSeconds = seconds
-                            updateStatus()
-                        }
-                    }
-                    is VideoRecordEvent.Start -> {
-                        updateControls()
-                        toast("Gravando ${if (audio) "com áudio" else "sem áudio"}")
-                    }
-                    is VideoRecordEvent.Finalize -> {
-                        activeRecording = null
-                        updateControls()
-                        if (event.hasError()) {
-                            Log.e(TAG, "Finalize vídeo: ${event.error}", event.cause)
-                            toast("Falha ao finalizar vídeo (${event.error})")
-                        } else toast("Vídeo salvo na galeria")
-                    }
-                }
-            }
-        } catch (ex: Exception) {
-            Log.e(TAG, "Falha vídeo", ex)
-            activeRecording = null
-            toast("Erro ao gravar: ${ex.message}")
-        }
-    }
-
-    private fun hasPermission(permission: String) =
-        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-
-    private fun thermalLimit(): Boolean =
-        power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE ||
-        power.isPowerSaveMode || batteryPercent() in 0..14
-
-    private fun batteryPercent(): Int {
-        val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        return if (level >= 0 && scale > 0) level * 100 / scale else -1
-    }
-
-    private fun updateStatus() {
-        if (!::status.isInitialized) return
-        val thermal = power.currentThermalStatus
-        val state = if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) "quente"
-                    else "normal"
-        val percent = batteryCached
-        val rec = if (activeRecording != null)
-            " · ● REC %d:%02d".format(recordedSeconds / 60, recordedSeconds % 60) else ""
-        status.text = "${mode.name} · ${ZoomPresets.label(currentZoom)} · bateria ${if (percent >= 0) "$percent%" else "?"} · térmico $state$rec"
-    }
-
-    private fun shareDiagnostic() {
-        if (activeRecording != null) return toast("Pare a gravação antes de gerar o diagnóstico")
-        val ext = buildString {
-            val manager = extensions
-            if (manager == null) appendLine("Extensões OEM: indisponíveis")
-            else listOf(CameraSelector.DEFAULT_BACK_CAMERA to "traseira",
-                        CameraSelector.DEFAULT_FRONT_CAMERA to "frontal").forEach { (selector, label) ->
-                appendLine("Extensões $label:")
-                listOf("Retrato" to ExtensionMode.BOKEH,
-                       "HDR" to ExtensionMode.HDR,
-                       "Noite" to ExtensionMode.NIGHT).forEach { (name, type) ->
-                    val yes = try { manager.isExtensionAvailable(selector, type) }
-                              catch (_: Exception) { false }
-                    appendLine("- $name: $yes")
-                }
-            }
-        }
-        val report = CameraDiagnostics.createReport(this) + "\n" + ext
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Nova Camera - relatório técnico")
-            putExtra(Intent.EXTRA_TEXT, report)
-        }
-        startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"))
-    }
-
-    private fun timestamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
-    private fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
-    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onStart() {
         super.onStart()
+        monitor.start()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
+        lastInteraction = SystemClock.elapsedRealtime()
+        handler.removeCallbacks(idleCheck)
+        handler.postDelayed(idleCheck, IDLE_CHECK_MS)
     }
 
-    /** Finaliza o MP4 de forma explícita ao sair do app (home, bloqueio, chamada). */
+    override fun onResume() {
+        super.onResume()
+        Haptics.enabled = settings.haptics
+        overlay.showGrid = settings.grid
+        val sig = signature()
+        if (sig != settingsSignature) {
+            settingsSignature = sig
+            if (::camera.isInitialized && camera.hasProvider) { showTransition(); camera.requestRebind() }
+        }
+    }
+
+    /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
+        cancelCountdown()
+        camera.stopRecording()
+        if (torchOn) { torchOn = false; camera.setTorch(false) }
+        monitor.stop()
         orientationListener.disable()
-        activeRecording?.stop()
+        handler.removeCallbacks(idleCheck)
         super.onStop()
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(thermalTask)
-        activeRecording?.stop()
-        activeRecording = null
+        camera.release()
+        sound.release()
+        io.shutdown()
         super.onDestroy()
     }
 
-    companion object { private const val TAG = "NovaCamera" }
+    private fun startCamera() {
+        permissionOverlay.visibility = View.GONE
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        camera.start()
+    }
+
+    private fun signature() = listOf(settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
+        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
+
+    // ------------------------------------------------------------------ interface
+
+    private fun buildInterface() {
+        root = FrameLayout(this).apply { setBackgroundColor(Nova.BG) }
+
+        previewFrame = FrameLayout(this).apply { clipChildren = true }
+        preview = PreviewView(this).apply {
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+        transitionImage = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        overlay = ViewfinderOverlay(this).apply { gestures = this@MainActivity; showGrid = settings.grid }
+        previewFrame.addView(preview, FrameLayout.LayoutParams(-1, -1))
+        previewFrame.addView(transitionImage, FrameLayout.LayoutParams(-1, -1))
+        previewFrame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        root.addView(previewFrame, FrameLayout.LayoutParams(-1, -1))
+        preview.previewStreamState.observe(this) { st ->
+            if (st == PreviewView.StreamState.STREAMING) hideTransition()
+        }
+
+        bottomScrim = View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x99000000.toInt(), 0xE6000000.toInt()))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        root.addView(bottomScrim, FrameLayout.LayoutParams(-1, 0, Gravity.BOTTOM))
+
+        // Barra superior: ícones distribuídos, alvos de 48dp, sem rótulos redundantes.
+        topBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        settingsButton = icon(Icon.SETTINGS) { startActivity(Intent(this, SettingsActivity::class.java)) }
+        flashButton = icon(Icon.FLASH_OFF) { cycleFlash() }
+        timerButton = icon(Icon.TIMER_OFF) { cycleTimer() }
+        ratioChip = TextChip(this).apply { setOnClickListener { cycleAspect() }; contentDescription = "Proporção da foto" }
+        hdrChip = TextChip(this).apply {
+            text = "HDR"
+            setOnClickListener { toggleHdr() }
+            contentDescription = "HDR do fabricante"
+        }
+        qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Qualidade do vídeo" }
+        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, qualityChip, hdrChip).forEach { v ->
+            val cell = FrameLayout(this)
+            cell.addView(v, FrameLayout.LayoutParams(if (v is NovaIconView) dpi(48) else -2, if (v is NovaIconView) dpi(48) else -2, Gravity.CENTER))
+            topBar.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+        root.addView(topBar, FrameLayout.LayoutParams(-1, dpi(TOP_BAR_DP), Gravity.TOP))
+
+        recChip = TextView(this).apply {
+            setTextColor(Nova.TEXT); textSize = 14f; typeface = Nova.MEDIUM
+            setPadding(dpi(12), dpi(5), dpi(12), dpi(5))
+            background = Nova.pill(Nova.REC, dp(14f))
+            visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        root.addView(recChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+
+        statusRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        lockChip = statusChip(Nova.LOCK).apply {
+            text = "AE/AF BLOQUEADO  ✕"
+            contentDescription = "Foco e exposição bloqueados. Toque para desbloquear"
+            setOnClickListener { unlockAll() }
+        }
+        evChip = statusChip(Nova.TEXT).apply { setOnClickListener { unlockAll() } }
+        heatChip = statusChip(Nova.WARN).apply { isClickable = false }
+        listOf(lockChip, evChip, heatChip).forEach {
+            it.visibility = View.GONE
+            statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
+        }
+        root.addView(statusRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+
+        hint = HintView(this)
+        root.addView(hint, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+
+        infoCard = TextView(this).apply {
+            setTextColor(Nova.TEXT); textSize = 14f; typeface = Nova.REGULAR
+            setLineSpacing(0f, 1.15f)
+            gravity = Gravity.CENTER
+            setPadding(dpi(20), dpi(16), dpi(20), dpi(16))
+            background = Nova.pill(Nova.SURFACE_GLASS, dp(18f))
+            visibility = View.GONE
+        }
+        root.addView(infoCard, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER).apply { marginStart = dpi(32); marginEnd = dpi(32) })
+
+        bottom = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        proPanel = ProPanel(this).apply {
+            visibility = View.GONE
+            listener = object : ProPanel.Listener {
+                override fun onManual(m: ManualControls) {
+                    camera.setManual(m)
+                    proPanel.syncManual(camera.manual)
+                }
+                override fun onEv(index: Int) = camera.setExposureIndex(index)
+            }
+        }
+        zoomBar = ZoomBar(this).apply {
+            listener = object : ZoomBar.Listener {
+                override fun onStop(value: Float) = camera.zoomTo(value)
+                override fun onDrag(value: Float) = camera.zoomTo(value, allowLensSwitch = false)
+                override fun onDragEnd() {}
+            }
+        }
+        modeStrip = ModeStrip(this).apply { onSelect = ::selectMode }
+
+        val controls = FrameLayout(this)
+        thumbnail = ThumbnailView(this).apply { setOnClickListener { openLastMedia() } }
+        shutter = ShutterButton(this).apply { setOnClickListener { onShutter() } }
+        flipButton = icon(Icon.FLIP) { onFlip() }.apply {
+            background = Nova.pill(0x33FFFFFF, dp(24f))
+        }
+        controls.addView(thumbnail, FrameLayout.LayoutParams(dpi(48), dpi(48), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dpi(36) })
+        controls.addView(shutter, FrameLayout.LayoutParams(dpi(78), dpi(78), Gravity.CENTER))
+        controls.addView(flipButton, FrameLayout.LayoutParams(dpi(48), dpi(48), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dpi(36) })
+
+        bottom.addView(proPanel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dpi(4) })
+        bottom.addView(modeStrip, LinearLayout.LayoutParams(-1, dpi(40)))
+        bottom.addView(controls, LinearLayout.LayoutParams(-1, dpi(96)))
+        root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+
+        idleOverlay = TextView(this).apply {
+            text = "Câmera pausada para poupar bateria\n\nToque para continuar"
+            setTextColor(Nova.TEXT); textSize = 15f; gravity = Gravity.CENTER
+            setBackgroundColor(0xE6070D19.toInt())
+            visibility = View.GONE
+            setOnClickListener { resumeFromIdle() }
+        }
+        root.addView(idleOverlay, FrameLayout.LayoutParams(-1, -1))
+
+        permissionOverlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+            setBackgroundColor(Nova.BG)
+            setPadding(dpi(32), 0, dpi(32), 0)
+            visibility = View.GONE
+            addView(TextView(context).apply {
+                text = "A Nova Camera precisa de acesso à câmera.\nFotos e vídeos ficam só no seu aparelho."
+                setTextColor(Nova.TEXT); textSize = 16f; gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.2f)
+            })
+            addView(TextView(context).apply {
+                text = "Permitir acesso"
+                setTextColor(Nova.BG); textSize = 15f; typeface = Nova.MEDIUM; gravity = Gravity.CENTER
+                background = Nova.pill(Nova.ACCENT_SOFT, dp(24f))
+                setPadding(dpi(24), dpi(12), dpi(24), dpi(12))
+                setOnClickListener { requestCameraAgain() }
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dpi(24) })
+        }
+        root.addView(permissionOverlay, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun icon(i: Icon, onTap: () -> Unit) = NovaIconView(this, i).apply {
+        setOnClickListener { Haptics.tap(this); onTap() }
+    }
+
+    private fun statusChip(color: Int) = TextView(this).apply {
+        setTextColor(color); textSize = 12f; typeface = Nova.MEDIUM
+        letterSpacing = 0.04f
+        setPadding(dpi(10), dpi(4), dpi(10), dpi(4))
+        background = Nova.pill(0x99000000.toInt(), dp(12f))
+        minHeight = dpi(28)
+        gravity = Gravity.CENTER
+    }
+
+    /** Posiciona visor e controles conforme proporção, modo e áreas seguras do sistema. */
+    private fun layoutAll(mode: CaptureMode = camera.mode) {
+        val w = root.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val h = root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        val topBarBottom = insetTop + dpi(TOP_BAR_DP)
+        val video = mode.isVideo
+        val aspect = if (video) AspectRatioOption.RATIO_16_9 else settings.aspect
+        val (pTop, pHeight) = when (aspect) {
+            AspectRatioOption.RATIO_4_3 -> topBarBottom to (w * 4 / 3)
+            AspectRatioOption.RATIO_16_9 -> {
+                val ph = w * 16 / 9
+                (if (topBarBottom + ph <= h) topBarBottom else ((h - ph) / 2).coerceAtLeast(0)) to ph
+            }
+            AspectRatioOption.FULL -> 0 to h
+        }
+        (previewFrame.layoutParams as FrameLayout.LayoutParams).apply {
+            width = w; height = pHeight.coerceAtMost(h); topMargin = pTop; gravity = Gravity.TOP
+        }
+        previewFrame.requestLayout()
+
+        (topBar.layoutParams as FrameLayout.LayoutParams).topMargin = insetTop
+        (recChip.layoutParams as FrameLayout.LayoutParams).topMargin = insetTop + dpi(12)
+        (statusRow.layoutParams as FrameLayout.LayoutParams).topMargin = maxOf(pTop, topBarBottom) + dpi(10)
+        (hint.layoutParams as FrameLayout.LayoutParams).topMargin = maxOf(pTop, topBarBottom) + dpi(48)
+        (bottom.layoutParams as FrameLayout.LayoutParams).bottomMargin = insetBottom + dpi(6)
+        bottom.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+        (bottomScrim.layoutParams as FrameLayout.LayoutParams).height = bottom.measuredHeight + insetBottom + dpi(48)
+        // Zoom sempre dentro do visor, logo acima da borda inferior (ou acima dos controles, se o visor os cobrir).
+        zoomBar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val bottomTop = h - insetBottom - dpi(6) - bottom.measuredHeight
+        val previewBottom = pTop + pHeight.coerceAtMost(h)
+        (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin =
+            minOf(previewBottom - dpi(14), bottomTop - dpi(8)) - zoomBar.measuredHeight
+        // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
+        bottomScrim.visibility = if (pTop + pHeight > h - bottom.measuredHeight - insetBottom) View.VISIBLE else View.GONE
+        topBar.setBackgroundColor(if (aspect == AspectRatioOption.FULL) 0x59000000 else 0)
+        root.requestLayout()
+    }
+
+    /** Rebind só depois que o visor assumir o novo tamanho (ViewPort correto). */
+    private fun relayoutThenBind(block: () -> Unit) {
+        val beforeW = previewFrame.width
+        val beforeH = previewFrame.height
+        layoutAll()
+        val lp = previewFrame.layoutParams
+        if (lp.width == beforeW && lp.height == beforeH) block()
+        else preview.doOnNextLayout { block() }
+    }
+
+    private fun applyOrientation(deg: Int) {
+        orientation = deg
+        camera.setRotation(CameraMath.surfaceRotationFor(deg))
+        overlay.orientation = deg
+        zoomBar.orientation = deg
+        val target = CameraMath.iconRotationFor(deg)
+        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, hdrChip, qualityChip, thumbnail, flipButton, recChip, statusRow, hint).forEach { v ->
+            // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
+            var delta = (target - v.rotation) % 360f
+            if (delta > 180f) delta -= 360f
+            if (delta < -180f) delta += 360f
+            v.animate().rotation(v.rotation + delta).setDuration(Nova.NORMAL).setInterpolator(Nova.EASE).start()
+        }
+    }
+
+    // ------------------------------------------------------------------ transições
+
+    private fun showTransition() {
+        val bmp: Bitmap = preview.bitmap ?: return
+        transitionImage.setImageBitmap(bmp)
+        if (Build.VERSION.SDK_INT >= 31) {
+            transitionImage.setRenderEffect(RenderEffect.createBlurEffect(dp(24f), dp(24f), Shader.TileMode.CLAMP))
+        }
+        transitionImage.animate().cancel()
+        transitionImage.alpha = 1f
+        transitionImage.visibility = View.VISIBLE
+        handler.removeCallbacks(transitionTimeout)
+        handler.postDelayed(transitionTimeout, 1800)
+    }
+
+    private val transitionTimeout = Runnable { hideTransition() }
+
+    private fun hideTransition() {
+        if (transitionImage.visibility != View.VISIBLE) return
+        transitionImage.animate().alpha(0f).setDuration(220).setInterpolator(Nova.EASE).withEndAction {
+            transitionImage.visibility = View.GONE
+            transitionImage.setImageDrawable(null)
+        }.start()
+    }
+
+    // ------------------------------------------------------------------ ações
+
+    private fun selectMode(m: CaptureMode) {
+        if (camera.isRecording || countdown > 0) return
+        modeStrip.selected = m
+        showTransition()
+        overlay.hideFocusRing()
+        camera.setMode(m, rebind = false)
+        relayoutThenBind { camera.bind() }
+    }
+
+    private fun onFlip() {
+        if (camera.isRecording) { camera.pauseOrResumeRecording(); return }
+        if (countdown > 0) return
+        showTransition()
+        overlay.hideFocusRing()
+        // Meia volta escondendo o visor, troca a câmera, e a outra meia volta revela a nova imagem.
+        previewFrame.animate().rotationY(90f).setDuration(130).setInterpolator(Nova.EASE).withEndAction {
+            camera.switchFacing()
+            previewFrame.rotationY = -90f
+            previewFrame.animate().rotationY(0f).setDuration(170).setInterpolator(Nova.EASE).start()
+        }.start()
+    }
+
+    private fun onShutter() {
+        val s = cameraState ?: return
+        if (!camera.ready) return
+        if (s.mode.isVideo) {
+            if (camera.isRecording) {
+                Haptics.confirm(shutter)
+                camera.stopRecording()
+            } else startVideo()
+            return
+        }
+        if (!s.support.canCapture) { hint.show(s.support.note, 4000); return }
+        if (countdown > 0) { cancelCountdown(); return }
+        val timer = settings.timerSeconds
+        if (timer > 0) startCountdown(timer) else takePhoto()
+    }
+
+    private fun takePhoto() {
+        Haptics.tap(shutter)
+        camera.capturePhoto()
+    }
+
+    private fun startVideo() {
+        if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            askAudio.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        Haptics.confirm(shutter)
+        if (settings.shutterSound) sound.play(MediaActionSound.START_VIDEO_RECORDING)
+        camera.startRecording()
+    }
+
+    private fun startCountdown(seconds: Int) {
+        countdown = seconds
+        tickCountdown()
+    }
+
+    private val countdownTick = Runnable { tickCountdown() }
+
+    private fun tickCountdown() {
+        if (countdown <= 0) {
+            shutter.countdown = 0; overlay.setBigCountdown(0)
+            takePhoto()
+            return
+        }
+        shutter.countdown = countdown
+        overlay.setBigCountdown(countdown)
+        Haptics.tick(shutter)
+        countdown--
+        handler.postDelayed(countdownTick, 1000)
+    }
+
+    private fun cancelCountdown() {
+        handler.removeCallbacks(countdownTick)
+        countdown = 0
+        if (::shutter.isInitialized) { shutter.countdown = 0; overlay.setBigCountdown(0) }
+    }
+
+    private fun cycleFlash() {
+        val s = cameraState ?: return
+        if (s.mode.isVideo) {
+            torchOn = !torchOn
+            camera.setTorch(torchOn)
+        } else {
+            settings.flash = when (settings.flash) {
+                FlashOption.OFF -> FlashOption.AUTO
+                FlashOption.AUTO -> FlashOption.ON
+                FlashOption.ON -> FlashOption.OFF
+            }
+            camera.refreshFlash()
+            hint.show("Flash: ${settings.flash.label.lowercase()}" + if (s.screenFlash) " (tela)" else "", 1400)
+        }
+        updateTopBar()
+    }
+
+    private fun cycleTimer() {
+        settings.timerSeconds = when (settings.timerSeconds) { 0 -> 3; 3 -> 10; else -> 0 }
+        hint.show(if (settings.timerSeconds == 0) "Temporizador desligado" else "Temporizador: ${settings.timerSeconds} s", 1400)
+        updateTopBar()
+    }
+
+    private fun cycleAspect() {
+        settings.aspect = AspectRatioOption.entries[(settings.aspect.ordinal + 1) % AspectRatioOption.entries.size]
+        updateTopBar()
+        showTransition()
+        overlay.hideFocusRing()
+        relayoutThenBind { camera.bind() }
+    }
+
+    private fun toggleHdr() {
+        settings.oemHdr = !settings.oemHdr
+        showTransition()
+        camera.bind()
+        hint.show(if (settings.oemHdr) "HDR do fabricante ativado" else "HDR desativado", 1400)
+    }
+
+    private fun cycleVideoQuality() {
+        val order = VideoQualityOption.entries
+        settings.videoQuality = order[(settings.videoQuality.ordinal + 1) % order.size]
+        showTransition()
+        camera.bind()
+        hint.show("Vídeo: ${settings.videoQuality.label}", 1400)
+    }
+
+    private fun unlockAll() {
+        camera.resetToAuto()
+        overlay.hideFocusRing()
+        lockChip.visibility = View.GONE
+        evChip.visibility = View.GONE
+        Haptics.tick(lockChip)
+    }
+
+    private fun updateTopBar() {
+        val s = cameraState
+        val video = (s?.mode ?: camera.mode).isVideo
+        val photoCapable = s?.support?.canCapture != false && !video
+        val flashUsable = s != null && (s.hasFlash || (s.screenFlash && !video)) && !s.extensionActive && s.mode != CaptureMode.NOITE
+        flashButton.visibility = if (flashUsable && (photoCapable || video)) View.VISIBLE else View.INVISIBLE
+        flashButton.icon = when {
+            video -> if (torchOn) Icon.FLASH_ON else Icon.FLASH_OFF
+            settings.flash == FlashOption.AUTO -> Icon.FLASH_AUTO
+            settings.flash == FlashOption.ON -> Icon.FLASH_ON
+            else -> Icon.FLASH_OFF
+        }
+        // INVISIBLE (não GONE): os demais ícones não mudam de posição entre modos.
+        timerButton.visibility = if (photoCapable) View.VISIBLE else View.INVISIBLE
+        timerButton.icon = when (settings.timerSeconds) { 3 -> Icon.TIMER_3; 10 -> Icon.TIMER_10; else -> Icon.TIMER_OFF }
+        ratioChip.visibility = if (!video) View.VISIBLE else View.GONE
+        ratioChip.text = settings.aspect.label
+        qualityChip.visibility = if (video) View.VISIBLE else View.GONE
+        qualityChip.text = listOfNotNull(s?.videoQualityLabel, s?.videoFps?.let { "$it" }).joinToString(" · ").ifEmpty { "VÍDEO" }
+        hdrChip.visibility = if (s?.oemHdrAvailable == true) View.VISIBLE else View.GONE
+        hdrChip.active = s?.oemHdrActive == true
+        (hdrChip.parent as? View)?.visibility = hdrChip.visibility
+        (ratioChip.parent as? View)?.visibility = ratioChip.visibility
+        (qualityChip.parent as? View)?.visibility = qualityChip.visibility
+    }
+
+    // ------------------------------------------------------------------ CameraListener
+
+    override fun onCameraState(state: CameraState) {
+        cameraState = state
+        modeStrip.selected = state.mode
+        modeStrip.unavailable = CaptureMode.entries.filterNot { camera.supportFor(it).canCapture }.toSet()
+        shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
+        shutter.isEnabled = state.support.canCapture
+        shutter.alpha = if (state.support.canCapture) 1f else 0.5f
+        overlay.focusEnabled = state.support.canCapture
+        zoomBar.stops = state.zoomStops
+        zoomBar.visibility = if (state.zoomStops.size > 1 || state.zoomMax > state.zoomMin * 1.05f) View.VISIBLE else View.INVISIBLE
+        if (!state.support.canCapture) {
+            infoCard.text = "${state.mode.label} indisponível neste aparelho\n\n${state.support.note}"
+            infoCard.visibility = View.VISIBLE
+        } else infoCard.visibility = View.GONE
+        if (state.support.engine == ModeEngine.NOVA_BASIC && announcedMode != state.mode) hint.show(state.support.note, 4500)
+        announcedMode = state.mode
+        proPanel.visibility = if (state.mode == CaptureMode.PRO) View.VISIBLE else View.GONE
+        if (state.mode == CaptureMode.PRO) {
+            proPanel.configure(state.caps, state.evMin, state.evMax, state.evStepNum, state.evStepDen, state.evIndex, camera.manual)
+        }
+        lockChip.visibility = View.GONE
+        updateEvChip(state.evIndex)
+        updateTopBar()
+        layoutAll(state.mode)
+    }
+
+    override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+
+    override fun onFocusResult(success: Boolean, locked: Boolean) {
+        overlay.setFocusResult(success, locked && camera.exposureLocked)
+        if (locked) {
+            Haptics.heavy(overlay)
+            lockChip.text = if (camera.exposureLocked) "AE/AF BLOQUEADO  ✕" else "AF BLOQUEADO  ✕"
+            lockChip.visibility = View.VISIBLE
+        }
+    }
+
+    override fun onExposureIndex(index: Int) {
+        updateEvChip(index)
+        proPanel.setEvIndex(index)
+    }
+
+    private fun updateEvChip(index: Int) {
+        val s = cameraState ?: return
+        if (index == 0 || s.mode == CaptureMode.PRO) { evChip.visibility = View.GONE; return }
+        evChip.text = "☀ ${CameraMath.formatEv(CameraMath.evForIndex(index, s.evStepNum, s.evStepDen))}  ✕"
+        evChip.contentDescription = "Compensação de exposição ${evChip.text}. Toque para voltar ao automático"
+        evChip.visibility = View.VISIBLE
+    }
+
+    override fun onAutoStats(stats: AutoStats) = proPanel.setStats(stats)
+
+    override fun onCaptureStarted() {
+        overlay.flash()
+        shutter.busy = true
+        if (settings.shutterSound) sound.play(MediaActionSound.SHUTTER_CLICK)
+    }
+
+    override fun onPhotoSaved(uri: Uri?) {
+        shutter.busy = false
+        if (uri != null) showMedia(uri, "image/jpeg", animate = true)
+    }
+
+    override fun onRecording(phase: RecordingPhase, seconds: Long) {
+        val active = phase != RecordingPhase.IDLE
+        shutter.recording = active
+        recChip.visibility = if (active) View.VISIBLE else View.GONE
+        recChip.text = (if (phase == RecordingPhase.PAUSED) "❚❚  " else "●  ") + CameraMath.formatDuration(seconds)
+        recChip.background = Nova.pill(if (phase == RecordingPhase.PAUSED) Nova.SURFACE else Nova.REC, dp(14f))
+        topBar.visibility = if (active) View.INVISIBLE else View.VISIBLE
+        modeStrip.isEnabled = !active
+        modeStrip.animate().alpha(if (active) 0f else 1f).setDuration(Nova.FAST).start()
+        thumbnail.animate().alpha(if (active) 0f else 1f).setDuration(Nova.FAST).start()
+        thumbnail.isEnabled = !active
+        flipButton.icon = when (phase) {
+            RecordingPhase.RECORDING -> Icon.PAUSE
+            RecordingPhase.PAUSED -> Icon.RESUME
+            RecordingPhase.IDLE -> Icon.FLIP
+        }
+        if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onRecordingFinished(uri: Uri?, error: String?) {
+        onRecording(RecordingPhase.IDLE, 0)
+        if (settings.shutterSound) sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
+        if (error != null) hint.show(error, 4000)
+        if (uri != null) showMedia(uri, "video/mp4", animate = true)
+        lastInteraction = SystemClock.elapsedRealtime()
+    }
+
+    override fun onMessage(text: String) = hint.show(text)
+
+    // ------------------------------------------------------------------ gestos do visor
+
+    override fun onTap(x: Float, y: Float) {
+        if (!camera.ready) return
+        lockChip.visibility = View.GONE
+        overlay.showFocusAt(x, y)
+        camera.focusAt(x, y, lock = false)
+    }
+
+    override fun onLongPress(x: Float, y: Float) {
+        if (!camera.ready) return
+        overlay.showFocusAt(x, y)
+        camera.focusAt(x, y, lock = true)
+    }
+
+    override fun onExposureDragStart() {
+        if (camera.manual.manualExposure && camera.mode == CaptureMode.PRO) {
+            hint.show("Exposição manual ativa: ajuste ISO e velocidade no painel Pro", 2000)
+        }
+        evDragStart = camera.exposureIndex
+    }
+
+    override fun onExposureDrag(totalPx: Float) {
+        val s = cameraState ?: return
+        if (s.evMax <= s.evMin) return
+        val startEv = CameraMath.evForIndex(evDragStart, s.evStepNum, s.evStepDen)
+        val ev = startEv + totalPx / dp(EV_DRAG_DP_PER_EV)
+        val idx = CameraMath.indexForEv(ev, s.evStepNum, s.evStepDen, s.evMin, s.evMax)
+        val before = camera.exposureIndex
+        camera.setExposureIndex(idx)
+        if (idx != before && (idx == 0 || idx == s.evMin || idx == s.evMax)) Haptics.tick(overlay)
+        val fraction = (idx - s.evMin).toFloat() / (s.evMax - s.evMin)
+        overlay.showExposure(fraction, CameraMath.formatEv(CameraMath.evForIndex(idx, s.evStepNum, s.evStepDen)), keep = true)
+    }
+
+    override fun onExposureDragEnd() {
+        val s = cameraState ?: return
+        if (s.evMax <= s.evMin) return
+        val idx = camera.exposureIndex
+        val fraction = (idx - s.evMin).toFloat() / (s.evMax - s.evMin)
+        overlay.showExposure(fraction, CameraMath.formatEv(CameraMath.evForIndex(idx, s.evStepNum, s.evStepDen)), keep = false)
+    }
+
+    override fun onPinch(scaleFactor: Float) = camera.zoomBy(scaleFactor)
+
+    override fun onPinchEnd() {}
+
+    // ------------------------------------------------------------------ energia e temperatura
+
+    private fun onHeat(h: DeviceHeat) {
+        camera.onHeat(h)
+        heatChip.visibility = if (ThermalPolicy.showBadge(h)) View.VISIBLE else View.GONE
+        heatChip.text = ThermalPolicy.badgeText(h)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        lastInteraction = SystemClock.elapsedRealtime()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private val idleCheck = object : Runnable {
+        override fun run() {
+            val timeout = settings.idleTimeoutSeconds
+            val idleFor = SystemClock.elapsedRealtime() - lastInteraction
+            if (timeout > 0 && !idlePaused && !camera.isRecording && countdown == 0 && idleFor > timeout * 1000L) {
+                idlePaused = true
+                camera.pause()
+                idleOverlay.visibility = View.VISIBLE
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            handler.postDelayed(this, IDLE_CHECK_MS)
+        }
+    }
+
+    private fun resumeFromIdle() {
+        if (!idlePaused) return
+        idlePaused = false
+        idleOverlay.visibility = View.GONE
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        camera.resume()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            lastInteraction = SystemClock.elapsedRealtime()
+            if (idlePaused) { resumeFromIdle(); return true }
+            if (event.repeatCount == 0) onShutter()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
+    // ------------------------------------------------------------------ galeria
+
+    private fun showMedia(uri: Uri, mime: String, animate: Boolean) {
+        lastMedia = uri to mime
+        io.execute {
+            val bmp = runCatching { contentResolver.loadThumbnail(uri, Size(192, 192), null) }.getOrNull()
+            handler.post { if (!isDestroyed) thumbnail.setImage(bmp, animate) }
+        }
+    }
+
+    /** Última mídia criada pelo próprio app (não exige permissão de leitura). */
+    private fun loadLatestMedia() {
+        io.execute {
+            val found = listOf(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "image/jpeg",
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI to "video/mp4",
+            ).mapNotNull { (base, mime) ->
+                runCatching {
+                    contentResolver.query(base, arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATE_ADDED),
+                        "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?", arrayOf("%Nova Camera%"),
+                        "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { c ->
+                        if (c.moveToFirst()) Triple(Uri.withAppendedPath(base, c.getLong(0).toString()), mime, c.getLong(1)) else null
+                    }
+                }.getOrNull()
+            }.maxByOrNull { it.third }
+            if (found != null) handler.post { if (!isDestroyed && lastMedia == null) showMedia(found.first, found.second, animate = false) }
+        }
+    }
+
+    private fun openLastMedia() {
+        val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        }.onFailure { Log.w(TAG, "Sem visualizador para $uri", it); hint.show("Nenhum app de galeria disponível") }
+    }
+
+    // ------------------------------------------------------------------ permissões
+
+    private fun hasPermission(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    private fun showPermissionOverlay() {
+        permissionOverlay.visibility = View.VISIBLE
+    }
+
+    private fun requestCameraAgain() {
+        if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) askCamera.launch(Manifest.permission.CAMERA)
+        else startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        if (permissionOverlay.visibility == View.VISIBLE && hasPermission(Manifest.permission.CAMERA)) startCamera()
+    }
+
+    companion object {
+        private const val TAG = "NovaCamera"
+        private const val TOP_BAR_DP = 52
+        private const val IDLE_CHECK_MS = 10_000L
+        /** Arrastar ~80dp na horizontal = 1 EV. */
+        private const val EV_DRAG_DP_PER_EV = 80f
+    }
+
 }

@@ -62,9 +62,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="nova-test-${GITHUB_RUN_NUMBER}"
-          APK="Nova-Camera-v0.3-build${GITHUB_RUN_NUMBER}.apk"
+          VERSION="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          APK="Nova-Camera-v${VERSION}-build${GITHUB_RUN_NUMBER}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
-          gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Nova Camera • teste #${GITHUB_RUN_NUMBER}" --notes 'Prévia experimental. Validação necessária no S24 Ultra e S25 Ultra.' --prerelease
+          gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Nova Camera ${VERSION} • teste #${GITHUB_RUN_NUMBER}" --notes 'Prévia experimental. Validação necessária no S24 Ultra e S25 Ultra.' --prerelease
           gh release list --limit 100 --json tagName,isPrerelease,createdAt --jq '[.[] | select(.isPrerelease and (.tagName | startswith("nova-test-")))] | sort_by(.createdAt) | reverse | .[2:] | .[].tagName' | while IFS= read -r OLD; do
             [[ -z "$OLD" ]] && continue
             gh release delete "$OLD" --yes --cleanup-tag

@@ -1,0 +1,289 @@
+package com.novacamera.s24
+
+import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.Typeface
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.DynamicRange
+import androidx.camera.core.Preview
+import androidx.camera.extensions.ExtensionMode
+import androidx.camera.extensions.ExtensionsManager
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.Quality
+import androidx.camera.video.Recorder
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.novacamera.s24.core.ThermalPolicy
+import com.novacamera.s24.device.DeviceMonitor
+import com.novacamera.s24.settings.NovaSettings
+import com.novacamera.s24.settings.VideoQualityOption
+import com.novacamera.s24.ui.Nova
+import com.novacamera.s24.ui.NovaIconView
+import com.novacamera.s24.ui.dp
+import com.novacamera.s24.ui.dpi
+import java.util.concurrent.Executors
+
+/** Base visual compartilhada pelas telas secundárias (fundo, cabeçalho, áreas seguras). */
+abstract class NovaScreen : ComponentActivity() {
+    protected lateinit var content: LinearLayout
+
+    protected fun buildScreen(title: String, trailing: View? = null) {
+        enableEdgeToEdge()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Nova.BG) }
+        val header = FrameLayout(this)
+        header.addView(NovaIconView(this, NovaIconView.Icon.CLOSE).apply {
+            contentDescription = "Voltar"
+            setOnClickListener { finish() }
+        }, FrameLayout.LayoutParams(dpi(48), dpi(48), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dpi(8) })
+        header.addView(TextView(this).apply {
+            text = title; setTextColor(Nova.TEXT); textSize = 18f; typeface = Nova.MEDIUM
+        }, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        trailing?.let { header.addView(it, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dpi(16) }) }
+        root.addView(header, LinearLayout.LayoutParams(-1, dpi(56)))
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpi(16), dpi(4), dpi(16), dpi(24))
+        }
+        root.addView(ScrollView(this).apply { addView(content); isFillViewport = true }, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            insets
+        }
+    }
+}
+
+/** Configurações agrupadas por tarefa. Cada opção aqui altera um comportamento real. */
+class SettingsActivity : NovaScreen() {
+    private lateinit var settings: NovaSettings
+    private lateinit var monitor: DeviceMonitor
+    private var deviceText: TextView? = null
+    private var group: LinearLayout? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        settings = NovaSettings(this)
+        buildScreen("Configurações")
+        monitor = DeviceMonitor(this) { h -> deviceText?.text = ThermalPolicy.describe(h) }
+
+        section("Foto")
+        switch("Salvar selfie como visualizada", "A foto frontal mantém o mesmo lado da pré-visualização (sem recodificar a imagem).",
+            { settings.mirrorFrontPhoto }, { settings.mirrorFrontPhoto = it })
+        switch("Grade de composição", null, { settings.grid }, { settings.grid = it })
+        switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
+        switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
+            { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
+
+        section("Vídeo")
+        choice("Qualidade", "Aplicada se a câmera suportar; caso contrário usa a próxima disponível.",
+            VideoQualityOption.entries.map { it.label }, { settings.videoQuality.ordinal }) {
+            settings.videoQuality = VideoQualityOption.entries[it]
+        }
+        choice("Quadros por segundo", "60 fps só é usado quando a câmera aceita a combinação escolhida.",
+            listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
+        switch("Estabilização", "Usa a estabilização anunciada pela câmera (pode recortar levemente as bordas).",
+            { settings.videoStabilization }, { settings.videoStabilization = it })
+        switch("Espelhar vídeo da câmera frontal", "Grava como na pré-visualização. Desative para gravar textos legíveis.",
+            { settings.mirrorFrontVideo }, { settings.mirrorFrontVideo = it })
+        switch("Gravar áudio", "Sem permissão do microfone, o vídeo é gravado sem som e o app avisa.",
+            { settings.recordAudio }, { settings.recordAudio = it })
+
+        section("Foco e exposição")
+        switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
+            { settings.facePriority }, { settings.facePriority = it })
+        val holds = listOf(4, 8, 0)
+        choice("Manter foco por toque", "Depois disso o foco volta a acompanhar o assunto; a exposição escolhida é preservada.",
+            listOf("4 segundos", "8 segundos", "Até novo toque"), { holds.indexOf(settings.tapFocusHoldSeconds).takeIf { it >= 0 } ?: 0 }) {
+            settings.tapFocusHoldSeconds = holds[it]
+        }
+        switch("Travar balanço de branco com AE/AF", "No toque longo, também fixa as cores.",
+            { settings.lockWhiteBalanceWithAeAf }, { settings.lockWhiteBalanceWithAeAf = it })
+
+        section("Energia e temperatura")
+        val idle = listOf(60, 120, 300, 0)
+        choice("Pausar câmera sem uso", "Desliga o sensor após o tempo escolhido, fora de gravações.",
+            listOf("1 minuto", "2 minutos", "5 minutos", "Nunca"), { idle.indexOf(settings.idleTimeoutSeconds).takeIf { it >= 0 } ?: 1 }) {
+            settings.idleTimeoutSeconds = idle[it]
+        }
+        deviceText = info("Estado do aparelho", ThermalPolicy.describe(monitor.current))
+
+        section("Interface")
+        switch("Retorno tátil", null, { settings.haptics }, { settings.haptics = it })
+
+        section("Diagnóstico e privacidade")
+        action("Relatório técnico da câmera", "Lentes, extensões do fabricante e limites reais deste aparelho. Compartilhamento só manual.") {
+            startActivity(Intent(this, DiagnosticsActivity::class.java))
+        }
+        info("Privacidade", "Sem internet, conta, anúncios ou telemetria. Fotos e vídeos ficam no aparelho (Pictures/Movies › Nova Camera).")
+        info("Em desenvolvimento", "Retrato com segmentação própria, HDR por fusão de exposições, Noite multiquadro e super-resolução. " +
+            "Esses recursos ainda não estão no app; quando um modo depende deles, ele aparece como indisponível.")
+        info("Versão", BuildConfigInfo.version(this))
+    }
+
+    override fun onStart() { super.onStart(); monitor.start() }
+    override fun onStop() { monitor.stop(); super.onStop() }
+
+    // ---------------------------------------------------------------- construtores de linhas
+
+    private fun section(title: String) {
+        content.addView(TextView(this).apply {
+            text = title.uppercase()
+            setTextColor(Nova.ACCENT); textSize = 11.5f; typeface = Nova.MEDIUM; letterSpacing = 0.1f
+            setPadding(dpi(6), dpi(22), 0, dpi(8))
+        })
+        group = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Nova.pill(Nova.SURFACE, dp(18f))
+            setPadding(0, dpi(4), 0, dpi(4))
+        }
+        content.addView(group)
+    }
+
+    private fun row(title: String, subtitle: String?, trailing: View?): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpi(16), dpi(12), dpi(12), dpi(12))
+            minimumHeight = dpi(56)
+        }
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(this).apply { text = title; setTextColor(Nova.TEXT); textSize = 15.5f })
+        subtitle?.let {
+            texts.addView(TextView(this).apply {
+                text = it; setTextColor(Nova.TEXT_MUTED); textSize = 12.5f; setLineSpacing(0f, 1.1f)
+                setPadding(0, dpi(3), 0, 0)
+            })
+        }
+        row.addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
+        trailing?.let { row.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(12) }) }
+        group?.addView(row)
+        return row
+    }
+
+    private fun switch(title: String, subtitle: String?, get: () -> Boolean, set: (Boolean) -> Unit) {
+        val sw = Switch(this).apply {
+            isChecked = get()
+            setOnCheckedChangeListener { _, v -> set(v) }
+            contentDescription = title
+        }
+        row(title, subtitle, sw).setOnClickListener { sw.toggle() }
+    }
+
+    private fun choice(title: String, subtitle: String?, options: List<String>, current: () -> Int, set: (Int) -> Unit) {
+        val value = TextView(this).apply { setTextColor(Nova.ACCENT_SOFT); textSize = 14f; typeface = Nova.MEDIUM; text = options[current()] }
+        row(title, subtitle, value).setOnClickListener {
+            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title)
+                .setSingleChoiceItems(options.toTypedArray(), current()) { d, which ->
+                    set(which); value.text = options[which]; d.dismiss()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        }
+    }
+
+    private fun action(title: String, subtitle: String?, onClick: () -> Unit) {
+        val arrow = TextView(this).apply { text = "›"; setTextColor(Nova.TEXT_MUTED); textSize = 22f }
+        row(title, subtitle, arrow).setOnClickListener { onClick() }
+    }
+
+    private fun info(title: String, text: String): TextView {
+        val r = row(title, text, null)
+        val texts = r.getChildAt(0) as LinearLayout
+        return texts.getChildAt(1) as TextView
+    }
+}
+
+/** Relatório técnico: Camera2 + visão do CameraX (extensões, vídeo) + estado térmico. */
+class DiagnosticsActivity : NovaScreen() {
+    private val io = Executors.newSingleThreadExecutor()
+    private var report = ""
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val share = TextView(this).apply {
+            text = "Compartilhar"; setTextColor(Nova.ACCENT_SOFT); textSize = 14f; typeface = Nova.MEDIUM
+            setPadding(dpi(8), dpi(8), dpi(8), dpi(8))
+            setOnClickListener { shareReport() }
+        }
+        buildScreen("Diagnóstico", share)
+        val body = TextView(this).apply {
+            text = "Coletando informações…"
+            setTextColor(Nova.TEXT); textSize = 12.5f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setLineSpacing(0f, 1.15f)
+        }
+        content.addView(body)
+        val heat = DeviceMonitor(this) {}
+        heat.start()
+        val heatText = ThermalPolicy.describe(heat.current) + (heat.headroom()?.let { "\nMargem térmica prevista (10 s): %.2f".format(it) } ?: "")
+        heat.stop()
+
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            val provider = runCatching { future.get() }.getOrNull()
+            val extFuture = provider?.let { ExtensionsManager.getInstanceAsync(this, it) }
+            val build = { ext: ExtensionsManager? ->
+                io.execute {
+                    val extra = buildString {
+                        appendLine("── Energia")
+                        appendLine(heatText)
+                        appendLine("\n── Visão do CameraX (o que a Nova Camera usa)")
+                        if (provider != null) cameraXSummary(provider, ext)
+                        else appendLine("CameraX indisponível")
+                    }
+                    val text = CameraDiagnostics.createReport(this, extra)
+                    runOnUiThread { report = text; body.text = text }
+                }
+            }
+            if (extFuture == null) build(null)
+            else extFuture.addListener({ build(runCatching { extFuture.get() }.getOrNull()) }, ContextCompat.getMainExecutor(this))
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun StringBuilder.cameraXSummary(provider: ProcessCameraProvider, ext: ExtensionsManager?) {
+        listOf("Traseira" to CameraSelector.DEFAULT_BACK_CAMERA, "Frontal" to CameraSelector.DEFAULT_FRONT_CAMERA).forEach { (label, sel) ->
+            val info = runCatching { provider.getCameraInfo(sel) }.getOrNull() ?: run { appendLine("$label: ausente"); return@forEach }
+            appendLine("$label padrão:")
+            val names = listOf("Retrato (BOKEH)" to ExtensionMode.BOKEH, "HDR" to ExtensionMode.HDR, "Noite" to ExtensionMode.NIGHT,
+                "Auto" to ExtensionMode.AUTO, "Retoque" to ExtensionMode.FACE_RETOUCH)
+            appendLine("  Extensões OEM via CameraX: " + if (ext == null) "biblioteca do fabricante ausente"
+                else names.joinToString { (n, m) -> "$n=" + (if (runCatching { ext.isExtensionAvailable(sel, m) }.getOrDefault(false)) "sim" else "não") })
+            val video = runCatching { Recorder.getVideoCapabilities(info) }.getOrNull()
+            val qualities = video?.getSupportedQualities(DynamicRange.SDR).orEmpty().map {
+                when (it) { Quality.UHD -> "4K"; Quality.FHD -> "FHD"; Quality.HD -> "HD"; Quality.SD -> "SD"; else -> it.toString() }
+            }
+            appendLine("  Vídeo SDR: ${qualities.joinToString().ifEmpty { "?" }} · estabilização de vídeo: ${video?.isStabilizationSupported}" +
+                " · de pré-visualização: ${runCatching { Preview.getPreviewCapabilities(info).isStabilizationSupported }.getOrNull()}")
+            appendLine("  Faixas de fps (CameraX): ${info.supportedFrameRateRanges.joinToString()}")
+            appendLine("  Zoom: ${info.zoomState.value?.let { "${it.minZoomRatio}–${it.maxZoomRatio}" } ?: "(lido ao abrir a câmera)"}")
+        }
+        val all = provider.availableCameraInfos
+        appendLine("Câmeras acessíveis ao CameraX: ${all.size}")
+    }
+
+    private fun shareReport() {
+        if (report.isEmpty()) return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Nova Camera — relatório técnico")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"))
+    }
+
+    override fun onDestroy() { io.shutdown(); super.onDestroy() }
+}

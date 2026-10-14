@@ -12,7 +12,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.3.0"
+        versionName = "0.4.0"
     }
 
     compileOptions {
@@ -40,6 +40,15 @@ android {
     }
 }
 
+android.testOptions.unitTests.isIncludeAndroidResources = true
+// Ambientes sem acesso direto ao Maven podem apontar para jars do Robolectric já baixados.
+tasks.withType<Test>().configureEach {
+    System.getenv("ROBOLECTRIC_DEPS_DIR")?.let {
+        systemProperty("robolectric.offline", "true")
+        systemProperty("robolectric.dependency.dir", it)
+    }
+}
+
 kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
@@ -55,4 +64,6 @@ dependencies {
     implementation("androidx.camera:camera-video:$camerax")
     implementation("androidx.camera:camera-extensions:$camerax")
     testImplementation("junit:junit:4.13.2")
+    // Renderiza a interface real em JVM (sem aparelho) para teste de fumaça e capturas de layout.
+    testImplementation("org.robolectric:robolectric:4.17")
 }

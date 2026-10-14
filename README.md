@@ -105,11 +105,13 @@ Construir **um aplicativo de câmera realmente funcional, fluido e confiável**,
 
 ## 6. Estado do repositório (não confundir proposta e implementação)
 
-A base atual (v0.3.0 experimental) tem: tela de câmera com CameraX, captura JPEG, vídeo MP4, zoom via CameraControl, foco por toque, alternância frontal/traseira, checagem de extensões OEM, slider Bokeh se disponível, indicadores térmico/bateria, diagnóstico Camera2, ícone vetorial e workflows GitHub Actions.
+**Versão 0.4.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
 
-**Ainda não foi testada em S24 Ultra/S25 Ultra. Não existe pós-processamento super-resolução, fusão multiquadro própria, IA de retrato ou edição pós-vídeo.** Design atual é protótipo e precisa ser redesenhado com qualidade premium.
+Resumo: nova interface própria (visor WYSIWYG 4:3/16:9/tela cheia, áreas seguras, controles que giram com o aparelho); foco por toque com medição preservada, bloqueio AE/AF real via Camera2, exposição por gesto, prioridade a rostos quando suportada; selfie salva como visualizada (EXIF, sem recodificar); zoom suave com paradas reais; modos OEM só quando o fabricante libera (caso contrário o modo aparece indisponível e não captura); Noite básica por exposição estendida; Pro com ISO/velocidade/foco/balanço/EV reais; vídeo com qualidade/fps/estabilização conforme suporte; monitor térmico que distingue carregamento; diagnóstico ampliado.
 
-**Registro de compilação:** os runs 1–4 do GitHub Actions falharam. O run 38562463474 (14/10/2026) ainda falhava em compileDebugKotlin: o import de `ImageCaptureException` foi adicionado, mas o código continuava referenciando `ImageCapture.ImageCaptureException` (classe inexistente). Corrigido na branch `ccr-7443eaac-tqygyg`, junto com: rotação correta de foto/vídeo com tela travada em retrato, gravação finalizada ao sair do app (`onStop`), zoom por pinça (também durante a gravação), tempo decorrido da gravação, bloqueio do diagnóstico durante gravação e áudio desligado com segurança se o microfone for revogado. CI agora roda também testes unitários (`ZoomPresetsTest`) e Android lint. Status de cada run: ver Actions; não presumir APK sem Release publicado.
+**Não implementado ainda:** Retrato próprio, HDR por fusão, Noite multiquadro, super-resolução, editor Original × Aprimorado. **Nada da 0.4 foi testado em aparelho físico.**
+
+**Arquitetura:** `core/` (lógica pura testada), `camera/` (sessão CameraX + interop Camera2), `device/` (temperatura/bateria), `settings/`, `ui/` (componentes desenhados em Canvas), `MainActivity`, `SettingsActivity`/`DiagnosticsActivity`. O teste `MainScreenRenderTest` renderiza a tela real via Robolectric e grava PNGs em `app/build/ui-renders`.
 
 ## 7. Fluxo GitHub / distribuição privada
 
