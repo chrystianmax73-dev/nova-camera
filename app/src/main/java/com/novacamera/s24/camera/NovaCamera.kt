@@ -113,6 +113,7 @@ class NovaCamera(
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
     private var paused = false
+    private var freshSessionRequested = false
 
     var mode: CaptureMode = settings.lastMode; private set
     var isFront = false; private set
@@ -297,9 +298,25 @@ class NovaCamera(
         }.build()
     }
 
+    fun beginNewSession() {
+        freshSessionRequested = true
+        if (paused) paused = false
+        if (hasProvider && !isRecording) bind()
+    }
+
     fun bind() {
         val p = provider ?: return
         if (isRecording || paused) return
+        Choreographer.getInstance().removeFrameCallback(zoomFrame)
+        zoomAnimating = false
+        zoomGate.reset()
+        if (freshSessionRequested) {
+            freshSessionRequested = false
+            refreshLenses()
+            pendingZoomOnLens = 1f
+            zoomCurve.jumpTo(1f)
+            resetFocusState()
+        }
         val support = supportFor(mode)
         val (_, _, oemHdr) = oemFacts[isFront] ?: Triple(false, false, false)
 
@@ -655,7 +672,10 @@ class NovaCamera(
     fun zoomTo(equivalentZoom: Float, allowLensSwitch: Boolean = true) {
         val lens = currentLens
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
-            val choice = LensSelection.choose(lenses, currentLensId, defaultLensId, equivalentZoom)
+            val st = latestStats
+            val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
+            val choice = LensSelection.choose(lenses, currentLensId, defaultLensId, equivalentZoom,
+                preferNative = !mode.isVideo && !isFront && enoughLight)
             if (choice != null && choice.cameraId != currentLensId) {
                 currentLensId = choice.cameraId
                 pendingZoomOnLens = choice.zoomOnLens
@@ -722,7 +742,10 @@ class NovaCamera(
         val cam = camera ?: return zoomGate.reset()
         synchronized(telemetry) { telemetry.command(value, SystemClock.uptimeMillis()) }
         val future = cam.cameraControl.setZoomRatio(value)
-        future.addListener({ zoomGate.completed()?.let(::sendZoom) }, main)
+        val generation = zoomGate.generation
+        future.addListener({
+            if (camera === cam) zoomGate.completed(generation)?.let(::sendZoom)
+        }, main)
     }
 
     /** Nome da lente física ativa, quando a câmera informa (LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID). */
@@ -752,14 +775,27 @@ class NovaCamera(
         val flags = if (manualFocus) FocusMeteringAction.FLAG_AE
                     else FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
         val action = FocusMeteringAction.Builder(point, flags).disableAutoCancel().build()
-        if (!cam.cameraInfo.isFocusMeteringSupported(action)) {
-            listener.onFocusResult(false, false)
-            return
+        val chosen = if (cam.cameraInfo.isFocusMeteringSupported(action)) action else {
+            val exposureOnly = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
+            if (!cam.cameraInfo.isFocusMeteringSupported(exposureOnly)) {
+                userPointActive = false
+                applyInterop()
+                listener.onFocusResult(false, false)
+                return
+            }
+            exposureOnly
         }
-        val future = cam.cameraControl.startFocusAndMetering(action)
+        val future = cam.cameraControl.startFocusAndMetering(chosen)
         future.addListener({
-            if (token != focusToken) return@addListener
-            val ok = runCatching { future.get().isFocusSuccessful }.getOrDefault(false)
+            if (token != focusToken || camera !== cam) return@addListener
+            val result = runCatching { future.get() }.getOrNull()
+            if (result == null) {
+                userPointActive = false
+                applyInterop()
+                listener.onFocusResult(false, false)
+                return@addListener
+            }
+            val ok = result.isFocusSuccessful
             if (lock) {
                 aeLocked = true
                 applyInterop()
@@ -1275,7 +1311,7 @@ class NovaCamera(
                 listener.onRecordingFinished(uri, err)
                 if (uri != null) listener.onMessage("Timelapse salvo: $frames quadros · " +
                     String.format(Locale.US, "%.1f s de vídeo", frames / run.plan.outputFps.toFloat()).replace('.', ','))
-                if (settingsChangedDuringRecording) { settingsChangedDuringRecording = false; bind() }
+                if (settingsChangedDuringRecording || freshSessionRequested) { settingsChangedDuringRecording = false; bind() }
             }
         }
     }
@@ -1327,7 +1363,7 @@ class NovaCamera(
                         if (err != null) Log.e(TAG, "Finalize vídeo: ${event.error}", event.cause)
                         // Muitos erros ainda produzem arquivo válido (ex.: fonte interrompida).
                         listener.onRecordingFinished(event.outputResults.outputUri.takeIf { it != android.net.Uri.EMPTY }, err)
-                        if (settingsChangedDuringRecording) { settingsChangedDuringRecording = false; bind() }
+                        if (settingsChangedDuringRecording || freshSessionRequested) { settingsChangedDuringRecording = false; bind() }
                     }
                 }
             }

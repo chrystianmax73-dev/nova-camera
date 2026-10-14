@@ -10,8 +10,10 @@ object CaptureDecision {
         if (maxFrames <= 1) return 1 to "Aparelho quente: um quadro, sem fusão"
         if (iso == null || exposureNs == null) return maxFrames to null
         val bright = iso < 500 && exposureNs < 40_000_000L
-        return if (bright) 1 to "Luz suficiente: um quadro, sem fusão (nada a ganhar e menos risco de fantasma)"
-               else maxFrames to null
+        if (bright) return 1 to "Luz suficiente: um quadro, sem fusão"
+        // Limita apenas o tempo de exposição acumulado; overhead CameraX não está incluído.
+        val byExposure = if (exposureNs > 0L) (1_200_000_000L / exposureNs).coerceIn(1L, maxFrames.toLong()).toInt() else maxFrames
+        return byExposure to if (byExposure < maxFrames) "Exposição longa: rajada reduzida para preservar estabilidade" else null
     }
 
     /**
@@ -24,3 +26,4 @@ object CaptureDecision {
         return keep to note
     }
 }
+

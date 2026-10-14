@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
 import com.novacamera.s24.core.imaging.Px
+import com.novacamera.s24.core.DenoisePolicy
 import kotlin.math.min
 
 /**
@@ -26,6 +27,10 @@ object NcnnDenoiser {
 
     private val libLoaded = runCatching { System.loadLibrary("novadenoise") }.onFailure { Log.w(TAG, "biblioteca nativa ausente", it) }.isSuccess
     @Volatile private var handle = 0L
+    private var lastUsedMs = 0L
+    private var retryAfterMs = 0L
+    @Volatile var report = "IA ainda não executada"
+        private set
 
     @JvmStatic private external fun nativeLoad(assets: AssetManager, param: String, bin: String, useGpu: Boolean): Long
     @JvmStatic private external fun nativeUsesGpu(handle: Long): Boolean
@@ -45,7 +50,7 @@ object NcnnDenoiser {
         return handle != 0L
     }
 
-    /** Libera a memória do modelo (chamado quando a fila esvazia). */
+    /** Libera sob pressão de memória/térmica; sincronizada com toda a inferência. */
     @Synchronized
     fun release() {
         if (handle != 0L) { nativeRelease(handle); handle = 0L }
@@ -55,44 +60,113 @@ object NcnnDenoiser {
      * Aplica no lugar, em blocos. [strength] 0..1 mistura com o original (1 = só a rede): manter
      * um pouco do grão evita o aspecto plástico. Devolve false se não houver modelo.
      */
+    @Synchronized
+    fun releaseIfIdle(nowMs: Long) {
+        if (handle != 0L && nowMs - lastUsedMs >= DenoisePolicy.IDLE_MS) release()
+    }
+
+    @Synchronized
     fun denoiseInPlace(context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken, progress: (Float) -> Unit): Boolean {
-        if (strength <= 0f || !ensureLoaded(context)) return false
+        val started = SystemClock.elapsedRealtime()
+        if (strength <= 0f || started < retryAfterMs) return false
+        val reused = handle != 0L
+        val pssBeforeKb = android.os.Debug.getPss()
+        val heatBefore = ProcessingQueue.heat
+        progress(0f)
+        if (!ensureLoaded(context)) {
+            retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
+            report = "Modelo offline indisponível ou falha na inicialização"
+            return false
+        }
+        val loadMs = SystemClock.elapsedRealtime() - started
+        lastUsedMs = SystemClock.elapsedRealtime()
+        val gpu = nativeUsesGpu(handle)
         val w = bmp.width; val h = bmp.height
+        val pixels = w.toLong() * h
+        val runtime = Runtime.getRuntime()
+        val headroom = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
+        if (!DenoisePolicy.canRun(pixels, gpu, headroom)) {
+            report = "IA dispensada: backend=${if (gpu) "Vulkan" else "CPU"}, pixels=$pixels, memória Java disponível=$headroom, carga=${loadMs}ms"
+            release()
+            return false
+        }
         val size = TILE + 2 * PAD
         if (w < size || h < size) return false
-        val inTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val outTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val src = IntArray(size * size); val den = IntArray(size * size)
+        val inTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        var outTile: Bitmap? = null
         val s = strength.coerceIn(0f, 1f)
         val nx = (w + TILE - 1) / TILE; val ny = (h + TILE - 1) / TILE
-        val t0 = SystemClock.elapsedRealtime()
-        // O resultado de cada bloco vai para um buffer separado: os blocos vizinhos precisam ler a imagem original.
-        val result = IntArray(w * h)
+        val inferenceStarted = SystemClock.elapsedRealtime()
+        var firstTileMs = 0L
+        var runMs = 0L
+        var completed = 0
+        var result: IntArray? = null
+        var status = "interrompida"
+        // Apenas o buffer separado recebe os resultados. Cancelamento/fallback deixa bmp intacto.
         try {
+            outTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             for (ty in 0 until ny) for (tx in 0 until nx) {
                 if (cancel.cancelled) throw CancelledException()
+                if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
+                    DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted)) {
+                    status = "fallback por custo/temperatura"
+                    return false
+                }
                 val x0 = tx * TILE; val y0 = ty * TILE
                 val sx = (x0 - PAD).coerceIn(0, w - size); val sy = (y0 - PAD).coerceIn(0, h - size)
                 bmp.getPixels(src, 0, size, sx, sy, size, size)
                 inTile.setPixels(src, 0, size, 0, 0, size, size)
-                if (!nativeRun(handle, inTile, outTile)) return false
+                val t = SystemClock.elapsedRealtime()
+                if (!nativeRun(handle, inTile, outTile)) {
+                    status = "fallback: inferência falhou"
+                    retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
+                    release()
+                    return false
+                }
+                val elapsed = SystemClock.elapsedRealtime() - t
+                runMs += elapsed
+                completed++
+                if (completed == 1) {
+                    firstTileMs = elapsed
+                    if (!DenoisePolicy.projectedFits(elapsed, nx * ny, loadMs)) {
+                        status = "fallback: custo projetado excede orçamento"
+                        retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
+                        return false
+                    }
+                    result = IntArray(w * h)
+                }
                 outTile.getPixels(den, 0, size, 0, 0, size, size)
                 val tw = min(TILE, w - x0); val th = min(TILE, h - y0)
                 for (y in 0 until th) for (x in 0 until tw) {
                     val i = (y0 + y - sy) * size + (x0 + x - sx)
                     val o = src[i]; val d = den[i]
-                    result[(y0 + y) * w + x0 + x] = Px.argb(
+                    result!![(y0 + y) * w + x0 + x] = Px.argb(
                         (Px.r(o) + (Px.r(d) - Px.r(o)) * s + 0.5f).toInt(),
                         (Px.g(o) + (Px.g(d) - Px.g(o)) * s + 0.5f).toInt(),
                         (Px.b(o) + (Px.b(d) - Px.b(o)) * s + 0.5f).toInt())
                 }
-                progress((ty * nx + tx + 1).toFloat() / (nx * ny))
+                progress(completed.toFloat() / (nx * ny))
             }
-            bmp.setPixels(result, 0, w, 0, 0, w, h)
-            Log.i(TAG, "NAFNet ${w}×$h em ${SystemClock.elapsedRealtime() - t0} ms")
+            if (cancel.cancelled) throw CancelledException()
+            if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
+                DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted)) {
+                status = "fallback por custo/temperatura"
+                return false
+            }
+            bmp.setPixels(result!!, 0, w, 0, 0, w, h)
+            status = "concluída"
             return true
         } finally {
-            inTile.recycle(); outTile.recycle()
+            lastUsedMs = SystemClock.elapsedRealtime()
+            report = "NAFNet $status · backend=${if (gpu) "Vulkan" else "CPU"}, reutilizado=$reused, " +
+                "carga=${loadMs}ms, primeira inferência=${firstTileMs}ms, inferência=${runMs}ms, " +
+                "total=${lastUsedMs - started}ms, blocos=$completed/${nx * ny}, $w×$h, " +
+                "PSS início/fim=${pssBeforeKb}/${android.os.Debug.getPss()} KiB (não pico), " +
+                "térmico=${heatBefore?.thermalStatus}/${ProcessingQueue.heat?.thermalStatus}, " +
+                "bateria °C=${heatBefore?.batteryTempC}/${ProcessingQueue.heat?.batteryTempC}"
+            Log.i(TAG, report)
+            inTile.recycle(); outTile?.recycle()
         }
     }
 }

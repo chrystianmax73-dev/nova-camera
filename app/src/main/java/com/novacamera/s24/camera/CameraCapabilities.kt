@@ -119,7 +119,10 @@ object LensCatalog {
             val eq = equivalentFocal(info)
             val intrinsic = if (eq != null && reference != null && reference > 0f) eq / reference else 1f
             val (lo, hi) = zoomRange(info)
-            LensOption(Camera2CameraInfo.from(info).cameraId, intrinsic, lo, hi)
+            val c = Camera2CameraInfo.from(info)
+            val logical = runCatching { c.getCameraCharacteristic(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+                ?.contains(CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) == true }.getOrDefault(false)
+            LensOption(c.cameraId, intrinsic, lo, hi, logical)
         }
     }
 }
@@ -154,3 +157,4 @@ class JpegSizeLists(
         }
     }
 }
+

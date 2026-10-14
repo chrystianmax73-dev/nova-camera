@@ -157,6 +157,9 @@ object ProcessingQueue {
         }
     }
 
+    /** Descarta só o cache do modelo, fora da UI e depois da tarefa atual. */
+    fun trimModelMemory() { executor.execute { NcnnDenoiser.release() } }
+
     /** Cancela a tarefa em andamento e as que estão na fila (os originais já salvos ficam). */
     fun cancelAll() {
         current?.cancel?.cancelled = true
@@ -251,7 +254,8 @@ object ProcessingQueue {
             }
             if (job.cancel.cancelled) throw CancelledException()
             // Redução de ruído por IA (experimental, desligada por padrão): Noturno e Retrato.
-            if (aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)) {
+            if (aiDenoise && com.novacamera.s24.core.DenoisePolicy.allowed(heat) &&
+                (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)) {
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 val ok = runCatching {
                     NcnnDenoiser.denoiseInPlace(context, base, 0.75f, job.cancel) { progress(0.5f + 0.15f * it, "Reduzindo ruído (IA)") }
@@ -297,8 +301,11 @@ object ProcessingQueue {
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Falha no processamento: salvo só o original")
         } finally {
             prune(context)
-            // Fila vazia: devolve a memória do modelo de IA.
-            if (pending <= 1) NcnnDenoiser.release()
+            // Reutilização curta entre fotos; descarte fora da UI e sem liberar durante inferência.
+            if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) NcnnDenoiser.release()
+            else main.postDelayed({ executor.execute {
+                if (pending == 0) NcnnDenoiser.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
+            } }, com.novacamera.s24.core.DenoisePolicy.IDLE_MS)
         }
     }
 
