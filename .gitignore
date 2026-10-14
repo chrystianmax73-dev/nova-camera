@@ -10,3 +10,7 @@ local.properties
 *.keystore
 *.key
 .DS_Store
+
+# Build nativo (CMake/NDK)
+.cxx/
+app/.cxx/
