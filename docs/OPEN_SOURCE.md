@@ -22,6 +22,10 @@ nos model cards da MediaPipe em 14/10/2026; o que não pôde ser conferido está
 | GrapheneOS Camera | MIT | — | Arquitetura CameraX enxuta | Referência de organização. |
 | MotionCam (f0enix) | **GPL-3.0** | — | Pipeline RAW + Halide | Só estudo; parado desde 2021. |
 
+## O que entrou na 0.8
+
+MediaPipe Tasks + modelo multiclasse (Retrato), ncnn (runtime de IA com Vulkan) e NAFNet (redução de ruído, experimental). Detalhes e validação em STATUS.md; licenças em THIRD_PARTY.md.
+
 ## O que entrou na 0.7
 
 Nenhum código de terceiros novo. As correções da 0.7 (fusão segura, tom adaptativo) foram

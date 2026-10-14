@@ -6,6 +6,17 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.8 — tecnologias open-source integradas
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| Retrato com cabelo separado | MediaPipe Tasks + modelo `selfie_multiclass_256x256` (Apache-2.0) no lugar do ML Kit. Cabelo e acessórios (óculos) entram na máscara protegida, refinada nas bordas reais da foto | Compilação. **O modelo não roda na JVM**: qualidade de contorno só no aparelho | Selfie com cabelo solto, barba e óculos; traseira 1×/3× |
+| Alinhamento subpixel | Fração de pixel medida por bloco em resolução cheia (parábola sobre erro quadrático) e interpolação Catmull-Rom | Rajada real do dossiê (aspirador, mão livre): erro nas bordas **4,28 → 4,00**, erro total 3,44 → 3,14. Teste: cada quadro alinhado fica mais perto da cena (≥ 10%). **Ressalva**: numa cena sintética de bordas duras e serrilhadas o resultado final empatou/perdeu — a interpolação suaviza levemente cada quadro | Noturno parado, comparar nitidez com a 0.7 |
+| Assinatura no vídeo | `OverlayEffect` do CameraX desenha a assinatura em cada quadro gravado (não na prévia), já na orientação de quem vê | Teste da geometria (vídeo girado 90° e recorte) | Gravar em pé e deitado; conferir posição. **Não aplicada no vídeo frontal espelhado** (o texto poderia sair invertido) |
+| Redução de ruído por IA (experimental, desligada) | ncnn 20240820 (BSD-3) com Vulkan via JNI; NAFNet-SIDD-width32 (MIT) em blocos 288×288 com margem; mistura 75% com o original; Noturno e Retrato | Conversão NAFNet → ncnn validada localmente com pesos aleatórios: diferença ncnn × PyTorch **0,00005**; o runtime 20240820 do app carrega e executa o modelo. **Pesos oficiais**: só no Google Drive/Baidu, bloqueados neste ambiente; o CI baixa e converte | Custo ≈ 42 GFLOPs por bloco ⇒ ~7,6 TFLOPs numa foto de 12 MP: **vários segundos na GPU, muito mais na CPU**. Medir tempo, temperatura e se o resultado plastifica |
+
+Tamanho do APK: + ~16 MB (modelo de segmentação) + ~10 MB (ncnn) + ~58 MB se o modelo NAFNet for incluído.
+
 ## 0.7 — correções dos defeitos comprovados no pacote de testes da 0.6
 
 Material analisado localmente (não versionado): 16 fotos (JPEG/HEIC, reduzidas e sem EXIF) e 2 vídeos. **Nada foi testado em aparelho.** A validação usou as próprias fotos do pacote e testes de regressão que reproduzem cada falha e **falham na 0.6**.

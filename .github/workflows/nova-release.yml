@@ -58,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-          python3 -m pip install --quiet pnnx==20240819 ncnn==1.0.20240820 numpy gdown
-          gdown --fuzzy 'https://drive.google.com/file/d/1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ/view' -O "$RUNNER_TEMP/nafnet.pth"
+          python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy gdown
+          gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth"
           echo "sha256 dos pesos: $(sha256sum "$RUNNER_TEMP/nafnet.pth" | cut -d' ' -f1)"
           mkdir -p app/src/main/assets/nafnet
           python3 tools/nafnet/export_ncnn.py --weights "$RUNNER_TEMP/nafnet.pth" --out app/src/main/assets/nafnet
