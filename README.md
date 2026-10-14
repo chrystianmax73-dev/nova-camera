@@ -105,11 +105,13 @@ Construir **um aplicativo de câmera realmente funcional, fluido e confiável**,
 
 ## 6. Estado do repositório (não confundir proposta e implementação)
 
-**Versão 0.4.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
+**Versão 0.5.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
 
 Resumo: nova interface própria (visor WYSIWYG 4:3/16:9/tela cheia, áreas seguras, controles que giram com o aparelho); foco por toque com medição preservada, bloqueio AE/AF real via Camera2, exposição por gesto, prioridade a rostos quando suportada; selfie salva como visualizada (EXIF, sem recodificar); zoom suave com paradas reais; modos OEM só quando o fabricante libera (caso contrário o modo aparece indisponível e não captura); Noite básica por exposição estendida; Pro com ISO/velocidade/foco/balanço/EV reais; vídeo com qualidade/fps/estabilização conforme suporte; monitor térmico que distingue carregamento; diagnóstico ampliado.
 
-**Não implementado ainda:** Retrato próprio, HDR por fusão, Noite multiquadro, super-resolução, editor Original × Aprimorado. **Nada da 0.4 foi testado em aparelho físico.**
+**0.5:** motor de zoom refeito (curva com duração limitada, uma requisição em voo, registro da lente física e da latência), OIS explícita, exposição estável no zoom em vídeo, correção da tela preta no ISO do Pro, selfie espelhada nos pixels, resolução máxima real, 1:1, resolução/FPS de vídeo reais, Câmera lenta, Vídeo Pro, RAW (DNG) e painel MAIS.
+
+**Não implementado ainda:** Retrato próprio, HDR por fusão, Noite multiquadro, Panorâmica, Timelapse, super-resolução, 200 MP via modo de resolução máxima do sensor, editor Original × Aprimorado. **Nada da 0.5 foi testado em aparelho físico.**
 
 **Arquitetura:** `core/` (lógica pura testada), `camera/` (sessão CameraX + interop Camera2), `device/` (temperatura/bateria), `settings/`, `ui/` (componentes desenhados em Canvas), `MainActivity`, `SettingsActivity`/`DiagnosticsActivity`. O teste `MainScreenRenderTest` renderiza a tela real via Robolectric e grava PNGs em `app/build/ui-renders`.
 
