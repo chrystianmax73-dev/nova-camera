@@ -195,6 +195,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         handler.postDelayed(idleCheck, IDLE_CHECK_MS)
     }
 
+    private var newSessionOnResume = false
+
     override fun onResume() {
         super.onResume()
         Haptics.enabled = settings.haptics
@@ -202,14 +204,19 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.keepOriginals = settings.keepOriginals
         ProcessingQueue.aiDenoise = settings.aiDenoise
         val sig = signature()
-        if (sig != settingsSignature) {
-            settingsSignature = sig
-            if (::camera.isInitialized && camera.hasProvider) { showTransition(); camera.requestRebind() }
+        val settingsChanged = sig != settingsSignature
+        settingsSignature = sig
+        if (newSessionOnResume) {
+            newSessionOnResume = false
+            if (::camera.isInitialized) camera.beginNewSession()
+        } else if (settingsChanged && ::camera.isInitialized && camera.hasProvider) {
+            showTransition(); camera.requestRebind()
         }
     }
 
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
+        newSessionOnResume = true
         cancelCountdown()
         camera.stopRecording()
         if (torchOn) { torchOn = false; camera.setTorch(false) }
@@ -217,6 +224,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         orientationListener.disable()
         handler.removeCallbacks(idleCheck)
         super.onStop()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
+            ProcessingQueue.trimModelMemory()
     }
 
     override fun onDestroy() {
@@ -1088,3 +1101,4 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
 }
+

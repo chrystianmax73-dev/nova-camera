@@ -2,10 +2,10 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/photo-quality-validation]
+    branches: [codex/reference-performance]
 concurrency:
-  group: nova-signed-validation
-  cancel-in-progress: false
+  group: nova-signed-validation-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -78,6 +78,14 @@ jobs:
           NOVA_KEY_ALIAS: ${{ secrets.NOVA_KEY_ALIAS }}
           NOVA_KEY_PASSWORD: ${{ secrets.NOVA_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleRelease
+      - name: Verificar pesos disponíveis offline no APK
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('app/build/outputs/apk/release/app-release.apk') as apk:
+              for path in ('assets/nafnet/nafnet.param', 'assets/nafnet/nafnet.bin'):
+                  assert apk.getinfo(path).file_size > 0, path
+          PY
       - name: Verificar continuidade da assinatura e versionCode
         shell: bash
         env:
@@ -86,7 +94,7 @@ jobs:
           set -euo pipefail
           PREVIOUS="$RUNNER_TEMP/previous-apk"
           mkdir -p "$PREVIOUS"
-          gh release download nova-test-10 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
+          gh release download nova-test-11 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
           OLD_APK="$(find "$PREVIOUS" -name '*.apk' -print -quit)"
           NEW_APK="app/build/outputs/apk/release/app-release.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"

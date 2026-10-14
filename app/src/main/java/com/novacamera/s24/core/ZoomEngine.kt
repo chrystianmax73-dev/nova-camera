@@ -56,6 +56,7 @@ class ZoomCurve(private val photo: Boolean) {
  * Enquanto a anterior não é aplicada, só o valor mais recente é guardado (nunca empilha).
  */
 class ZoomRequestGate {
+    var generation = 0L; private set
     private var inFlight = false
     private var pending: Float? = null
     private var lastSent = 0f
@@ -70,14 +71,15 @@ class ZoomRequestGate {
     }
 
     /** Chamado quando a câmera concluiu (ou descartou) a requisição; devolve a próxima, se houver. */
-    fun completed(): Float? {
+    fun completed(requestGeneration: Long = generation): Float? {
+        if (requestGeneration != generation) return null
         inFlight = false
         val next = pending ?: return null
         pending = null
         return offer(next)
     }
 
-    fun reset() { inFlight = false; pending = null; lastSent = 0f }
+    fun reset() { generation++; inFlight = false; pending = null; lastSent = 0f }
 }
 
 /** Registro do comportamento real do zoom (latência, lente física, quadros perdidos). */
@@ -139,3 +141,4 @@ class ZoomTelemetry(private val capacity: Int = 120) {
         events.forEach { appendLine("+${it.atMs - t0} ms  ${it.text}") }
     }
 }
+

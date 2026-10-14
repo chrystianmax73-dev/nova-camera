@@ -120,9 +120,9 @@ class SettingsActivity : NovaScreen() {
 
         section("Avançado")
         val aiOk = com.novacamera.s24.processing.NcnnDenoiser.available(this)
-        switch("Redução de ruído por IA (experimental)", if (aiOk)
-            "NAFNet rodando no aparelho (GPU via Vulkan quando disponível), no Noturno e no Retrato. Mais lento; " +
-                "compare com o original tocando e segurando a miniatura."
+        switch("Redução de ruído por IA", if (aiOk)
+            "Processamento local no Noturno e no Retrato. Se o custo ou a temperatura forem altos, " +
+                "mantém o resultado Nova sem IA. Compare pelo toque longo na miniatura."
             else "Indisponível nesta versão: o modelo não foi incluído no APK.",
             { settings.aiDenoise && aiOk }, { settings.aiDenoise = it && aiOk })
         choice("HDR da FOTO", "Automático: só captura exposições extras quando a cena tem altas luzes estouradas ou " +
