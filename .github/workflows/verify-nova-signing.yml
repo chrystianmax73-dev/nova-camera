@@ -50,8 +50,16 @@ jobs:
             echo "::error::Base64 inválido: verifique o conteúdo do arquivo .txt."
             exit 1
           fi
+          # Comparação apenas de SHA-256: nunca exibir nem publicar conteúdo da keystore.
+          expected_sha256='8868e29ed19879e2449bd5677ce7cfb88ff4aed6865d4d12273d611fbcc70471'
+          actual_sha256="$(sha256sum "$work_dir/nova-upload-key.p12" | cut -d ' ' -f 1)"
+          if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+            echo "::error::O Secret NOVA_KEYSTORE_BASE64 decodifica, mas NÃO corresponde ao arquivo nova-upload-key.jks original."
+            exit 1
+          fi
+          echo "Base64 corresponde ao backup original."
           if ! keytool -list -v -storetype PKCS12 -keystore "$work_dir/nova-upload-key.p12" -alias "$NOVA_KEY_ALIAS" -storepass:env NOVA_KEYSTORE_PASSWORD > "$work_dir/verification.txt" 2>/dev/null; then
-            echo "::error::Não foi possível abrir o PKCS12 usando a senha e o alias fornecidos."
+            echo "::error::O Base64 corresponde ao arquivo original, mas a senha cadastrada não abriu a keystore PKCS12. Revise NOVA_KEYSTORE_PASSWORD e NOVA_KEY_PASSWORD."
             exit 1
           fi
           if ! grep -q 'PrivateKeyEntry' "$work_dir/verification.txt"; then
