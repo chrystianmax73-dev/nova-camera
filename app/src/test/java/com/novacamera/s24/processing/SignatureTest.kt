@@ -43,4 +43,20 @@ class SignatureTest {
         File("build/ui-renders").mkdirs()
         File("build/ui-renders/assinatura.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
+
+    /** Vídeo gravado deitado no sensor e exibido em pé (rotação 90°): o texto precisa sair de pé. */
+    @Test
+    fun videoOverlayTransformMapsUprightCornersToBuffer() {
+        val (m, w, h) = Signature.uprightToBuffer(android.graphics.Rect(0, 0, 1920, 1080), 90)
+        assertEquals(1080, w); assertEquals(1920, h)
+        fun map(x: Float, y: Float) = floatArrayOf(x, y).also { m.mapPoints(it) }.let { it[0].toInt() to it[1].toInt() }
+        // Canto superior esquerdo de quem vê = canto inferior esquerdo do quadro bruto (girado 90° horário na exibição).
+        assertEquals(0 to 1080, map(0f, 0f))
+        // Canto inferior esquerdo de quem vê = canto inferior direito do quadro bruto.
+        assertEquals(1920 to 1080, map(0f, 1920f))
+        // Sem rotação e com recorte: só desloca para dentro do recorte.
+        val (m0, w0, h0) = Signature.uprightToBuffer(android.graphics.Rect(10, 20, 110, 220), 0)
+        assertEquals(100, w0); assertEquals(200, h0)
+        assertEquals(10 to 20, floatArrayOf(0f, 0f).also { m0.mapPoints(it) }.let { it[0].toInt() to it[1].toInt() })
+    }
 }

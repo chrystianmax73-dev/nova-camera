@@ -51,10 +51,15 @@ class NovaSettings(context: Context) {
      */
     var autoProcess get() = bool("auto_process", true); set(v) = put("auto_process", v)
 
+    /** Redução de ruído por IA (NAFNet) no Noturno e no Retrato — experimental. */
+    var aiDenoise get() = bool("ai_denoise", false); set(v) = put("ai_denoise", v)
+
     // Assinatura
     var signatureEnabled get() = bool("signature", false); set(v) = put("signature", v)
     var signaturePosition get() = enum("signature_pos", com.novacamera.s24.processing.SignaturePosition.LEFT); set(v) = put("signature_pos", v.name)
     var signatureSize get() = enum("signature_size", com.novacamera.s24.processing.SignatureSize.MEDIUM); set(v) = put("signature_size", v.name)
+    /** Também nos vídeos (Vídeo e Vídeo Pro; não no vídeo frontal espelhado). */
+    var signatureVideo get() = bool("signature_video", true); set(v) = put("signature_video", v)
     var signatureOpacity get() = int("signature_opacity", 85) / 100f; set(v) = put("signature_opacity", (v * 100).toInt())
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)

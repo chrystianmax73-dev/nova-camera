@@ -1,49 +1,77 @@
 package com.novacamera.s24.processing
 
+import android.content.Context
 import android.graphics.Bitmap
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.segmentation.Segmentation
-import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenterOptions
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.ByteBufferExtractor
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter
 import com.novacamera.s24.core.imaging.Plane
-import java.util.concurrent.TimeUnit
+import java.nio.ByteOrder
 import kotlin.math.max
 
 /**
- * Segmentação de pessoa (ML Kit Selfie Segmentation, modelo embutido, offline).
- * Recebe a foto já na orientação real; devolve a confiança 0..1 de "é pessoa" por ponto.
+ * Segmentação do Retrato com o modelo MediaPipe "selfie_multiclass_256x256" (Apache-2.0),
+ * embutido em assets e executado offline. Além de pessoa × fundo, separa **cabelo**, pele do rosto,
+ * pele do corpo, roupa e acessórios (óculos etc.) — o cabelo e os acessórios são protegidos do
+ * desfoque mesmo onde a máscara de pessoa é incerta.
  *
- * Limites conhecidos (do próprio modelo): feito para pessoas a até ~2–3 m; não separa objetos,
- * animais ou comida; cabelo muito fino e objetos transparentes ficam aproximados — o refinamento
- * guiado ([Engine.refineMatte]) corrige parte disso nas bordas reais da foto.
+ * Limites do modelo: entrada 256×256 (bordas finas são refinadas depois na foto em resolução
+ * cheia por [Engine.refineMatte]); feito para pessoas próximas; não separa animais ou objetos.
  */
 object PersonSegmenter {
-    /** Lado maior da imagem enviada ao modelo (o modelo trabalha em baixa resolução de qualquer forma). */
+    private const val MODEL = "selfie_multiclass_256x256.tflite"
     private const val INPUT = 768
 
-    class Result(val mask: Plane, val coverage: Float)
+    // Ordem das máscaras de confiança do modelo multiclasse.
+    private const val BACKGROUND = 0
+    private const val HAIR = 1
+    private const val FACE_SKIN = 3
+    private const val ACCESSORIES = 5
 
-    fun segment(photo: Bitmap): Result {
+    class Result(
+        /** Confiança de "é pessoa" (1 − fundo). */
+        val person: Plane,
+        /** Cabelo + acessórios (óculos, chapéu): regiões que nunca devem ser desfocadas. */
+        val protect: Plane,
+        /** Fração da imagem ocupada pela pessoa. */
+        val coverage: Float,
+        /** Fração ocupada por pele do rosto (rosto detectado de fato). */
+        val faceCoverage: Float,
+    )
+
+    fun segment(context: Context, photo: Bitmap): Result {
         val scale = INPUT.toFloat() / max(photo.width, photo.height)
         val small = if (scale < 1f)
             Bitmap.createScaledBitmap(photo, max(1, (photo.width * scale).toInt()), max(1, (photo.height * scale).toInt()), true)
         else photo
-        val segmenter = Segmentation.getClient(
-            SelfieSegmenterOptions.Builder().setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE).build()
-        )
+        val options = ImageSegmenter.ImageSegmenterOptions.builder()
+            .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
+            .setRunningMode(RunningMode.IMAGE)
+            .setOutputConfidenceMasks(true)
+            .setOutputCategoryMask(false)
+            .build()
+        val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options)
         try {
-            val result = Tasks.await(segmenter.process(InputImage.fromBitmap(small, 0)), 20, TimeUnit.SECONDS)
-            val w = result.width; val h = result.height
-            val buf = result.buffer
-            buf.rewind()
-            val plane = Plane(w, h)
-            var person = 0
-            for (i in 0 until w * h) {
-                val v = buf.float.coerceIn(0f, 1f)
-                plane.data[i] = v
-                if (v > 0.5f) person++
+            val masks = segmenter.segment(BitmapImageBuilder(small).build()).confidenceMasks().get()
+            fun plane(i: Int): Plane {
+                val img = masks[i]
+                val buf = ByteBufferExtractor.extract(img).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                val p = Plane(img.width, img.height)
+                buf.rewind()
+                for (k in 0 until img.width * img.height) p.data[k] = buf.get().coerceIn(0f, 1f)
+                return p
             }
-            return Result(plane, person.toFloat() / (w * h))
+            val bg = plane(BACKGROUND)
+            val person = Plane(bg.w, bg.h, FloatArray(bg.data.size) { 1f - bg.data[it] })
+            val hair = plane(HAIR)
+            val acc = if (masks.size > ACCESSORIES) plane(ACCESSORIES) else Plane(bg.w, bg.h)
+            val protect = Plane(bg.w, bg.h, FloatArray(bg.data.size) { max(hair.data[it], acc.data[it]) })
+            val face = plane(FACE_SKIN)
+            val n = person.data.size.toFloat()
+            return Result(person, protect, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
         } finally {
             segmenter.close()
             if (small !== photo) small.recycle()

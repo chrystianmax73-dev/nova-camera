@@ -135,6 +135,8 @@ object ProcessingQueue {
     @Volatile private var current: Job? = null
     @Volatile var heat: DeviceHeat? = null
     @Volatile var keepOriginals = true
+    /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
+    @Volatile var aiDenoise = false
 
     val pending: Int get() = synchronized(queued) { queued.size } + (if (current != null) 1 else 0)
     fun canAccept() = pending < MAX_PENDING
@@ -231,14 +233,23 @@ object ProcessingQueue {
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
+            // Redução de ruído por IA (experimental, desligada por padrão): Noturno e Retrato.
+            if (aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)) {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val ok = runCatching {
+                    NcnnDenoiser.denoiseInPlace(context, base, 0.75f, job.cancel) { progress(0.5f + 0.15f * it, "Reduzindo ruído (IA)") }
+                }.onFailure { if (it is CancelledException) throw it; Log.w(TAG, "NAFNet falhou", it) }.getOrDefault(false)
+                if (ok) note = (if (note.isEmpty()) "" else "$note · ") +
+                    "ruído reduzido por IA em ${(android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0} s"
+            }
             MediaWriter.writeFile(session.base, base, 95)
 
             // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
             if (job.kind == JobKind.PORTRAIT) {
                 progress(0.68f, "Separando pessoa e fundo")
-                val seg = runCatching { PersonSegmenter.segment(base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
+                val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
                 if (seg != null && seg.coverage >= 0.03f) {
-                    session.saveMatte(Engine.refineMatte(base, seg.mask))
+                    session.saveMatte(Engine.portraitMatte(base, seg.person, seg.protect))
                     session.hasPerson = true
                 } else {
                     note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
@@ -269,6 +280,8 @@ object ProcessingQueue {
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Falha no processamento: salvo só o original")
         } finally {
             prune(context)
+            // Fila vazia: devolve a memória do modelo de IA.
+            if (pending <= 1) NcnnDenoiser.release()
         }
     }
 

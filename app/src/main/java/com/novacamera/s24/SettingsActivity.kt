@@ -101,8 +101,10 @@ class SettingsActivity : NovaScreen() {
 
         section("Assinatura")
         switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
-            "Nunca é aplicada ao original. Em vídeo: em desenvolvimento.",
+            "Nunca é aplicada ao original.",
             { settings.signatureEnabled }, { settings.signatureEnabled = it })
+        switch("Também nos vídeos", "Vídeo e Vídeo Pro (câmera lenta e timelapse não). No vídeo frontal espelhado a " +
+            "assinatura não é aplicada, para não sair invertida.", { settings.signatureVideo }, { settings.signatureVideo = it })
         choice("Posição", null, SignaturePosition.entries.map { it.label }, { settings.signaturePosition.ordinal }) {
             settings.signaturePosition = SignaturePosition.entries[it]
         }
@@ -116,6 +118,12 @@ class SettingsActivity : NovaScreen() {
         }
 
         section("Avançado")
+        val aiOk = com.novacamera.s24.processing.NcnnDenoiser.available(this)
+        switch("Redução de ruído por IA (experimental)", if (aiOk)
+            "NAFNet rodando no aparelho (GPU via Vulkan quando disponível), no Noturno e no Retrato. Mais lento; " +
+                "compare com o original tocando e segurando a miniatura."
+            else "Indisponível nesta versão: o modelo não foi incluído no APK.",
+            { settings.aiDenoise && aiOk }, { settings.aiDenoise = it && aiOk })
         choice("HDR da FOTO", "Automático: só captura exposições extras quando a cena tem altas luzes estouradas ou " +
             "sombras profundas, e só funde onde os quadros coincidem. Fabricante: quando disponível nesta câmera.",
             HdrOption.entries.map { it.label }, { settings.hdr.ordinal }) { settings.hdr = HdrOption.entries[it] }
@@ -174,7 +182,9 @@ class SettingsActivity : NovaScreen() {
         }
         info("Privacidade", "Sem internet, conta, anúncios ou telemetria. Fotos e vídeos ficam no aparelho (Pictures/Movies › Nova Camera).")
         info("Processamento local", "Todo processamento (fusão, tons, retrato) roda no aparelho. A segmentação do Retrato usa um " +
-            "modelo embutido no app (ML Kit); o app não tem permissão de internet, então nada é enviado.")
+            "modelo embutido no app (MediaPipe, Apache-2.0); o app não tem permissão de internet, então nada é enviado.")
+        info("Licenças de terceiros", "CameraX/AndroidX e MediaPipe (Apache-2.0), modelo de segmentação MediaPipe " +
+            "(Apache-2.0), ncnn (BSD-3-Clause), NAFNet (MIT). Nenhum código GPL.")
         info("Em desenvolvimento", "Panorâmica, Vídeo Retrato, processamento de vídeo e super-resolução para 20×/30×. " +
             "Quando um modo depende deles, ele aparece como indisponível.")
         info("Versão", BuildConfigInfo.version(this))

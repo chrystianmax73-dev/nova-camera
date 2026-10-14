@@ -200,6 +200,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         Haptics.enabled = settings.haptics
         overlay.showGrid = settings.grid
         ProcessingQueue.keepOriginals = settings.keepOriginals
+        ProcessingQueue.aiDenoise = settings.aiDenoise
         val sig = signature()
         if (sig != settingsSignature) {
             settingsSignature = sig
@@ -234,6 +235,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun signature() = listOf(settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
         settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
+        settings.signatureEnabled, settings.signatureVideo, settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
         settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
 
     // ------------------------------------------------------------------ interface

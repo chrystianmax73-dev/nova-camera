@@ -15,7 +15,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
-      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
@@ -49,6 +49,21 @@ jobs:
             exit 1
           fi
           echo 'Keystore, senha e alias conferidos.'
+      - name: Modelo de IA opcional (NAFNet → ncnn)
+        # Baixa os pesos oficiais (MIT) do NAFNet-SIDD-width32, converte para ncnn e confere a
+        # conversão contra o PyTorch. Se qualquer passo falhar, o APK sai sem o modelo e a opção
+        # "Redução de ruído por IA" aparece como indisponível — nada mais muda.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet pnnx==20240819 ncnn==1.0.20240820 numpy gdown
+          gdown --fuzzy 'https://drive.google.com/file/d/1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ/view' -O "$RUNNER_TEMP/nafnet.pth"
+          echo "sha256 dos pesos: $(sha256sum "$RUNNER_TEMP/nafnet.pth" | cut -d' ' -f1)"
+          mkdir -p app/src/main/assets/nafnet
+          python3 tools/nafnet/export_ncnn.py --weights "$RUNNER_TEMP/nafnet.pth" --out app/src/main/assets/nafnet
+          ls -la app/src/main/assets/nafnet
       - name: Compilar APK assinado
         env:
           NOVA_KEYSTORE_FILE: ${{ runner.temp }}/nova-upload-key.jks

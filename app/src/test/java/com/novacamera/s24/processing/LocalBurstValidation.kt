@@ -28,7 +28,8 @@ class LocalBurstValidation {
         val frames = files.map { CapturedFrame(it.readBytes(), 0, null) }
         val sources = frames.map(::JpegSource)
         val t0 = System.nanoTime()
-        val a = Engine.align(sources, CancelToken()) {}
+        val sub = System.getenv("NOVA_SUBPIXEL") != "0"
+        val a = Engine.align(sources, CancelToken(), subpixel = sub) {}
         val out = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
         val rejected = Engine.mergeInto(sources, out, a, CancelToken()) {}
         val tMerge = (System.nanoTime() - t0) / 1e6
@@ -40,6 +41,7 @@ class LocalBurstValidation {
         Engine.toneInPlace(toned, plan, 1f, false, CancelToken()) {}
         val o = File(dir, "out").apply { mkdirs() }
         File(o, "ref.jpg").outputStream().use { ref.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+        File(o, if (sub) "merged_sub.jpg" else "merged_int.jpg").outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 97, it) }
         File(o, "merged.jpg").outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         File(o, "night.jpg").outputStream().use { toned.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         fun noise(b: Bitmap): Float {

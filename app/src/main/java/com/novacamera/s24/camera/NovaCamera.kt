@@ -197,6 +197,7 @@ class NovaCamera(
         provider?.unbindAll()
         io.shutdown()
         timelapseExecutor.shutdown()
+        videoEffect?.close(); videoEffect = null
     }
 
     // ------------------------------------------------------------------ seleção
@@ -463,15 +464,27 @@ class NovaCamera(
             imageCapture?.let { useCases += it }
             videoCapture?.let { useCases += it }
             analysis?.let { useCases += it }
+            val retired = videoEffect
+            videoEffect = null
+            retiredEffect = retired
+            val sig = signatureStyle()
+            // Assinatura no vídeo: só no Vídeo/Vídeo Pro e fora do vídeo frontal espelhado (a ordem
+            // espelho/rotação do codificador não é garantida e o texto poderia sair invertido).
+            if (sig != null && settings.signatureVideo && !videoEffectFailed && videoCapture != null &&
+                (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && !(isFront && settings.mirrorFrontVideo)) {
+                videoEffect = signatureEffect(sig)
+            }
             UseCaseGroup.Builder().apply {
                 // O ViewPort faz a foto salva corresponder exatamente ao que a pré-visualização mostra.
                 previewView.viewPort?.let(::setViewPort)
                 useCases.forEach(::addUseCase)
+                videoEffect?.let(::addEffect)
             }.build()
         } else null
 
         try {
             p.unbindAll()
+            retiredEffect?.close(); retiredEffect = null
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
         } catch (e: Exception) {
@@ -479,6 +492,11 @@ class NovaCamera(
             camera = null
             // Recuo em degraus, do ajuste mais específico ao mais básico.
             when {
+                videoEffect != null -> {
+                    videoEffect?.close(); videoEffect = null
+                    videoEffectFailed = true
+                    listener.onMessage("Assinatura no vídeo indisponível nesta configuração; gravando sem ela")
+                }
                 fps > 30 && !highSpeed -> {
                     settings.videoFps = 30
                     listener.onMessage("$fps fps indisponível nesta combinação; usando 30 fps")
@@ -1116,6 +1134,36 @@ class NovaCamera(
         }
         clip.toFloat() / px.size to deep.toFloat() / px.size
     }.getOrDefault(0f to 0f)
+
+    private var videoEffect: androidx.camera.effects.OverlayEffect? = null
+    /** Efeito da configuração anterior: só é fechado depois que a câmera solta a sessão. */
+    private var retiredEffect: androidx.camera.effects.OverlayEffect? = null
+    /** Falhou nesta sessão do app: não tenta de novo até reabrir (a preferência do usuário fica). */
+    private var videoEffectFailed = false
+    private val effectThread by lazy { android.os.HandlerThread("nova-video-signature").also { it.start() } }
+
+    /** Desenha a assinatura em cada quadro gravado (não na pré-visualização). */
+    private fun signatureEffect(style: com.novacamera.s24.processing.SignatureStyle): androidx.camera.effects.OverlayEffect {
+        val effect = androidx.camera.effects.OverlayEffect(androidx.camera.core.CameraEffect.VIDEO_CAPTURE, 0,
+            Handler(effectThread.looper)) { t -> Log.e(TAG, "Assinatura no vídeo", t) }
+        var cached: Triple<android.graphics.Matrix, Int, Int>? = null
+        var cachedKey = ""
+        effect.setOnDrawListener { frame ->
+            val canvas = frame.overlayCanvas
+            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            if (!frame.isMirroring) {
+                val key = "${frame.cropRect}/${frame.rotationDegrees}"
+                if (key != cachedKey) { cached = com.novacamera.s24.processing.Signature.uprightToBuffer(frame.cropRect, frame.rotationDegrees); cachedKey = key }
+                val (m, w, h) = cached!!
+                canvas.save()
+                canvas.concat(m)
+                com.novacamera.s24.processing.Signature.drawOn(canvas, w, h, style)
+                canvas.restore()
+            }
+            true
+        }
+        return effect
+    }
 
     private fun signatureStyle(): com.novacamera.s24.processing.SignatureStyle? =
         if (!settings.signatureEnabled) null else com.novacamera.s24.processing.SignatureStyle(

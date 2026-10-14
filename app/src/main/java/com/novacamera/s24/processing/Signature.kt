@@ -51,9 +51,11 @@ object Signature {
     fun text(style: SignatureStyle) = "NOVA CAMERA" to "Shot on ${style.device}"
 
     /** Desenha a assinatura no lugar ([bmp] precisa ser mutável). */
-    fun draw(bmp: Bitmap, style: SignatureStyle) {
-        val canvas = Canvas(bmp)
-        val short = min(bmp.width, bmp.height)
+    fun draw(bmp: Bitmap, style: SignatureStyle) = drawOn(Canvas(bmp), bmp.width, bmp.height, style)
+
+    /** Desenha numa tela [width]×[height] já na orientação de quem vê (foto ou quadro de vídeo). */
+    fun drawOn(canvas: Canvas, width: Int, height: Int, style: SignatureStyle) {
+        val short = min(width, height)
         val h = short * style.size.fraction
         val margin = short * 0.035f
         val alpha = (style.opacity.coerceIn(0.3f, 1f) * 255).roundToInt()
@@ -71,17 +73,34 @@ object Signature {
         val block = maxOf(w1, w2)
         val left = when (style.position) {
             SignaturePosition.LEFT -> margin
-            SignaturePosition.CENTER -> (bmp.width - block) / 2f
-            SignaturePosition.RIGHT -> bmp.width - margin - block
+            SignaturePosition.CENTER -> (width - block) / 2f
+            SignaturePosition.RIGHT -> width - margin - block
         }
         fun x(w: Float) = when (style.position) {
             SignaturePosition.LEFT -> left
-            SignaturePosition.CENTER -> (bmp.width - w) / 2f
+            SignaturePosition.CENTER -> (width - w) / 2f
             SignaturePosition.RIGHT -> left + block - w
         }
-        val baseline2 = bmp.height - margin
+        val baseline2 = height - margin
         val baseline1 = baseline2 - sub.textSize * 1.35f
         canvas.drawText(t1, x(w1), baseline1, brand)
         canvas.drawText(t2, x(w2), baseline2, sub)
+    }
+
+    /**
+     * Matriz que leva coordenadas "de pé" (como o vídeo será visto) para o quadro bruto do
+     * codificador: recorte visível [crop] e rotação [rotationDegrees] que o player aplicará.
+     * Devolve a matriz e o tamanho da área de pé.
+     */
+    fun uprightToBuffer(crop: android.graphics.Rect, rotationDegrees: Int): Triple<android.graphics.Matrix, Int, Int> {
+        val r = ((rotationDegrees % 360) + 360) % 360
+        val uw = if (r % 180 == 0) crop.width() else crop.height()
+        val uh = if (r % 180 == 0) crop.height() else crop.width()
+        val m = android.graphics.Matrix()
+        m.postRotate(-r.toFloat())
+        val bounds = android.graphics.RectF(0f, 0f, uw.toFloat(), uh.toFloat())
+        m.mapRect(bounds)
+        m.postTranslate(-bounds.left + crop.left, -bounds.top + crop.top)
+        return Triple(m, uw, uh)
     }
 }

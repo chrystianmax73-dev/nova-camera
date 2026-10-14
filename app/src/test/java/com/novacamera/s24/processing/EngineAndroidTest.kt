@@ -174,4 +174,51 @@ class EngineAndroidTest {
         val ref = JpegSource(frames[0]).decodeFull()
         for ((x, y) in listOf(10 to 10, 400 to 300, 700 to 600)) assertEquals(ref.getPixel(x, y), out.getPixel(x, y))
     }
+
+    /**
+     * Cena de bordas suaves (como depois da lente: a óptica limita a nitidez antes do sensor),
+     * vista com deslocamento fracionário (dx, dy); [noise] = 0 dá a verdade.
+     */
+    private fun subpixelScene(dx: Double, dy: Double, seed: Long, noise: Double): IntArray {
+        val rnd = Random(seed)
+        return IntArray(w * h) { i ->
+            val x = i % w + dx; val y = i / w + dy
+            val v = 90 + 50 * sin(x / 9.0) * sin(y / 13.0) + 45 * kotlin.math.tanh(2.5 * sin(x / 6.0) * sin(y / 8.0))
+            val g = (v + rnd.nextGaussian() * noise).toInt().coerceIn(0, 255)
+            (0xFF shl 24) or (g shl 16) or (g shl 8) or g
+        }
+    }
+
+    private fun jpeg(px: IntArray) = ByteArrayOutputStream().also {
+        Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 98, it)
+    }.toByteArray()
+
+    /**
+     * Com deslocamentos fracionários, cada quadro alinhado com subpixel fica mais perto da cena
+     * real do que com alinhamento inteiro. (O efeito no resultado final foi medido na rajada real do
+     * dossiê: erro nas bordas 4,28 → 4,00; numa cena sintética de bordas duras a suavização comum da
+     * interpolação pode empatar ou perder — ver docs/STATUS.md.)
+     */
+    @Test
+    fun subpixelAlignmentPutsEachFrameCloserToTheScene() {
+        val shifts = listOf(0.0 to 0.0, 0.3 to 0.7, -1.2 to 0.4, 2.6 to -1.35, 0.15 to -2.45)
+        val frames = shifts.mapIndexed { i, (dx, dy) -> CapturedFrame(jpeg(subpixelScene(dx, dy, 50L + i, 10.0)), 0, null) }
+        val truth = subpixelScene(0.0, 0.0, 0, 0.0)
+        fun errors(sub: Boolean): List<Double> {
+            val sources = frames.map(::JpegSource)
+            val a = Engine.align(sources, CancelToken(), subpixel = sub) {}
+            val tw = 256; val th = 256; val x0 = 256; val y0 = 256
+            val ref = IntArray(tw * th).also { sources[0].read(x0, y0, tw, th, it) }
+            val out = (1 until sources.size).map { k ->
+                val t = Engine.readAligned(sources[k], a, k, x0, y0, tw, th, ref)
+                var e = 0.0
+                for (i in t.indices) { val d = ((t[i] shr 8) and 0xFF) - ((truth[(y0 + i / tw) * w + x0 + i % tw] shr 8) and 0xFF); e += d * d }
+                kotlin.math.sqrt(e / t.size)
+            }
+            sources.forEach { it.close() }
+            return out
+        }
+        val integer = errors(false); val sub = errors(true)
+        for (k in integer.indices) assertTrue("quadro ${k + 1}: subpixel ${sub[k]} ≥ inteiro ${integer[k]}", sub[k] < integer[k] * 0.9)
+    }
 }

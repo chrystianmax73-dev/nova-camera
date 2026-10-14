@@ -8,6 +8,9 @@ import kotlin.math.roundToInt
 /** Deslocamento inteiro de um quadro em relação à referência (em pixels da resolução de trabalho). */
 data class Shift(val dx: Int, val dy: Int)
 
+/** Deslocamento com fração de pixel (alinhamento subpixel). */
+data class FShift(val x: Float, val y: Float)
+
 /**
  * Alinhamento de quadros de mão livre por busca hierárquica (grosseira → fina) minimizando a
  * diferença absoluta de luminância. Global primeiro; depois refinamento por regiões para
@@ -83,6 +86,59 @@ object Align {
             out[ty * gx + tx] = search(ref, mov, radius, global, intArrayOf(rx0, ry0, rx1, ry1))
         }
         return out
+    }
+
+    /** Custo médio (diferença absoluta) de um deslocamento inteiro numa região. */
+    private fun cost(ref: Plane, mov: Plane, dx: Int, dy: Int, region: IntArray?): Double {
+        val x0 = region?.get(0) ?: 0; val y0 = region?.get(1) ?: 0
+        val x1 = region?.get(2) ?: ref.w; val y1 = region?.get(3) ?: ref.h
+        var c = 0.0; var n = 0
+        for (y in max(y0, -dy) until min(y1, ref.h - dy)) for (x in max(x0, -dx) until min(x1, ref.w - dx)) {
+            c += abs(ref.data[y * ref.w + x] - mov.data[(y + dy) * mov.w + x + dx]); n++
+        }
+        return if (n < 16) Double.MAX_VALUE else c / n
+    }
+
+    /**
+     * Refino subpixel: ajusta uma parábola ao custo em s−1, s, s+1 (em x e em y separadamente) e
+     * toma o mínimo. Limitado a ±0,5 px; se a curva não for convexa, mantém o inteiro.
+     */
+    fun refine(ref: Plane, mov: Plane, s: Shift, region: IntArray? = null): FShift {
+        fun axis(cm: Double, c0: Double, cp: Double): Float {
+            if (cm == Double.MAX_VALUE || cp == Double.MAX_VALUE) return 0f
+            val den = cm - 2 * c0 + cp
+            if (den <= 1e-9) return 0f
+            return (0.5 * (cm - cp) / den).toFloat().coerceIn(-0.5f, 0.5f)
+        }
+        val c0 = cost(ref, mov, s.dx, s.dy, region)
+        val fx = axis(cost(ref, mov, s.dx - 1, s.dy, region), c0, cost(ref, mov, s.dx + 1, s.dy, region))
+        val fy = axis(cost(ref, mov, s.dx, s.dy - 1, region), c0, cost(ref, mov, s.dx, s.dy + 1, region))
+        return FShift(s.dx + fx, s.dy + fy)
+    }
+
+    /** Campo subpixel a partir do campo inteiro (regiões sem textura herdam o global refinado). */
+    fun refineField(ref: Plane, mov: Plane, field: Array<Shift>, global: Shift, gx: Int, gy: Int): Array<FShift> {
+        val g = refine(ref, mov, global)
+        return Array(gx * gy) { i ->
+            val s = field[i]
+            if (s == global) g else {
+                val tx = i % gx; val ty = i / gx
+                refine(ref, mov, s, intArrayOf(tx * ref.w / gx, ty * ref.h / gy, (tx + 1) * ref.w / gx, (ty + 1) * ref.h / gy))
+            }
+        }
+    }
+
+    /** Como [shiftAt], com fração de pixel (resultado já na escala da imagem cheia). */
+    fun shiftAtF(field: Array<FShift>, gx: Int, gy: Int, w: Int, h: Int, x: Float, y: Float, scale: Float): FShift {
+        val fx = (x / w * gx - 0.5f).coerceIn(0f, (gx - 1).toFloat())
+        val fy = (y / h * gy - 0.5f).coerceIn(0f, (gy - 1).toFloat())
+        val x0 = fx.toInt(); val y0 = fy.toInt()
+        val x1 = min(x0 + 1, gx - 1); val y1 = min(y0 + 1, gy - 1)
+        val tx = fx - x0; val ty = fy - y0
+        fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
+        val s00 = field[y0 * gx + x0]; val s10 = field[y0 * gx + x1]; val s01 = field[y1 * gx + x0]; val s11 = field[y1 * gx + x1]
+        return FShift(lerp(lerp(s00.x, s10.x, tx), lerp(s01.x, s11.x, tx), ty) * scale,
+            lerp(lerp(s00.y, s10.y, tx), lerp(s01.y, s11.y, tx), ty) * scale)
     }
 
     /** Deslocamento interpolado (bilinear entre centros de regiões) num ponto (x, y). */

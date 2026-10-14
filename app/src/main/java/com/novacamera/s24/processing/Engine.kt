@@ -10,6 +10,7 @@ import com.novacamera.s24.core.imaging.Adaptive
 import com.novacamera.s24.core.imaging.Align
 import com.novacamera.s24.core.imaging.Consistency
 import com.novacamera.s24.core.imaging.ExposureLut
+import com.novacamera.s24.core.imaging.FShift
 import com.novacamera.s24.core.imaging.FoodLook
 import com.novacamera.s24.core.imaging.Fusion
 import com.novacamera.s24.core.imaging.Merge
@@ -146,6 +147,8 @@ object Engine {
     class Alignment(
         val fields: List<Array<Shift>>, val gx: Int, val gy: Int, val scale: Float, val lw: Int, val lh: Int,
         val luts: List<ExposureLut>, val reliability: List<Plane?>, val unsafe: List<Float>, val noise: Float,
+        /** Campos com fração de pixel (null = alinhamento só inteiro). */
+        val fieldsF: List<Array<FShift>>? = null,
     ) {
         val usable: List<Boolean> = unsafe.mapIndexed { k, u -> k == 0 || u < MAX_UNSAFE }
         val usedFrames get() = usable.count { it }
@@ -159,7 +162,7 @@ object Engine {
      * deslocamento global hierárquico e campo por regiões (12×16, absorve rotação leve da mão).
      * Em seguida mede, pixel a pixel, se cada quadro alinhado "bate" com a referência.
      */
-    fun align(frames: List<FrameSource>, cancel: CancelToken, progress: (Float) -> Unit): Alignment {
+    fun align(frames: List<FrameSource>, cancel: CancelToken, subpixel: Boolean = true, progress: (Float) -> Unit): Alignment {
         val factor = max(2, max(frames[0].width, frames[0].height) / 2000)
         val ref = frames[0].luma(factor)
         val noise = Consistency.noiseOf(ref)
@@ -169,6 +172,8 @@ object Engine {
         val rel = ArrayList<Plane?>()
         val unsafe = ArrayList<Float>()
         fields += Array(gx * gy) { Shift(0, 0) }; luts += ExposureLut.IDENTITY; rel += null; unsafe += 0f
+        val fieldsF = ArrayList<Array<FShift>>()
+        fieldsF += Array(gx * gy) { FShift(0f, 0f) }
         for (i in 1 until frames.size) {
             if (cancel.cancelled) throw CancelledException()
             val mov = frames[i].luma(factor)
@@ -178,13 +183,90 @@ object Engine {
             val field = Align.tileShifts(ref, movN, global, gx, gy, radius = 3)
             val r = Consistency.reliability(ref, mov, field, gx, gy, lut, noise)
             fields += field; luts += lut; rel += r; unsafe += Consistency.unsafeFraction(r, ref)
+            if (subpixel) fieldsF += Align.refineField(ref, movN, field, global, gx, gy)
             progress(i.toFloat() / frames.size)
         }
-        return Alignment(fields, gx, gy, factor.toFloat(), ref.w, ref.h, luts, rel, unsafe, noise)
+        return Alignment(fields, gx, gy, factor.toFloat(), ref.w, ref.h, luts, rel, unsafe, noise, if (subpixel) fieldsF else null)
     }
 
     private fun shiftFor(a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int): Shift =
         Align.shiftAt(a.fields[k], a.gx, a.gy, a.lw, a.lh, (x0 + tw / 2f) / a.scale, (y0 + th / 2f) / a.scale, a.scale)
+
+    /**
+     * Lê a região do quadro [k] alinhada à referência. Com alinhamento subpixel, a fração de pixel
+     * é medida aqui, em resolução cheia e por bloco: erro quadrático contra a referência em ±1 px,
+     * mínimo da parábola, e interpolação bilinear. Sem ele, lê o deslocamento inteiro.
+     */
+    internal fun readAligned(frame: FrameSource, a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int, ref: IntArray?): IntArray {
+        val n = tw * th
+        val ff = a.fieldsF
+        if (k == 0 || ff == null || ref == null) {
+            val s = if (k == 0) Shift(0, 0) else shiftFor(a, k, x0, y0, tw, th)
+            return IntArray(n).also { frame.read(x0 + s.dx, y0 + s.dy, tw, th, it) }
+        }
+        val f = Align.shiftAtF(ff[k], a.gx, a.gy, a.lw, a.lh, (x0 + tw / 2f) / a.scale, (y0 + th / 2f) / a.scale, a.scale)
+        val ix = kotlin.math.round(f.x).toInt(); val iy = kotlin.math.round(f.y).toInt()
+        // Janela com 2 px de margem em cada lado (medir ±1 e interpolar com 4×4 vizinhos).
+        val m = 2
+        val rw = tw + 2 * m; val rh = th + 2 * m
+        if (rw > frame.width || rh > frame.height) return IntArray(n).also { frame.read(x0 + ix, y0 + iy, tw, th, it) }
+        val src = IntArray(rw * rh).also { frame.read(x0 + ix - m, y0 + iy - m, rw, rh, it) }
+        val lumaSrc = FloatArray(src.size) { Px.luma(src[it]) }
+        val lumaRef = FloatArray(n) { Px.luma(ref[it]) }
+        fun ssd(ox: Int, oy: Int): Double {
+            var e = 0.0
+            var y = 0
+            while (y < th) {
+                var x = 0
+                while (x < tw) { val d = lumaSrc[(y + m + oy) * rw + x + m + ox] - lumaRef[y * tw + x]; e += d * d; x += 2 }
+                y += 2
+            }
+            return e
+        }
+        fun frac(cm: Double, c0: Double, cp: Double): Float {
+            val den = cm - 2 * c0 + cp
+            return if (den <= 1e-9) 0f else (0.5 * (cm - cp) / den).toFloat().coerceIn(-0.5f, 0.5f)
+        }
+        val c0 = ssd(0, 0)
+        val tx = frac(ssd(-1, 0), c0, ssd(1, 0)); val ty = frac(ssd(0, -1), c0, ssd(0, 1))
+        if (kotlin.math.abs(tx) < 0.03f && kotlin.math.abs(ty) < 0.03f) {
+            return IntArray(n) { i -> src[(i / tw + m) * rw + i % tw + m] }
+        }
+        // Interpolação cúbica (Catmull-Rom, separável): mantém as bordas nítidas — a bilinear
+        // equivale a um filtro de média de meio pixel e borraria cada quadro deslocado.
+        val bx = kotlin.math.floor(tx).toInt(); val by = kotlin.math.floor(ty).toInt()
+        val wx = cubicWeights(tx - bx); val wy = cubicWeights(ty - by)
+        val tmp = FloatArray(3 * tw * rh)
+        for (y in 0 until rh) for (x in 0 until tw) {
+            var r = 0f; var g = 0f; var b2 = 0f
+            for (j in 0..3) {
+                val c = src[y * rw + x + m + bx - 1 + j]; val wj = wx[j]
+                r += wj * ((c shr 16) and 0xFF); g += wj * ((c shr 8) and 0xFF); b2 += wj * (c and 0xFF)
+            }
+            val o = (y * tw + x) * 3
+            tmp[o] = r; tmp[o + 1] = g; tmp[o + 2] = b2
+        }
+        return IntArray(n) { i ->
+            val x = i % tw; val y = i / tw
+            var r = 0f; var g = 0f; var b2 = 0f
+            for (j in 0..3) {
+                val o = ((y + m + by - 1 + j) * tw + x) * 3; val wj = wy[j]
+                r += wj * tmp[o]; g += wj * tmp[o + 1]; b2 += wj * tmp[o + 2]
+            }
+            Px.argb((r + 0.5f).toInt(), (g + 0.5f).toInt(), (b2 + 0.5f).toInt())
+        }
+    }
+
+    /** Pesos Catmull-Rom para as amostras em −1, 0, 1, 2 com fração [t] ∈ [0, 1). */
+    private fun cubicWeights(t: Float): FloatArray {
+        val t2 = t * t; val t3 = t2 * t
+        return floatArrayOf(
+            -0.5f * t3 + t2 - 0.5f * t,
+            1.5f * t3 - 2.5f * t2 + 1f,
+            -1.5f * t3 + 2f * t2 + 0.5f * t,
+            0.5f * t3 - 0.5f * t2,
+        )
+    }
 
     /** Confiabilidade por pixel do quadro [k] numa região (amostrada do mapa em meia resolução). */
     private fun reliabilityTile(a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int): FloatArray? {
@@ -212,10 +294,7 @@ object Engine {
             if (used.isEmpty()) {
                 out.setPixels(ref, 0, tw, x0, y0, tw, th)
             } else {
-                val others = used.map { k ->
-                    val s = shiftFor(a, k, x0, y0, tw, th)
-                    IntArray(n).also { frames[k].read(x0 + s.dx, y0 + s.dy, tw, th, it) }
-                }
+                val others = used.map { k -> readAligned(frames[k], a, k, x0, y0, tw, th, ref) }
                 val r = Merge.mergeTile(ref, others, sigma, frameWeights = used.map { reliabilityTile(a, it, x0, y0, tw, th) })
                 out.setPixels(r.pixels, 0, tw, x0, y0, tw, th)
                 rejected += r.rejectedFraction; count++
@@ -258,10 +337,8 @@ object Engine {
         tiles(w, h) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val n = tw * th
-            val tilesK = used.map { k ->
-                val s = if (k == 0) Shift(0, 0) else shiftFor(a, k, x0, y0, tw, th)
-                IntArray(n).also { frames[k].read(x0 + s.dx, y0 + s.dy, tw, th, it) }
-            }
+            val ref0 = IntArray(tw * th).also { frames[0].read(x0, y0, tw, th, it) }
+            val tilesK = used.map { k -> if (k == 0) ref0 else readAligned(frames[k], a, k, x0, y0, tw, th, ref0) }
             // Pixels não confiáveis de cada quadro são trocados pela previsão a partir da referência
             // (mesma exposição daquele quadro): sem fantasma e sem "buraco" de tom no formato do objeto.
             for ((j, k) in used.withIndex()) {
@@ -322,6 +399,21 @@ object Engine {
 
     /** Resolução da máscara refinada do retrato para uma foto w×h. */
     fun matteFactor(w: Int, h: Int) = max(1, max(w, h) / 1536)
+
+    /**
+     * Máscara final do retrato: pessoa refinada nas bordas reais da foto, unida às regiões de
+     * cabelo e acessórios (também refinadas) — fio de cabelo e armação de óculos não desfocam.
+     */
+    fun portraitMatte(bmp: Bitmap, person: Plane, protect: Plane): Plane {
+        val luma = luma(bmp, matteFactor(bmp.width, bmp.height))
+        val p = Portrait.refineMatte(person, luma)
+        val h = Portrait.refineMatte(protect, luma)
+        for (i in p.data.indices) {
+            val t = ((h.data[i] - 0.2f) / 0.4f).coerceIn(0f, 1f)
+            p.data[i] = max(p.data[i], t * t * (3f - 2f * t))
+        }
+        return p
+    }
 
     /** Refina a máscara grosseira da segmentação nas bordas reais da foto. */
     fun refineMatte(bmp: Bitmap, coarseMask: Plane): Plane =

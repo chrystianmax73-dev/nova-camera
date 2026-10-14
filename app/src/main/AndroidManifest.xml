@@ -4,9 +4,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
-    <!-- Sem permissão de internet: nenhum dado sai do aparelho. A biblioteca de segmentação (ML Kit)
-         declara estas permissões para telemetria de uso; elas são removidas aqui, então ela não tem
-         como enviar nada. O modelo é embutido no APK e roda offline. -->
+    <!-- Sem permissão de internet: nenhum dado sai do aparelho. A biblioteca de segmentação (MediaPipe Tasks)
+         traz um componente de telemetria de uso que declara estas permissões; elas são removidas aqui,
+         então ele não tem como enviar nada. O modelo é embutido no APK e roda offline. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <application
