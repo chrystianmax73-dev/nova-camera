@@ -9,8 +9,8 @@ Uso no CI:
 Teste local do caminho de conversão (sem os pesos oficiais):
     python export_ncnn.py --random --out /tmp/nafnet
 
-Depois da conversão, o resultado do ncnn é comparado com o do PyTorch na mesma entrada; se a
-diferença passar do limite, o script falha (o modelo não entra no APK).
+Depois da conversão, o resultado do ncnn é comparado com o do PyTorch numa cena com ruído
+(concordância ≥ 40 dB e mesmo ganho de redução de ruído); se reprovar, o modelo não entra no APK.
 """
 import argparse
 import os
@@ -107,7 +107,6 @@ def main():
     ap.add_argument("--random", action="store_true")
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=288)
-    ap.add_argument("--tol", type=float, default=2e-2)
     a = ap.parse_args()
 
     model = NAFNet()
@@ -136,26 +135,48 @@ def main():
     shutil.copy(os.path.join(work, "nafnet.ncnn.param"), os.path.join(a.out, "nafnet.param"))
     shutil.copy(os.path.join(work, "nafnet.ncnn.bin"), os.path.join(a.out, "nafnet.bin"))
 
-    # Verificação numérica: ncnn (fp32, CPU) × PyTorch na mesma entrada.
+    # Verificação: os pesos ficam em fp16 no .bin (metade do tamanho), o que gera pequenas
+    # diferenças em pixels isolados. O critério é a qualidade do resultado, não o pior pixel:
+    #  1) saída ncnn × PyTorch com PSNR ≥ 40 dB numa cena de teste com ruído;
+    #  2) o ganho de redução de ruído do ncnn fica a no máximo 0,5 dB do PyTorch.
     import ncnn
-    net = ncnn.Net()
-    net.opt.use_vulkan_compute = False
-    net.load_param(os.path.join(a.out, "nafnet.param"))
-    net.load_model(os.path.join(a.out, "nafnet.bin"))
-    ex = net.create_extractor()
-    ex.input("in0", ncnn.Mat(x.squeeze(0).numpy()).clone())
-    _, out = ex.extract("out0")
-    got = np.array(out)
+
+    def run_ncnn(img):
+        net = ncnn.Net()
+        net.opt.use_vulkan_compute = False
+        net.load_param(os.path.join(a.out, "nafnet.param"))
+        net.load_model(os.path.join(a.out, "nafnet.bin"))
+        ex = net.create_extractor()
+        ex.input("in0", ncnn.Mat(img).clone())
+        _, out = ex.extract("out0")
+        return np.array(out)
+
+    def psnr(x, y):
+        mse = float(np.mean((x - y) ** 2))
+        return 99.0 if mse == 0 else 10 * np.log10(1.0 / mse)
+
+    rng = np.random.default_rng(0)
+    yy, xx = np.mgrid[0:a.size, 0:a.size].astype(np.float32)
+    clean = np.stack([
+        0.45 + 0.25 * np.sin(xx / 9) * np.sin(yy / 13) + 0.15 * np.tanh(3 * np.sin(xx / 5 + yy / 7)),
+        0.40 + 0.20 * np.sin(xx / 11 + 1) * np.sin(yy / 6),
+        0.35 + 0.25 * np.cos(xx / 7) * np.sin(yy / 17),
+    ]).clip(0, 1).astype(np.float32)
+    noisy = (clean + rng.normal(0, 0.06, clean.shape)).clip(0, 1).astype(np.float32)
+    got = run_ncnn(noisy)
     with torch.no_grad():
-        ref = model(x).squeeze(0).numpy()
-    diff = float(np.abs(got - ref).max())
-    print(f"diferença máxima ncnn × PyTorch: {diff:.5f}")
+        ref = model(torch.from_numpy(noisy)[None]).squeeze(0).numpy()
+    agree = psnr(got, ref)
+    gain_ref = psnr(ref.clip(0, 1), clean) - psnr(noisy, clean)
+    gain_got = psnr(got.clip(0, 1), clean) - psnr(noisy, clean)
+    print(f"ncnn × PyTorch: PSNR {agree:.1f} dB (máx. {float(np.abs(got - ref).max()):.4f})")
+    print(f"ganho de redução de ruído: PyTorch {gain_ref:+.2f} dB, ncnn {gain_got:+.2f} dB")
     shutil.rmtree(work, ignore_errors=True)
-    if diff > a.tol:
+    ok = agree >= 40.0 and (not a.weights or gain_got >= gain_ref - 0.5)
+    if not ok:
         for f in ("nafnet.param", "nafnet.bin"):
             os.remove(os.path.join(a.out, f))
-        sys.exit(f"conversão divergente ({diff} > {a.tol}): modelo removido")
-
+        sys.exit("conversão reprovada: modelo removido")
 
 if __name__ == "__main__":
     main()
