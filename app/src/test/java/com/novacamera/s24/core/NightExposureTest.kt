@@ -50,7 +50,25 @@ class NightExposureTest {
         val dark = SceneStats(mean = 0.29f, p01 = 0.077f, p05 = 0.095f, p50 = 0.27f, p95 = 0.55f, p99 = 0.86f, shadowFraction = 0.09f, darkChannel = 0.063f)
         val night = ToneParams.plan(dark, ToneIntent.NIGHT)
         assertTrue(night.midLiftEv > 0.4f)
-        assertTrue(night.blackLevel > 0.02f)
+        assertTrue(night.lumaBlack > 0.02f)
         assertEquals(0f, ToneParams.plan(dark, ToneIntent.LIGHT).midLiftEv, 0f)
+    }
+
+    @Test fun tomNoturno_contraALuz_naoEsbranquica() {
+        // Armário escuro na frente de parede/janela clara: p95 alto.
+        val backlit = SceneStats(mean = 0.35f, p01 = 0.06f, p05 = 0.07f, p50 = 0.30f, p95 = 0.82f, p99 = 0.87f, shadowFraction = 0.2f, darkChannel = 0.05f)
+        val night = ToneParams.plan(backlit, ToneIntent.NIGHT)
+        assertTrue("$night", night.midLiftEv < 0.15f)
+    }
+
+    @Test fun pretoFirme_naoSaturaSombraColorida() {
+        val w = 8; val h = 8
+        val px = IntArray(w * h) { com.novacamera.s24.core.imaging.Px.argb(45, 32, 44) }
+        val base = com.novacamera.s24.core.imaging.Plane(w, h, FloatArray(w * h) { kotlin.math.ln(36f / 255f) })
+        com.novacamera.s24.core.imaging.ToneMap(base, ToneParams(0f, 0f, 0f, 0f, 0f, 0.05f), w, h).applyTile(px, w, h, 0, 0)
+        val c = px[0]
+        val r = com.novacamera.s24.core.imaging.Px.r(c); val g = com.novacamera.s24.core.imaging.Px.g(c)
+        // Mesma proporção R/G de antes (sem virar magenta): 45/32 ≈ 1,41.
+        assertEquals(45f / 32f, r.toFloat() / g, 0.08f)
     }
 }

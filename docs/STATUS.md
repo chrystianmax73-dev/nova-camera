@@ -6,6 +6,20 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.4 — Noturno contra a luz e assinatura nos modos do fabricante
+
+- Foto real (frasco, 3×, ISO 2194, contra a luz): parede esbranquiçada e armário escuro magenta
+  (R 35, G 20, B 34). Causas: (1) o clareamento de meios-tons da 0.12 subia a cena mesmo com as
+  partes claras perto do branco; (2) o preto firme subtraía o mesmo valor de R, G e B, o que
+  aumenta a saturação das sombras.
+- Clareamento de meios-tons limitado pela folga das altas luzes (teto log2(0,9/p95)): contra a luz
+  quase não clareia; a cena escura do quarto (p95 0,55) continua igual à 0.12.
+- Preto firme do Noturno agora pela luminância (ganho igual nos 3 canais): matiz e saturação das
+  sombras preservadas. O véu da Foto continua como era.
+- Retrato/Noturno do fabricante (Samsung): a foto recebe a assinatura Nova Camera (sem ajuste de
+  tom nem estilo; a imagem do aparelho fica como veio).
+- Testes: contra a luz não clareia; preto firme mantém R/G.
+
 ## 0.14.3 — causa do travamento do Retrato: ZSL + análise ao vivo
 
 - Diagnóstico real (0.14.1, SM-S928B, Android 17): sessão RETRATO na câmera 0, lente física 5

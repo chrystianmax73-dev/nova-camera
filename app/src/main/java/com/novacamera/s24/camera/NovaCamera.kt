@@ -1730,8 +1730,13 @@ class NovaCamera(
      */
     private fun enhanceIfEnabled(uri: android.net.Uri, captureFacts: com.novacamera.s24.core.imaging.ImagingFacts? = null) {
         val sig = signatureStyle()
-        val style = currentStyle()
-        if ((!settings.autoProcess && sig == null && style.neutral) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
+        // Modos do fabricante (Retrato/Noturno Samsung): a foto já vem tratada pelo aparelho; aqui só
+        // entra a assinatura (sem ajuste de tom nem estilo, que as extensões não recebem).
+        val oem = activeExtension != ExtensionMode.NONE
+        val style = if (oem) com.novacamera.s24.core.imaging.PhotoStyle() else currentStyle()
+        val autoTone = settings.autoProcess && !oem
+        if (oem && sig == null) return
+        if ((!autoTone && sig == null && style.neutral) || (mode != CaptureMode.FOTO && !oem) || !ProcessingQueue.canAccept()) return
         val zoom = equivalent(zoomOnLens)
         val facts = captureFacts ?: previewImagingFacts()
         io.execute {
@@ -1740,7 +1745,7 @@ class NovaCamera(
                 androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
             }.getOrDefault(0)
             val job = Job(JobKind.AUTO, listOf(CapturedFrame(bytes, rotation, null)), mirror = false, zoom = zoom,
-                sourceUri = uri, signature = sig, autoTone = settings.autoProcess, imagingFacts = facts, style = style)
+                sourceUri = uri, signature = sig, autoTone = autoTone, imagingFacts = facts, style = style)
             handler.post { ProcessingQueue.submit(activity, job) }
         }
     }
