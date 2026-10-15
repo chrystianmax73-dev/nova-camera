@@ -466,7 +466,7 @@ class NovaCamera(
             }
             val aspect = PhotoSizes.aspectFor(settings.aspect.label)
             val allowNative = mode == CaptureMode.FOTO && !isFront &&
-                !settings.raw && settings.aspect == AspectRatioOption.RATIO_4_3
+                settings.aspect == AspectRatioOption.RATIO_4_3
             sizeOptions = PhotoSizes.nativeOptions(lists.regular,lists.highRes,lists.maxResOnly,aspect,
                 allowNative && Build.VERSION.SDK_INT>=31 && lists.ultraHighResolutionSensor)
             sizeBlocked = PhotoSizes.blocked(sizeOptions, lists.maxResOnly, aspect)

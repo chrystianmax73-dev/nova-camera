@@ -52,6 +52,7 @@ jobs:
           Image.new('RGB',(16320,12240),(150,95,70)).save(root/'large.jpg',quality=95,icc_profile=profile)
           Image.new('RGB',(64,64),(150,95,70)).save(root/'progressive.jpg',progressive=True)
           PYJPEG
+          if [[ ! -f /usr/include/jpeglib.h ]]; then sudo apt-get update -qq; sudo apt-get install -y libjpeg-dev; fi
           c++ -std=c++17 -shared -fPIC app/src/main/cpp/jpeg_bands.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" -ljpeg -o "$RUNNER_TEMP/libNovaJpegTest.so"
           javac -d "$RUNNER_TEMP/jpegtest" tools/jpeg_bands/JpegBands.java
           /usr/bin/time -f '%M' -o "$RUNNER_TEMP/jpeg-rss.txt" java -Xmx32m -cp "$RUNNER_TEMP/jpegtest" com.novacamera.s24.processing.JpegBands "$RUNNER_TEMP/libNovaJpegTest.so" "$RUNNER_TEMP/large.jpg" "$RUNNER_TEMP/final.jpg" "$RUNNER_TEMP/progressive.jpg"

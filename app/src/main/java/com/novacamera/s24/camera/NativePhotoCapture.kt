@@ -115,7 +115,7 @@ class NativePhotoCapture(context: Context) {
             r.flashMode==androidx.camera.core.ImageCapture.FLASH_MODE_AUTO -> CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH
             else -> CameraMetadata.CONTROL_AE_MODE_ON })
         b.set(CaptureRequest.CONTROL_AWB_MODE,CameraMetadata.CONTROL_AWB_MODE_AUTO)
-        val af=c.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES).orEmpty()
+        val af=c.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
         b.set(CaptureRequest.CONTROL_AF_MODE,when {
             CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE in af -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
             CameraMetadata.CONTROL_AF_MODE_AUTO in af -> CameraMetadata.CONTROL_AF_MODE_AUTO
