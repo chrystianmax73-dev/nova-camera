@@ -26,44 +26,18 @@ jobs:
           gradle-version: '8.13'
       - name: Testes e lint antes de gerar a prévia
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
-      - name: Preparar motor JVM para A/B local sem enviar fotografias
+      - name: Resumo dos testes executados
         run: |
-          python3 - <<'PYCORE'
-          import pathlib, shutil, xml.etree.ElementTree as ET
-          out = pathlib.Path('local-ab-engine'); out.mkdir()
-          for variant in ('debug', 'debugUnitTest'):
-              src = pathlib.Path('app/build/tmp/kotlin-classes') / variant / 'com/novacamera/s24/core/imaging'
-              assert src.is_dir(), src
-              dst = out / variant / 'com/novacamera/s24/core/imaging'
-              shutil.copytree(src, dst)
-          for pattern in ('kotlin-stdlib-2*.jar', 'junit-4*.jar', 'hamcrest-core-*.jar'):
-              files = list((pathlib.Path.home()/'.gradle/caches/modules-2/files-2.1').rglob(pattern))
-              assert files, pattern
-              file = sorted(files, key=lambda f:f.name)[-1]
-              shutil.copy(file, out / file.name)
+          python3 - <<'PYTEST'
+          import pathlib, xml.etree.ElementTree as ET
+          total = skipped = failed = 0
           for file in pathlib.Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
               root = ET.parse(file).getroot()
-              print(root.attrib['name'], {k:root.attrib.get(k) for k in ('tests','failures','errors','skipped')})
-          PYCORE
-      - name: Transporte local alternativo do motor JVM (sem fotos ou chave)
-        run: |
-          python3 - <<'PYCORE'
-          import io, zipfile, pathlib, base64, hashlib
-          buffer = io.BytesIO()
-          with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as z:
-              for p in sorted(pathlib.Path('local-ab-engine').rglob('*')):
-                  if p.is_file(): z.write(p, p.relative_to('local-ab-engine'))
-          data = buffer.getvalue()
-          print('NOVA_AB_SHA256:'+hashlib.sha256(data).hexdigest())
-          encoded = base64.b64encode(data).decode()
-          for i in range(0, len(encoded), 8192): print('NOVA_AB_CHUNK:'+encoded[i:i+8192])
-          PYCORE
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: nova-local-ab-engine
-          path: local-ab-engine
-          retention-days: 7
+              total += int(root.attrib['tests']); skipped += int(root.attrib.get('skipped',0))
+              failed += int(root.attrib.get('failures',0)) + int(root.attrib.get('errors',0))
+          print(f'Testes: {total-skipped-failed} aprovados, {skipped} locais dispensados, {failed} falhas')
+          assert failed == 0
+          PYTEST
       - name: Preparar chave persistente (somente de GitHub Secrets)
         shell: bash
         env:
@@ -132,7 +106,7 @@ jobs:
           set -euo pipefail
           PREVIOUS="$RUNNER_TEMP/previous-apk"
           mkdir -p "$PREVIOUS"
-          gh release download nova-test-13 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
+          gh release download nova-test-16 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
           OLD_APK="$(find "$PREVIOUS" -name '*.apk' -print -quit)"
           NEW_APK="app/build/outputs/apk/release/app-release.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
