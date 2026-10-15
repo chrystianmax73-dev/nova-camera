@@ -1235,6 +1235,7 @@ class NovaCamera(
         if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: ainda processando as fotos anteriores")
         val cam = camera ?: return
         val h = heat
+        var captureFacts = previewImagingFacts()
         val exposure = cam.cameraInfo.exposureState
         var captureNote: String? = null
         var steps: List<Int> = when (kind) {
@@ -1265,7 +1266,7 @@ class NovaCamera(
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
-                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote))
+                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts))
             listener.onProcessingQueued(kind)
         }
 
@@ -1279,14 +1280,21 @@ class NovaCamera(
                             val buffer = image.planes[0].buffer
                             val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
                             frames += CapturedFrame(bytes, image.imageInfo.rotationDegrees, android.graphics.Rect(image.cropRect), baseEv + steps[i])
+                            if(i==0) {
+                                val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+                                captureFacts=captureFacts.copy(
+                                    iso=exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,0).takeIf { it>0 },
+                                    exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
+                                        .takeIf { it.isFinite() && it>0 && it<60 }?.let { (it*1_000_000_000).toLong() })
+                            }
                             if(i==0 && initialKind==JobKind.PHOTO) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
-                                when(com.novacamera.s24.core.AutoPhotoPolicy.choose(st?.iso,st?.exposureNs,clip,deep,
+                                when(com.novacamera.s24.core.AutoPhotoPolicy.choose(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,clip,deep,
                                     h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE))) {
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
-                                        val (n,note)=CaptureDecision.nightFrames(st?.iso,st?.exposureNs,3)
+                                        val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,3)
                                         steps=List(n){0};captureNote=note ?: "Pouca luz: redução de ruído adaptativa"
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.HDR -> if(exposure.isExposureCompensationSupported && aeAdjustable()) {
@@ -1388,17 +1396,7 @@ class NovaCamera(
         val sig = signatureStyle()
         if ((!settings.autoProcess && sig == null) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
         val zoom = equivalent(zoomOnLens)
-        val cameraId = camera?.let { runCatching { Camera2CameraInfo.from(it.cameraInfo).cameraId }.getOrNull() }
-        val optics = previewOptics
-        val sensor = runCatching {
-            activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
-                .getCameraCharacteristics(optics.first ?: cameraId ?: error("sem câmera"))
-                .get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
-        }.getOrNull()
-        val facts = captureFacts ?: com.novacamera.s24.core.imaging.ImagingFacts(
-            device = "${Build.MANUFACTURER}/${Build.MODEL}", cameraId = cameraId,
-            physicalId = optics.first, focalMm = optics.second,
-            sensorWidthMm = sensor?.width, sensorHeightMm = sensor?.height)
+        val facts = captureFacts ?: previewImagingFacts()
         io.execute {
             val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return@execute
             val rotation = runCatching {
@@ -1408,6 +1406,21 @@ class NovaCamera(
                 sourceUri = uri, signature = sig, autoTone = settings.autoProcess, imagingFacts = facts)
             handler.post { ProcessingQueue.submit(activity, job) }
         }
+    }
+
+    /** Contexto óptico da prévia; continua explicitamente sem confirmação da lente na foto. */
+    private fun previewImagingFacts(): com.novacamera.s24.core.imaging.ImagingFacts {
+        val cameraId = camera?.let { runCatching { Camera2CameraInfo.from(it.cameraInfo).cameraId }.getOrNull() }
+        val optics = previewOptics
+        val sensor = runCatching {
+            activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
+                .getCameraCharacteristics(optics.first ?: cameraId ?: error("sem câmera"))
+                .get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        }.getOrNull()
+        return com.novacamera.s24.core.imaging.ImagingFacts(
+            device = "${Build.MANUFACTURER}/${Build.MODEL}", cameraId = cameraId,
+            physicalId = optics.first, focalMm = optics.second,
+            sensorWidthMm = sensor?.width, sensorHeightMm = sensor?.height)
     }
 
     // ------------------------------------------------------------------ vídeo
