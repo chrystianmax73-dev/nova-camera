@@ -81,7 +81,10 @@ object MediaWriter {
 
     /** Regrava uma entrada que o próprio app criou (ex.: nova intensidade escolhida na revisão). */
     fun write(resolver: ContentResolver, uri: Uri, bmp: Bitmap, tags: Map<String, String>, description: String?, quality: Int = 95) {
-        resolver.openOutputStream(uri, "wt")?.use { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }
+        // Comprimir antes de truncar: a entrada da galeria fica vazia só durante a cópia dos bytes,
+        // não durante a compressão inteira (troca em segundo plano / reedição).
+        val jpeg = java.io.ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }
+        resolver.openOutputStream(uri, "wt")?.use { jpeg.writeTo(it) }
             ?: error("sem fluxo de saída")
         resolver.openFileDescriptor(uri, "rw")?.use { pfd -> writeExif(ExifInterface(pfd.fileDescriptor), tags, description) }
     }

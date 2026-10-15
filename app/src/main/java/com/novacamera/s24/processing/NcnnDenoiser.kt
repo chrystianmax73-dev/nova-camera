@@ -66,7 +66,10 @@ object NcnnDenoiser {
     }
 
     @Synchronized
-    fun denoiseInPlace(context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken, progress: (Float) -> Unit): Boolean {
+    fun denoiseInPlace(
+        context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken,
+        budget: DenoisePolicy.Budget = DenoisePolicy.FOREGROUND, progress: (Float) -> Unit,
+    ): Boolean {
         val started = SystemClock.elapsedRealtime()
         if (strength <= 0f || started < retryAfterMs) return false
         val reused = handle != 0L
@@ -111,7 +114,7 @@ object NcnnDenoiser {
                 val tileStarted = SystemClock.elapsedRealtime()
                 if (cancel.cancelled) throw CancelledException()
                 if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
-                    DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted)) {
+                    DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted, budget)) {
                     status = "fallback por custo/temperatura"
                     return false
                 }
@@ -152,7 +155,7 @@ object NcnnDenoiser {
                 if (completed >= 3 && !DenoisePolicy.remainingFits(
                         SystemClock.elapsedRealtime() - started,
                         SystemClock.elapsedRealtime() - inferenceStarted,
-                        steadyTileMs, nx * ny - completed)) {
+                        steadyTileMs, nx * ny - completed, budget)) {
                     status = "fallback: custo sustentado projetado excede orçamento"
                     return false
                 }
@@ -160,7 +163,7 @@ object NcnnDenoiser {
             }
             if (cancel.cancelled) throw CancelledException()
             if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
-                DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted)) {
+                DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted, budget)) {
                 status = "fallback por custo/temperatura"
                 return false
             }

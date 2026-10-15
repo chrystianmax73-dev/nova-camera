@@ -151,6 +151,8 @@ object ProcessingQueue {
     fun submit(context: Context, job: Job) {
         val app = context.applicationContext
         synchronized(queued) { queued += job }
+        // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
+        refineCancel?.cancelled = true
         post(JobProgress(job.id, job.kind, 0f, "Na fila", pending))
         executor.execute {
             synchronized(queued) { queued -= job }
@@ -164,6 +166,7 @@ object ProcessingQueue {
 
     /** Cancela a tarefa em andamento e as que estão na fila (os originais já salvos ficam). */
     fun cancelAll() {
+        refineCancel?.cancelled = true
         current?.cancel?.cancelled = true
         synchronized(queued) { queued.forEach { it.cancel.cancelled = true } }
     }
@@ -256,17 +259,10 @@ object ProcessingQueue {
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
-            // Redução de ruído por IA (experimental, desligada por padrão): Noturno e Retrato.
-            if (aiDenoise && com.novacamera.s24.core.DenoisePolicy.allowed(heat) &&
-                (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)) {
-                val t0 = android.os.SystemClock.elapsedRealtime()
-                val ok = runCatching {
-                    NcnnDenoiser.denoiseInPlace(context, base, 0.75f, job.cancel) { progress(0.5f + 0.15f * it, "Reduzindo ruído (IA)") }
-                }.onFailure { if (it is CancelledException) throw it; Log.w(TAG, "NAFNet falhou", it) }.getOrDefault(false)
-                if (ok) note = (if (note.isEmpty()) "" else "$note · ") +
-                    "ruído reduzido por IA em ${(android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0} s"
-            }
-            MediaWriter.writeFile(session.base, base, 95)
+            // Redução de ruído por IA (opcional): Noturno e Retrato. Roda depois que a foto já está
+            // na galeria (refino em segundo plano); a base sai com mais qualidade para a rede.
+            val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)
+            MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95)
 
             // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
             if (job.kind == JobKind.PORTRAIT) {
@@ -292,8 +288,10 @@ object ProcessingQueue {
                 "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "")
             base.recycle()
             session.enhancedUri = enhanced
+            if (aiLater) session.meta.setProperty(AI_KEY, AI_PENDING)
             session.save()
             finish(job, session, enhanced, originalUri, note.ifEmpty { null })
+            if (aiLater) synchronized(refines) { refines.remove(session.id); refines.addLast(session.id) }
         } catch (e: CancelledException) {
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Cancelado · original salvo")
         } catch (e: OutOfMemoryError) {
@@ -304,11 +302,88 @@ object ProcessingQueue {
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Falha no processamento: salvo só o original")
         } finally {
             prune(context)
-            // Reutilização curta entre fotos; descarte fora da UI e sem liberar durante inferência.
-            if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) NcnnDenoiser.release()
-            else main.postDelayed({ executor.execute {
-                if (pending == 0) NcnnDenoiser.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
-            } }, com.novacamera.s24.core.DenoisePolicy.IDLE_MS)
+            releaseModelLater()
+            scheduleRefine(context)
+        }
+    }
+
+    /** Reutilização curta entre fotos; descarte fora da UI e sem liberar durante inferência. */
+    private fun releaseModelLater() {
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) NcnnDenoiser.release()
+        else main.postDelayed({ executor.execute {
+            if (pending == 0 && refineCancel == null) NcnnDenoiser.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
+        } }, com.novacamera.s24.core.DenoisePolicy.IDLE_MS)
+    }
+
+    private const val AI_KEY = "ai"
+    private const val AI_PENDING = "pending"
+    /** A rede já rodou e a base foi regravada; falta só o acabamento e a troca na galeria. */
+    private const val AI_BASE = "base"
+    private const val AI_DONE = "done"
+    private const val AI_SKIPPED = "skipped"
+
+    /** Sessões esperando a IA, na ordem das fotos. Só roda com a fila de fotos vazia. */
+    private val refines = ArrayDeque<String>()
+    @Volatile private var refineCancel: CancelToken? = null
+
+    /** Refino pendente (para diagnóstico e testes). */
+    val pendingRefines: Int get() = synchronized(refines) { refines.size }
+
+    private fun scheduleRefine(context: Context) {
+        if (synchronized(refines) { refines.isNotEmpty() }) executor.execute { runNextRefine(context.applicationContext) }
+    }
+
+    /**
+     * IA em segundo plano: a foto Nova já está na galeria; aqui a base é limpa pela rede, recebe o
+     * mesmo acabamento (tom, desfoque, assinatura) e substitui a mesma entrada da galeria — continua
+     * uma foto só. Uma foto nova, aquecimento, economia de bateria ou o orçamento interrompem; a
+     * foto da galeria fica como estava. Não sobrevive ao fechamento forçado do app.
+     */
+    private fun runNextRefine(context: Context) {
+        if (pending > 0) return // a foto seguinte agenda de novo quando terminar
+        if (!aiDenoise) { synchronized(refines) { refines.clear() }; return }
+        if (!com.novacamera.s24.core.DenoisePolicy.allowed(heat)) return // tenta de novo depois da próxima foto
+        val id = synchronized(refines) { refines.removeFirstOrNull() } ?: return
+        val session = session(context, id)
+        val uri = session?.enhancedUri
+        if (session == null || uri == null || !session.base.exists()) return scheduleRefine(context) // sessão já descartada
+        val token = CancelToken()
+        refineCancel = token
+        var bmp: Bitmap? = null
+        try {
+            bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply {
+                inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
+            }) ?: error("base ilegível")
+            if (session.meta.getProperty(AI_KEY) != AI_BASE) {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, com.novacamera.s24.core.DenoisePolicy.BACKGROUND) {}
+                if (!ok) {
+                    session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+                    return
+                }
+                MediaWriter.writeFile(session.base, bmp, 98)
+                val secs = (android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0
+                session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") + "ruído reduzido por IA em $secs s"
+                session.meta.setProperty(AI_KEY, AI_BASE); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+            }
+            render(session, bmp, session.tone, session.blur, token) {}
+            if (token.cancelled) throw CancelledException()
+            session.signature?.let { Signature.draw(bmp, it) }
+            MediaWriter.write(context.contentResolver, uri, bmp, session.exif,
+                "Nova ${session.kind.label}" + if (session.note.isNotEmpty()) " · ${session.note}" else "")
+            session.meta.setProperty(AI_KEY, AI_DONE); session.save()
+            Log.i(TAG, "IA em segundo plano concluída: $id")
+        } catch (e: CancelledException) {
+            synchronized(refines) { if (id !in refines) refines.addFirst(id) }
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "IA em segundo plano sem memória: $id", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "IA em segundo plano falhou: $id", e) // ex.: foto apagada da galeria
+        } finally {
+            bmp?.recycle()
+            refineCancel = null
+            releaseModelLater()
+            scheduleRefine(context)
         }
     }
 
@@ -474,7 +549,13 @@ object ProcessingQueue {
 
     private fun prune(context: Context) {
         val dirs = sessionsDir(context).listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name.toLongOrNull() ?: 0L } ?: return
-        dirs.drop(KEEP_SESSIONS).forEach { it.deleteRecursively() }
+        // Sessões esperando a IA ficam além das quatro de revisão, com teto de espaço.
+        val waiting = synchronized(refines) { refines.toSet() }
+        val keep = dirs.take(KEEP_SESSIONS) + dirs.drop(KEEP_SESSIONS).filter { it.name in waiting }.take(KEEP_SESSIONS)
+        dirs.filter { it !in keep }.forEach { dir ->
+            dir.deleteRecursively()
+            synchronized(refines) { refines.remove(dir.name) }
+        }
     }
 }
 

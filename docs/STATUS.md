@@ -6,6 +6,19 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.9.2 — IA de redução de ruído em segundo plano
+
+Antes, a IA (NAFNet) rodava antes de salvar, com limite de 6 s. Uma foto de 12 MP tem 192 blocos e o custo estimado na GPU é de dezenas de ms por bloco, então a IA era quase sempre descartada (o log do aparelho mostrou descarte logo no início).
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| IA depois da foto pronta | Noturno/Retrato salvam a foto Nova na hora. Com a fila de fotos vazia, a base é limpa pela rede (limite 60 s), recebe o mesmo acabamento (tom, desfoque, assinatura) e **substitui a mesma entrada da galeria** — continua uma foto só | Compilação, lint, teste do orçamento (`backgroundBudgetFitsFullPhotoThatForegroundCannot`). O fluxo completo **não** roda no ambiente de testes (sem GPU/ncnn) | Tempo real por foto, temperatura, se a troca aparece na galeria |
+| Prioridade da câmera | Uma foto nova cancela a IA em andamento; ela recomeça depois. Aquecimento (≥ moderado) ou economia de bateria adiam | Compilação | Disparos seguidos durante a IA |
+| Segurança da troca | A foto é comprimida antes de abrir a entrada da galeria (janela de arquivo vazio mínima); se a rede já rodou e foi interrompida, só o acabamento é refeito, sem aplicar a IA duas vezes | Compilação | — |
+| Sessões | Fotos esperando a IA não são apagadas pela limpeza das quatro sessões de revisão (teto de oito) | Compilação | — |
+
+Limites: a IA continua **desligada por padrão** (Configurações › Avançado) até haver medição de tempo e temperatura no aparelho. Se o app for fechado à força, as fotos pendentes ficam sem IA (a versão Nova já está salva).
+
 ## 0.9.1 — revisão do trabalho 0.8.1–0.9 sobre fotos reais
 
 O ciclo 0.8.1–0.9 (captura nativa em alta resolução, lente física, imagem adaptativa) foi validado só com cenas sintéticas. Rodando a foto real HDR da cadeira (dossiê, só no ambiente local) apareceram dois retrocessos na fusão, corrigidos aqui:

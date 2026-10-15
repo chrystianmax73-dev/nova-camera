@@ -121,8 +121,9 @@ class SettingsActivity : NovaScreen() {
         section("Avançado")
         val aiOk = com.novacamera.s24.processing.NcnnDenoiser.available(this)
         switch("Redução de ruído por IA", if (aiOk)
-            "Processamento local no Noturno e no Retrato. Se o custo ou a temperatura forem altos, " +
-                "mantém o resultado Nova sem IA. Compare pelo toque longo na miniatura."
+            "Noturno e Retrato: a foto sai na hora e a IA limpa o ruído em segundo plano, trocando a " +
+                "mesma foto na galeria quando termina. Para ao tirar outra foto, com o aparelho quente ou " +
+                "em economia de bateria; aí a foto fica como saiu. Compare pelo toque longo na miniatura."
             else "Indisponível nesta versão: o modelo não foi incluído no APK.",
             { settings.aiDenoise && aiOk }, { settings.aiDenoise = it && aiOk })
         choice("HDR da FOTO", "Automático: só captura exposições extras quando a cena tem altas luzes estouradas ou " +

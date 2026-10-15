@@ -49,6 +49,22 @@ class PerformanceRegressionTest {
         assertTrue(DenoisePolicy.expired(8_000, 5_000))
     }
 
+    /**
+     * 12 MP = 192 blocos de 256 px. Com 40–80 ms por bloco (estimativa, não medição no S24 Ultra)
+     * a foto não cabe no limite de primeiro plano, mas cabe no de segundo plano.
+     */
+    @Test fun backgroundBudgetFitsFullPhotoThatForegroundCannot() {
+        val tiles = 16 * 12
+        for (tileMs in listOf(40L, 80L)) {
+            assertFalse(DenoisePolicy.remainingFits(1_000, 200, tileMs, tiles - 3))
+            assertTrue(DenoisePolicy.remainingFits(1_000, 200, tileMs, tiles - 3, DenoisePolicy.BACKGROUND))
+        }
+        // Mesmo em segundo plano há teto: 400 ms por bloco (CPU ou GPU estrangulada) não roda.
+        assertFalse(DenoisePolicy.remainingFits(1_000, 200, 400, tiles - 3, DenoisePolicy.BACKGROUND))
+        assertTrue(DenoisePolicy.expired(60_000, 1_000, DenoisePolicy.BACKGROUND))
+        assertFalse(DenoisePolicy.expired(8_000, 6_000, DenoisePolicy.BACKGROUND))
+    }
+
     @Test fun longNightExposureDoesNotQueueUnboundedBurst() {
         assertEquals(2, CaptureDecision.nightFrames(1600, 500_000_000, 6).first)
         assertEquals(1, CaptureDecision.nightFrames(1600, 2_000_000_000, 6).first)
