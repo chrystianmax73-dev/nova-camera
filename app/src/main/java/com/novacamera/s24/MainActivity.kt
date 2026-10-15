@@ -404,6 +404,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         bottom.addView(modeStrip, LinearLayout.LayoutParams(-1, dpi(40)))
         bottom.addView(controls, LinearLayout.LayoutParams(-1, dpi(96)))
         root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        // Régua dos controles ao vivo abre/fecha: o painel de baixo muda de altura e a barra de
+        // zoom precisa subir junto (sem sobrepor a régua).
+        bottom.addOnLayoutChangeListener { _, _, top, _, bottomEdge, _, oldTop, _, oldBottom ->
+            if (bottomEdge - top != oldBottom - oldTop) cameraState?.let { st -> handler.post { layoutAll(st.mode) } }
+        }
         root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
