@@ -1369,6 +1369,7 @@ class NovaCamera(
 
         fun submit() {
             if (nightOverride != null) { nightOverride = null; applyInterop() }
+            releaseNightFocus()
             if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
@@ -1448,14 +1449,44 @@ class NovaCamera(
                 cam.cameraControl.setExposureCompensationIndex(baseEv).addListener({ take() }, main)
             } else take()
         }
-        val plan = nightPlan
-        if (plan != null) {
-            nightOverride = plan
-            val total = plan.exposureNs * plan.frames
-            if (total >= 600_000_000L) listener.onMessage("Segure firme · ${String.format(Locale.US, "%.1f", total / 1e9).replace('.', ',')} s")
-            val applied = applyInterop()
-            if (applied != null) applied.addListener({ shoot(0) }, main) else { nightOverride = null; shoot(0) }
-        } else shoot(0)
+        fun startBurst() {
+            if (camera !== cam) return submit()
+            val plan = nightPlan
+            if (plan != null) {
+                nightOverride = plan
+                val total = plan.exposureNs * plan.frames
+                if (total >= 600_000_000L) listener.onMessage("Segure firme · ${String.format(Locale.US, "%.1f", total / 1e9).replace('.', ',')} s")
+                val applied = applyInterop()
+                if (applied != null) applied.addListener({ shoot(0) }, main) else { nightOverride = null; shoot(0) }
+            } else shoot(0)
+        }
+        // Noturno sem ponto escolhido: foco de verdade no centro antes da rajada (o AF contínuo
+        // "caça" no escuro). Todos os quadros saem com o mesmo foco; até 1,2 s de espera.
+        if (kind == JobKind.NIGHT && !userPointActive && !aeLocked && activeExtension == ExtensionMode.NONE) {
+            nightFocusThen(cam) { startBurst() }
+        } else startBurst()
+    }
+
+    private var nightFocusHeld = false
+
+    private fun nightFocusThen(cam: Camera, then: () -> Unit) {
+        val action = FocusMeteringAction.Builder(
+            previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
+            FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
+        if (!cam.cameraInfo.isFocusMeteringSupported(action)) return then()
+        var done = false
+        val go = { if (!done) { done = true; then() } }
+        nightFocusHeld = true
+        val future = cam.cameraControl.startFocusAndMetering(action)
+        future.addListener({ go() }, main)
+        handler.postDelayed({ go() }, NIGHT_FOCUS_WAIT_MS)
+    }
+
+    /** Depois da rajada: AF volta ao contínuo. */
+    private fun releaseNightFocus() {
+        if (!nightFocusHeld) return
+        nightFocusHeld = false
+        if (!userPointActive) camera?.cameraControl?.cancelFocusAndMetering()
     }
 
     private fun captureModeLabel(m: Int) = when (m) {
@@ -1805,6 +1836,7 @@ class NovaCamera(
     private fun timestamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
 
     companion object {
+        private const val NIGHT_FOCUS_WAIT_MS = 1200L
         private const val TAG = "NovaCamera"
         private const val AUTO_RETURN_MS = 20_000L
         private const val STALL_TIMEOUT_MS = 1_500L

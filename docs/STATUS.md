@@ -6,6 +6,24 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.0 — foco no escuro, detalhe na tele, prévia do Retrato econômica
+
+- Noturno: antes da rajada, foco real no centro (AF disparado, espera até 1,2 s) quando não há
+  ponto escolhido; todos os quadros com o mesmo foco; AF volta ao contínuo depois.
+- Tele 5×/10× na Foto (`Detail`): realce da luminância na escala fina (σ ≈ 1 px), com portão de
+  ruído (abaixo de ~2σ não realça) e preso ao mínimo/máximo 3×3 (sem halo). Antes do tom.
+  Validado nas fotos 10× do dossiê (aspirador, cimento, parede): letras e texturas mais nítidas,
+  sem halo nem grão a mais; ~0,3–0,4 s por foto de 1,7 MP no host.
+- Prévia do Retrato: com a cena parada (máscara igual por 10 quadros), segmentação 10 → 3 Hz e
+  profundidade 0,9 → 2,5 s; qualquer movimento volta ao normal no quadro seguinte.
+- Testado e **descartado** (piorou fotos reais da planta): alfa por cor local na borda (serrilhou o
+  contorno) e abertura de frestas por cor (furou folhas claras). O Retrato segue como na 0.13.
+- Não feito nesta versão: NPU (LiteRT + acelerador Qualcomm exige converter NAFNet/profundidade
+  para LiteRT e validar a saída no aparelho) e trava de zoom no vídeo (o CameraX aceita um efeito
+  por saída de vídeo, já usado pela assinatura; a estabilização do sistema já está no modo mais
+  forte).
+- Testes: `DetailTest`.
+
 ## 0.13.1 — Noturno da 0.12 de volta
 
 - Pedido do usuário: manter o Noturno como na 0.12 (clareamento até mediana ~0,42 e +0,5 EV na

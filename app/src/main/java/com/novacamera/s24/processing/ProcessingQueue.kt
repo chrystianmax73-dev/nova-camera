@@ -552,6 +552,8 @@ object ProcessingQueue {
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
                 session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
         else Engine.planTone(bmp, kind.tone, session.zoom)
+        // Tele 5×/10× na Foto: detalhe fino antes do tom (o tom não realça o que foi recuperado).
+        if (kind == JobKind.PHOTO || kind == JobKind.ZOOM) Engine.detailInPlace(bmp, session.zoom, cancel)
         Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()

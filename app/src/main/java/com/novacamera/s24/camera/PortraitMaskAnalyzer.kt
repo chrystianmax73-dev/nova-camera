@@ -45,6 +45,8 @@ class PortraitMaskAnalyzer(
     private var depthN: Plane? = null
     private var prevSubject: FloatArray? = null
     private var prevAmount: FloatArray? = null
+    /** Quadros seguidos com a máscara praticamente igual (cena e aparelho parados). */
+    private var stillFrames = 0
     @Volatile private var closed = false
     private var lastState: String? = "init"
 
@@ -56,7 +58,10 @@ class PortraitMaskAnalyzer(
             if (status >= ThermalPolicy.SEVERE) {
                 effect.clearMask(); state("Prévia do desfoque pausada: aparelho quente"); return
             }
-            if (now - lastSeg < if (status >= ThermalPolicy.MODERATE) 300 else 100) return
+            // Cena parada: a máscara não muda, então 3 Hz bastam (economia de CPU/GPU); qualquer
+            // movimento volta a 10 Hz no quadro seguinte.
+            val still = stillFrames >= STILL_AFTER
+            if (now - lastSeg < if (status >= ThermalPolicy.MODERATE || still) 300 else 100) return
             lastSeg = now
 
             val full = image.toBitmap()
@@ -73,7 +78,11 @@ class PortraitMaskAnalyzer(
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
 
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
-            val depthEvery = if (status >= ThermalPolicy.MODERATE) Long.MAX_VALUE else 900L
+            val depthEvery = when {
+                status >= ThermalPolicy.MODERATE -> Long.MAX_VALUE
+                still -> 2500L
+                else -> 900L
+            }
             if (!depthFailed && now - lastDepth >= depthEvery && ProcessingQueue.pending == 0) {
                 lastDepth = now
                 val session = depth ?: DepthEstimator.Session.open(app).also { if (it == null) depthFailed = true; depth = it }
@@ -88,6 +97,11 @@ class PortraitMaskAnalyzer(
                 person != null -> Planes.resize(person, mw, mh).let { p -> p to Plane(mw, mh, FloatArray(mw * mh) { 1f }) }
                 else -> { effect.clearMask(); state("Retrato: aproxime-se de uma pessoa ou objeto"); return }
             }
+            prevSubject?.takeIf { it.size == subject.data.size }?.let { p ->
+                var d = 0f
+                for (i in p.indices) d += kotlin.math.abs(p[i] - subject.data[i])
+                stillFrames = if (d / p.size < STILL_DIFF) stillFrames + 1 else 0
+            } ?: run { stillFrames = 0 }
             // Suaviza no tempo: sem tremulação na borda entre quadros.
             val sub = smooth(subject.data, prevSubject).also { prevSubject = it }
             val amt = smooth(amount.data, prevAmount).also { prevAmount = it }
@@ -127,5 +141,10 @@ class PortraitMaskAnalyzer(
         runCatching { depth?.close() }; depth = null
     }
 
-    private companion object { const val TAG = "NovaPortraitMask" }
+    private companion object {
+        const val TAG = "NovaPortraitMask"
+        /** Diferença média da máscara entre quadros abaixo disso = parado. */
+        const val STILL_DIFF = 0.006f
+        const val STILL_AFTER = 10
+    }
 }

@@ -500,6 +500,34 @@ object Engine {
         }
     }
 
+    /**
+     * Detalhe fino da tele ([com.novacamera.s24.core.imaging.Detail]), em faixas com margem de 2
+     * linhas (a vizinhança do desfoque não "vê" a borda da faixa). Devolve a fração alterada.
+     */
+    fun detailInPlace(bmp: Bitmap, zoom: Float, cancel: CancelToken): Float {
+        val amount = com.novacamera.s24.core.imaging.Detail.amountFor(zoom)
+        if (amount <= 0f) return 0f
+        val w = bmp.width; val h = bmp.height
+        val (pw, ph) = (min(w, 1024)) to (min(h, 1024))
+        val probe = IntArray(pw * ph).also { bmp.getPixels(it, 0, pw, (w - pw) / 2, (h - ph) / 2, pw, ph) }
+        val sigma = com.novacamera.s24.core.imaging.Detail.noiseSigma(probe, pw, ph)
+        val band = 256; val margin = 3
+        var changed = 0L
+        var y0 = 0
+        while (y0 < h) {
+            if (cancel.cancelled) throw CancelledException()
+            val top = max(0, y0 - margin); val bottom = min(h, y0 + band + margin)
+            val rows = bottom - top
+            val buf = IntArray(w * rows).also { bmp.getPixels(it, 0, w, 0, top, w, rows) }
+            val validTop = y0 - top; val validBottom = min(rows, validTop + band)
+            changed += com.novacamera.s24.core.imaging.Detail.applyBand(buf, w, rows, amount, sigma, validTop, validBottom)
+            val keep = validBottom - validTop
+            bmp.setPixels(buf, validTop * w, w, 0, y0, w, keep)
+            y0 += band
+        }
+        return changed.toFloat() / (w.toLong() * h)
+    }
+
     /** RGB médio (0..1) por blocos factor×factor, lido em faixas. */
     fun rgb(bmp: Bitmap, factor: Int): Array<Plane> {
         val w = bmp.width; val h = bmp.height
