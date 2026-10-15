@@ -33,6 +33,11 @@ enum class JobKind(val label: String, val tone: ToneIntent) {
     /** FOTO: ajuste automático e adaptativo da foto comum (muitas vezes nenhum). */
     AUTO("Automático", ToneIntent.LIGHT),
     PHOTO("Foto", ToneIntent.LIGHT),
+    /** FOTO na tele (≥ 4,5×) com pouca luz: quadros alinhados e somados, tom da Foto (não clareia). */
+    ZOOM("Zoom", ToneIntent.LIGHT),
+    ;
+    /** Fusão de quadros iguais (redução de ruído sem suavizar): Noturno e tele. */
+    val merges get() = this == NIGHT || this == ZOOM
 }
 
 class Job(
@@ -217,7 +222,7 @@ object ProcessingQueue {
         if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
-        val orderedFrames = if (job.kind == JobKind.NIGHT && job.frames.size > 1) runCatching {
+        val orderedFrames = if (job.kind.merges && job.frames.size > 1) runCatching {
             val first = job.frames[0]
             if (job.frames.any { it.evIndex != first.evIndex || it.rotationDegrees != first.rotationDegrees || it.crop != first.crop }) job.frames
             else {
@@ -265,14 +270,14 @@ object ProcessingQueue {
             var base: Bitmap
             var note = job.captureNote ?: ""
             var hdrScene: Plane? = null
-            if (frames.size > 1 && (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)) {
+            if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
                 try {
                     progress(0.05f, "Alinhando ${frames.size} quadros")
                     val a = Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
-                    if (job.kind == JobKind.NIGHT) {
+                    if (job.kind.merges) {
                         val rejected = Engine.mergeInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
                         val n = a.usedFrames
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
@@ -290,7 +295,7 @@ object ProcessingQueue {
                 hdrScene?.let { runCatching { session.saveHdr(it.oriented(frame0.rotationDegrees, job.mirror)) } }
             } else {
                 base = orig
-                if (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)
+                if (job.kind.merges || job.kind == JobKind.HDR)
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
@@ -543,7 +548,7 @@ object ProcessingQueue {
      */
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
         val kind = session.kind
-        val plan = if (kind == JobKind.PHOTO || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
+        val plan = if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
                 session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
         else Engine.planTone(bmp, kind.tone, session.zoom)

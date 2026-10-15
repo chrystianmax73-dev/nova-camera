@@ -6,6 +6,21 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.13.0 — Noturno natural, tele multiquadro, energia medida
+
+Auditoria completa em `docs/AUDITORIA-0.13.md`.
+
+- Noturno: retirado o clareamento da 0.12 (pedido: sem aspecto esbranquiçado). Volta o tom
+  calibrado da 0.11; ficam os quadros longos com ISO baixo **com a mesma luz do automático**
+  (`BOOST_EV = 0`) e o preto firme pelo canal escuro.
+- Foto na tele (≥ 4,5×) com ISO ≥ 250: 3 quadros alinhados, referência = o mais nítido, fusão
+  robusta (`JobKind.ZOOM`), tom da Foto. Calor/economia: um quadro, como antes.
+- `EnergyLog`: a cada 10 s com a câmera aberta, corrente, tensão, temperatura da bateria, estado
+  e folga térmica por atividade (modo, gravando, processando). Diagnóstico mostra mW médio,
+  %/h na bateria e temperatura.
+- IA opcional (NAFNet) espera com bateria ≤ 15% fora do carregador.
+- Testes: `EfficiencyTest`, `NightExposureTest` (mesma luz do automático).
+
 ## 0.12.0 — Noturno: quadros longos com ISO baixo, foto mais clara e preto firme
 
 Motivo: foto real do quarto no Noturno 0.11 saiu com ISO 6539 a 1/24 s (o automático prioriza

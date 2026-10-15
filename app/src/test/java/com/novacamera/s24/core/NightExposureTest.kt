@@ -16,9 +16,9 @@ class NightExposureTest {
         val p = NightExposure.plan(6539, 41_666_666L, 50, 12800, 30_000_000_000L, handheld, 5)!!
         assertTrue("tempo maior que o automático", p.exposureNs > 41_666_666L * 3)
         assertTrue("ISO bem menor: ${p.iso}", p.iso < 3000)
-        // A luz total sobe só o reforço (+0,5 EV).
+        // Mesma luz do automático: o brilho aprovado não muda, só o ruído.
         val ratio = p.iso.toDouble() * p.exposureNs / (6539.0 * 41_666_666L)
-        assertEquals(Math.pow(2.0, 0.5), ratio, 0.05)
+        assertEquals(1.0, ratio, 0.03)
         assertTrue(p.frames in 3..5)
     }
 
@@ -46,11 +46,11 @@ class NightExposureTest {
         assertTrue(p.iso in 100..3200)
     }
 
-    @Test fun tomNoturno_clareiaMeiosTonsEFirmaOPreto() {
+    @Test fun tomNoturno_naoClareiaMasFirmaOPreto() {
+        // Quarto real da 0.11 (mediana 0,27): sem clareamento extra; preto ancorado.
         val dark = SceneStats(mean = 0.29f, p01 = 0.077f, p05 = 0.095f, p50 = 0.27f, p95 = 0.55f, p99 = 0.86f, shadowFraction = 0.09f, darkChannel = 0.063f)
         val night = ToneParams.plan(dark, ToneIntent.NIGHT)
-        assertTrue(night.midLiftEv > 0.4f)
+        assertTrue("$night", night.shadowLiftEv < 0.1f)
         assertTrue(night.blackLevel > 0.02f)
-        assertEquals(0f, ToneParams.plan(dark, ToneIntent.LIGHT).midLiftEv, 0f)
     }
 }

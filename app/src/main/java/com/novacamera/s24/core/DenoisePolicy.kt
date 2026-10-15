@@ -17,8 +17,12 @@ object DenoisePolicy {
      */
     val BACKGROUND = Budget(60_000L, 50_000L)
 
+    /** Bateria baixa fora do carregador: a IA opcional espera (a foto já está pronta na galeria). */
+    const val LOW_BATTERY = 15
+
     fun allowed(heat: DeviceHeat?) = heat == null ||
-        (heat.thermalStatus < ThermalPolicy.MODERATE && !heat.powerSave)
+        (heat.thermalStatus < ThermalPolicy.MODERATE && !heat.powerSave &&
+            (heat.charging || heat.batteryPercent < 0 || heat.batteryPercent > LOW_BATTERY))
 
     fun canRun(pixels: Long, gpu: Boolean, heapHeadroom: Long): Boolean =
         pixels > 0 && (gpu || pixels <= CPU_MAX_PIXELS) && heapHeadroom >= pixels * 8L + 16L * 1024 * 1024

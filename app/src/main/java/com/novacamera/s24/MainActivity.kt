@@ -197,6 +197,22 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         lastInteraction = SystemClock.elapsedRealtime()
         handler.removeCallbacks(idleCheck)
         handler.postDelayed(idleCheck, IDLE_CHECK_MS)
+        handler.removeCallbacks(energyTick)
+        handler.postDelayed(energyTick, ENERGY_EVERY_MS)
+    }
+
+    /** Amostra de energia/temperatura por atividade (diagnóstico de sessões longas). */
+    private val energyTick = object : Runnable {
+        override fun run() {
+            if (::camera.isInitialized) {
+                val activity = when {
+                    camera.isRecording -> "${camera.mode.label} (gravando)"
+                    else -> camera.mode.label
+                } + if (ProcessingQueue.pending > 0) " + processando" else ""
+                com.novacamera.s24.core.EnergyLog.add(monitor.energySample(activity, SystemClock.elapsedRealtime()))
+            }
+            handler.postDelayed(this, ENERGY_EVERY_MS)
+        }
     }
 
     private var newSessionOnResume = false
@@ -227,6 +243,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         monitor.stop()
         orientationListener.disable()
         handler.removeCallbacks(idleCheck)
+        handler.removeCallbacks(energyTick)
         super.onStop()
     }
 
@@ -1149,6 +1166,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private val PRIMARY_MODES = CaptureMode.entries.filter { it.primary }
         private val EXTRA_MODES = CaptureMode.entries.filterNot { it.primary }
         private const val IDLE_CHECK_MS = 10_000L
+        private const val ENERGY_EVERY_MS = 10_000L
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f
     }

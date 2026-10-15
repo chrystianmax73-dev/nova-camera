@@ -21,6 +21,8 @@ class DeviceMonitor(private val context: Context, private val onChange: (DeviceH
     private var batteryTempC: Float? = null
     private var charging = false
     private var batteryPercent = -1
+    private var voltageMv: Int? = null
+    private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private var started = false
     private var thermalRegistered = false
 
@@ -74,6 +76,16 @@ class DeviceMonitor(private val context: Context, private val onChange: (DeviceH
         val temp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
         batteryTempC = if (temp != Int.MIN_VALUE) temp / 10f else null
         charging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+        voltageMv = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1).takeIf { it > 0 }
+    }
+
+    /** Amostra de energia para o [com.novacamera.s24.core.EnergyLog] (corrente instantânea do sistema). */
+    fun energySample(activity: String, nowMs: Long): com.novacamera.s24.core.EnergyLog.Sample {
+        val ua = runCatching { batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) }.getOrNull()
+            ?.takeIf { it != Long.MIN_VALUE && it != 0L }
+        val h = current
+        return com.novacamera.s24.core.EnergyLog.Sample(nowMs, activity, ua, voltageMv, h.batteryTempC, h.batteryPercent,
+            h.charging, h.thermalStatus, headroom())
     }
 
     private fun snapshot() = DeviceHeat(thermalStatus, batteryTempC, charging, power.isPowerSaveMode, batteryPercent)

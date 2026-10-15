@@ -1400,7 +1400,12 @@ class NovaCamera(
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 when(com.novacamera.s24.core.AutoPhotoPolicy.choose(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,clip,deep,
-                                    h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE))) {
+                                    h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE), equivalent(zoomOnLens))) {
+                                    com.novacamera.s24.core.AutoPhotoPolicy.Path.ZOOM -> {
+                                        kind=JobKind.ZOOM
+                                        steps=List(com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES){0}
+                                        captureNote="Tele com pouca luz: ${com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES} quadros alinhados"
+                                    }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
                                         val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,3)
