@@ -8,13 +8,14 @@ Legenda da coluna **Validação**:
 
 ## 0.9.1 — revisão do trabalho 0.8.1–0.9 sobre fotos reais
 
-O ciclo 0.8.1–0.9 (captura nativa em alta resolução, lente física, imagem adaptativa) foi validado só com cenas sintéticas. Rodando a foto real HDR da cadeira (dossiê, só no ambiente local) apareceram dois retrocessos, corrigidos aqui:
+O ciclo 0.8.1–0.9 (captura nativa em alta resolução, lente física, imagem adaptativa) foi validado só com cenas sintéticas. Rodando a foto real HDR da cadeira (dossiê, só no ambiente local) apareceram dois retrocessos na fusão, corrigidos aqui:
 
 | Problema | Causa | Correção | Medição |
 |---|---|---|---|
 | Quadrados de tom diferente nos blocos da borda | Bloco com qualquer pixel fora do quadro era descartado inteiro (só a referência), enquanto os vizinhos recebiam a fusão | Só os pixels sem dado (fora do quadro) usam a referência; o resto do bloco continua fundido, sem deslocar o bloco | Salto na divisa dos blocos ÷ salto vizinho: 0.8 1,21 · 0.9 2,19 · 0.9.1 1,20. Teste `borderTilesDoNotLeaveToneSquares` (falha na 0.9) |
 | Buraco de tom no formato do objeto rejeitado | Pixel rejeitado só perdia o peso, deixando a referência sozinha | Volta a substituição da 0.7 pela previsão da referência na exposição do quadro | Cena sintética: 2,7 → 1,8 níveis (de 255) |
-| Original deixava de ser guardado por padrão | Padrão de "Guardar originais" mudado para desligado | Ligado por padrão de novo | — |
+
+"Guardar originais" segue desligado por padrão (uma única imagem final na galeria, por decisão do usuário); o original fica só nas quatro últimas sessões privadas.
 
 A captura nativa, a lente física e a imagem adaptativa da 0.9 continuam **sem teste no aparelho**.
 
