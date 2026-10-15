@@ -76,6 +76,7 @@ import com.novacamera.s24.core.LensSelection
 import com.novacamera.s24.core.ModeEngine
 import com.novacamera.s24.core.ModeResolver
 import com.novacamera.s24.core.ModeSupport
+import com.novacamera.s24.core.ShutterLog
 import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.core.ZoomCurve
 import com.novacamera.s24.core.ZoomRequestGate
@@ -94,7 +95,7 @@ import java.util.Locale
  * para o que o CameraX não expõe (prioridade a rostos, bloqueio AE/AWB, controles manuais).
  * Toda decisão de recurso parte das capacidades anunciadas pelo aparelho.
  */
-@OptIn(ExperimentalCamera2Interop::class)
+@OptIn(ExperimentalCamera2Interop::class, androidx.camera.core.ExperimentalZeroShutterLag::class)
 class NovaCamera(
     private val activity: ComponentActivity,
     private val previewView: PreviewView,
@@ -497,8 +498,22 @@ class NovaCamera(
             } ?: resolution
             // Rajadas (Noturno/HDR Nova) precisam de intervalo curto entre quadros.
             val burst = processingKind(support) == JobKind.NIGHT || processingKind(support) == JobKind.HDR
+            // Foto de um quadro: disparo sem atraso (ZSL, quadro do buffer recente) quando a câmera
+            // anuncia suporte; rajadas continuam com latência mínima, e RAW/extensões sem ZSL.
+            val zsl = !burst && settings.instantShutter && wantedExtension == ExtensionMode.NONE &&
+                !(mode == CaptureMode.PRO && settings.raw) && runCatching { info.isZslSupported }.getOrDefault(false)
+            val captureMode = when {
+                burst -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                zsl -> ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
+                else -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+            }
+            ShutterLog.configured = when {
+                wantedExtension != ExtensionMode.NONE -> "extensão do fabricante"
+                else -> captureModeLabel(captureMode)
+            } + " · ZSL anunciado: ${runCatching { info.isZslSupported }.getOrDefault(false)}" +
+                if (settings.instantShutter) "" else " (desligado nas configurações)"
             val ib = ImageCapture.Builder()
-                .setCaptureMode(if (burst) ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY else ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setCaptureMode(captureMode)
                 .setResolutionSelector(photoSelector)
                 .setTargetRotation(targetRotation)
             pinned?.let { Camera2Interop.Extender(ib).setPhysicalCameraId(it) }
@@ -1100,16 +1115,18 @@ class NovaCamera(
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Nova Camera")
         }
-        processingKind()?.let { return captureForProcessing(ic, it) }
-        if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values)
+        val shot = ShotTimer(ic)
+        processingKind()?.let { return captureForProcessing(ic, it, shot) }
+        if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values, shot)
         if (state?.rawActive == true) return captureRawPlusJpeg(ic, values)
         val metadata = ImageCapture.Metadata()
         val output = ImageCapture.OutputFileOptions.Builder(
             activity.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
         ).setMetadata(metadata).build()
         ic.takePicture(output, main, object : ImageCapture.OnImageSavedCallback {
-            override fun onCaptureStarted() = listener.onCaptureStarted()
+            override fun onCaptureStarted() { shot.started(); listener.onCaptureStarted() }
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                shot.done(null)
                 listener.onPhotoSaved(result.savedUri)
                 result.savedUri?.let(::enhanceIfEnabled)
             }
@@ -1197,10 +1214,11 @@ class NovaCamera(
     }
 
     /** Selfie como visualizada: captura em memória e espelha os pixels em segundo plano. */
-    private fun captureMirrored(ic: ImageCapture, values: ContentValues) {
+    private fun captureMirrored(ic: ImageCapture, values: ContentValues, shot: ShotTimer) {
         ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
-            override fun onCaptureStarted() { handler.post { listener.onCaptureStarted() } }
+            override fun onCaptureStarted() { shot.started(); handler.post { listener.onCaptureStarted() } }
             override fun onCaptureSuccess(image: ImageProxy) {
+                shot.done(image.imageInfo.timestamp)
                 val uri = try {
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
@@ -1230,7 +1248,7 @@ class NovaCamera(
      * de exposição para HDR, um quadro para Retrato/Food) e entrega à fila em segundo plano.
      * O obturador fica livre assim que os quadros chegam; o processamento não bloqueia a câmera.
      */
-    private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind) {
+    private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind, shot: ShotTimer? = null) {
         var kind=initialKind
         if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: ainda processando as fotos anteriores")
         val cam = camera ?: return
@@ -1274,8 +1292,9 @@ class NovaCamera(
             if (i == steps.size || camera !== cam) return submit()
             val take = {
                 ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
-                    override fun onCaptureStarted() { if (i == 0) handler.post { listener.onCaptureStarted() } }
+                    override fun onCaptureStarted() { if (i == 0) { shot?.started(); handler.post { listener.onCaptureStarted() } } }
                     override fun onCaptureSuccess(image: ImageProxy) {
+                        if (i == 0) shot?.done(image.imageInfo.timestamp)
                         try {
                             val buffer = image.planes[0].buffer
                             val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
@@ -1335,6 +1354,22 @@ class NovaCamera(
             } else take()
         }
         shoot(0)
+    }
+
+    private fun captureModeLabel(m: Int) = when (m) {
+        ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG -> "sem atraso (ZSL)"
+        ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY -> "latência mínima"
+        else -> "qualidade máxima"
+    }
+
+    /** Mede um disparo a partir do toque (ver [ShutterLog]). */
+    private inner class ShotTimer(ic: ImageCapture) {
+        private val tap = android.os.SystemClock.elapsedRealtimeNanos()
+        private val mode = if (activeExtension != ExtensionMode.NONE) "extensão do fabricante" else captureModeLabel(ic.captureMode)
+        @Volatile private var start: Long? = null
+        fun started() { start = (android.os.SystemClock.elapsedRealtimeNanos() - tap) / 1_000_000L }
+        fun done(sensorTimestampNs: Long?) = ShutterLog.add(ShutterLog.Entry(mode, start,
+            sensorTimestampNs?.let { ShutterLog.sensorDelayMs(it, tap) }, (android.os.SystemClock.elapsedRealtimeNanos() - tap) / 1_000_000L))
     }
 
     /** Fração estourada e de sombras profundas de um JPEG (decodificado bem reduzido, rápido). */

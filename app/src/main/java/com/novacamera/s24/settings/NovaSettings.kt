@@ -63,6 +63,8 @@ class NovaSettings(context: Context) {
     var signatureOpacity get() = int("signature_opacity", 85) / 100f; set(v) = put("signature_opacity", (v * 100).toInt())
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)
+    /** Disparo sem atraso (ZSL) quando a câmera anuncia suporte. */
+    var instantShutter get() = bool("instant_shutter", true); set(v) = put("instant_shutter", v)
 
     // Vídeo
     var mirrorFrontVideo get() = bool("mirror_front_video", true); set(v) = put("mirror_front_video", v)
