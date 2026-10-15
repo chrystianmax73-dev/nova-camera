@@ -38,11 +38,17 @@ class EngineAndroidTest {
         return ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 97, it) }.toByteArray()
     }
 
+    /**
+     * Bloco na borda com deslocamento para fora: só os pixels sem dado (fora do quadro) recebem a
+     * referência; os de dentro vêm do quadro, na posição certa (sem deslocar o bloco inteiro e sem
+     * descartar o bloco todo, o que deixava quadrados de tom diferente na foto real do dossiê).
+     */
     @Test
-    fun shiftedBorderKeepsReferenceInsteadOfMovingWholeTile() {
+    fun shiftedBorderUsesReferenceOnlyOutsideTheFrame() {
         val ref = IntArray(16 * 16) { 0xFF777777.toInt() }
-        val bmp = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
-        bmp.eraseColor(0xFFFF0000.toInt())
+        fun col(c: Int) = 40 + 3 * c
+        val bmp = Bitmap.createBitmap(IntArray(64 * 64) { i -> val v = col(i % 64); (0xFF shl 24) or (v shl 16) or (v shl 8) or v },
+            64, 64, Bitmap.Config.ARGB_8888)
         val field = Array(1) { com.novacamera.s24.core.imaging.Shift(-4, 0) }
         for (subpixel in listOf(false, true)) {
             val a = Engine.Alignment(listOf(Array(1) { com.novacamera.s24.core.imaging.Shift(0, 0) }, field),
@@ -51,7 +57,15 @@ class EngineAndroidTest {
                 listOf(null, null), listOf(0f, 0f), 0.002f,
                 if (subpixel) listOf(Array(1) { com.novacamera.s24.core.imaging.FShift(0f, 0f) },
                     Array(1) { com.novacamera.s24.core.imaging.FShift(-4f, 0f) }) else null)
-            org.junit.Assert.assertArrayEquals(ref, Engine.readAligned(BitmapSource(bmp), a, 1, 0, 16, 16, 16, ref))
+            val out = Engine.readAligned(BitmapSource(bmp), a, 1, 0, 16, 16, 16, ref)
+            for (y in 0 until 16) {
+                for (x in 0 until 3) assertEquals("fora do quadro (x=$x, subpixel=$subpixel)", ref[y * 16 + x], out[y * 16 + x])
+                for (x in 6 until 16) {
+                    val v = out[y * 16 + x] and 0xFF
+                    assertTrue("x=$x, subpixel=$subpixel: $v ≠ ${col(x - 4)}", kotlin.math.abs(v - col(x - 4)) <= 2)
+                }
+                if (!subpixel) for (x in 3 until 6) assertEquals(if (x < 4) ref[0] and 0xFF else col(x - 4), out[y * 16 + x] and 0xFF)
+            }
         }
         bmp.recycle()
     }
@@ -174,6 +188,34 @@ class EngineAndroidTest {
             if (g > 0.08f) phantom++
         }
         assertTrue("bordas fantasma: $phantom de $flat", phantom.toFloat() / flat < 0.001f)
+    }
+
+    /**
+     * Blocos na borda (onde o deslocamento da mão leva parte do bloco para fora do quadro) não podem
+     * sair da fusão inteiros: isso deixava quadrados de tom diferente na foto real da cadeira.
+     * Mede o salto de luminância exatamente na divisa dos blocos contra o salto logo ao lado.
+     */
+    @Test
+    fun borderTilesDoNotLeaveToneSquares() {
+        val frames = listOf(
+            bracketFrame(0f, 0f, 0f, 0f, 400, 1),
+            bracketFrame(-2f, 6f, -4f, 0.4f, 460, 2),
+            bracketFrame(1f, -5f, 5f, -0.35f, 520, 3),
+        ).map { CapturedFrame(it, 0, null) }
+        val sources = frames.map(::JpegSource)
+        val a = Engine.align(sources, CancelToken()) {}
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Engine.fuseInto(sources, out, a, CancelToken()) {}
+        sources.forEach { it.close() }
+        fun luma(x: Int, y: Int) = out.getPixel(x, y).let { 0.2126f * ((it shr 16) and 0xFF) + 0.7152f * ((it shr 8) and 0xFF) + 0.0722f * (it and 0xFF) }
+        var seam = 0f; var beside = 0f
+        for (b in Engine.TILE until w step Engine.TILE) for (y in 0 until h) {
+            seam += kotlin.math.abs(luma(b, y) - luma(b - 1, y)); beside += kotlin.math.abs(luma(b + 3, y) - luma(b + 2, y))
+        }
+        for (b in Engine.TILE until h step Engine.TILE) for (x in 0 until w) {
+            seam += kotlin.math.abs(luma(x, b) - luma(x, b - 1)); beside += kotlin.math.abs(luma(x, b + 3) - luma(x, b + 2))
+        }
+        assertTrue("divisa dos blocos ${seam / beside}× o salto vizinho", seam / beside < 1.4f)
     }
 
     /** Quadro impossível de alinhar (giro grande): é descartado e a referência sai intacta. */

@@ -136,7 +136,7 @@ object ProcessingQueue {
     private val queued = ArrayList<Job>()
     @Volatile private var current: Job? = null
     @Volatile var heat: DeviceHeat? = null
-    @Volatile var keepOriginals = false
+    @Volatile var keepOriginals = true
     /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
     @Volatile var aiDenoise = false
 

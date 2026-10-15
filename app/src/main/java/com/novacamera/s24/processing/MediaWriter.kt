@@ -14,7 +14,7 @@ import java.io.FileOutputStream
 object MediaWriter {
     const val GALLERY = "Pictures/Nova Camera"
     const val ORIGINALS = "Pictures/Nova Camera/Originais"
-    const val SOFTWARE = "Nova Camera 0.8"
+    const val SOFTWARE = "Nova Camera 0.9"
 
     private val EXIF_TAGS = listOf(
         ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED,

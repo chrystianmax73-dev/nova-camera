@@ -7,12 +7,12 @@ Branch de trabalho: `codex/photo-quality-validation`; main e a branch Claude nã
 
 ## Correções
 
-- Janela de alinhamento sem suporte nas bordas conserva a referência; antes o leitor limitava a origem e deslocava um bloco inteiro.
+- Janela de alinhamento sem suporte nas bordas: antes o leitor limitava a origem e deslocava um bloco inteiro. **Revisto na 0.9.1:** a primeira correção devolvia a referência para o bloco inteiro, e na foto real da cadeira (dossiê) isso deixava quadrados de tom diferente nos blocos da borda (salto na divisa dos blocos 2,19× o salto vizinho; 0.8: 1,21×). Agora só os pixels cujas amostras caem fora do quadro recebem a referência (1,20×); teste `borderTilesDoNotLeaveToneSquares`.
 - Refino subpixel HDR mede erro com luminância normalizada pela curva de exposição já existente.
 - Pesos HDR seguem o campo local de alinhamento, em vez de apenas o deslocamento central.
-- Consistência HDR confere crominância nas regiões bem medidas, rejeitando objetos com luminosidade semelhante e cor diferente. Rejeição remove a contribuição; não substitui pixels por uma exposição estimada.
+- Consistência HDR confere crominância nas regiões bem medidas, rejeitando objetos com luminosidade semelhante e cor diferente. **Revisto na 0.9.1:** remover só a contribuição deixa a referência sozinha no formato do objeto rejeitado, com o tom de outra mistura (buraco de tom médio 2,7 níveis na cena sintética). Voltou a substituição da 0.7 pela previsão da referência na exposição daquele quadro (curva medida, sem detalhe inventado): 1,8 níveis.
 - Noturno escolhe referência por energia de bordas com desconto de ruído e proteção de clipping, somente com exposição/orientação/recorte iguais. Margem de 10% evita trocas por diferenças pequenas. É uma heurística, ainda precisa de calibração no aparelho; HDR mantém a exposição normal como referência.
-- Originais duplicados desligados por padrão. Preferências explicitamente salvas são respeitadas. Original × Nova continua pelo toque longo na miniatura; até quatro sessões privadas, removidas conforme novas sessões entram. Nenhuma tela de revisão automática.
+- Originais: **revertido na 0.9.1 para ligado por padrão** — desligado, o JPEG da câmera só sobrevive nas quatro últimas sessões privadas, e uma foto que o processamento piorar fica sem original depois disso. Preferências explicitamente salvas são respeitadas. Original × Nova continua pelo toque longo na miniatura; até quatro sessões privadas, removidas conforme novas sessões entram. Nenhuma tela de revisão automática.
 - Diagnóstico inclui valores reportados pela prévia: câmera lógica/física, focal, zoom, ISO, exposição, foco, AF/AE/AWB, ganhos, OIS/EIS e resolução configurada. Não são metadados da exposição JPEG e podem ser os últimos valores recebidos antes de sair para Configurações.
 - Assinatura visual e recursos existentes preservados. Ncnn opcional, desligado por padrão.
 

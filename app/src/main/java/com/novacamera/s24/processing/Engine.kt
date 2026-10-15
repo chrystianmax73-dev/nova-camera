@@ -202,20 +202,16 @@ object Engine {
         val ff = a.fieldsF
         if (k == 0 || ff == null || ref == null) {
             val s = if (k == 0) Shift(0, 0) else shiftFor(a, k, x0, y0, tw, th)
-            if (ref != null && (x0 + s.dx < 0 || y0 + s.dy < 0 ||
-                    x0 + s.dx + tw > frame.width || y0 + s.dy + th > frame.height)) return ref.copyOf()
-            return IntArray(n).also { frame.read(x0 + s.dx, y0 + s.dy, tw, th, it) }
+            val out = IntArray(n).also { readClamped(frame, x0 + s.dx, y0 + s.dy, tw, th, it) }
+            if (ref != null) keepReferenceOutside(out, ref, tw, th, x0 + s.dx, y0 + s.dy, 0, 0, 0, 0, frame.width, frame.height)
+            return out
         }
         val f = Align.shiftAtF(ff[k], a.gx, a.gy, a.lw, a.lh, (x0 + tw / 2f) / a.scale, (y0 + th / 2f) / a.scale, a.scale)
         val ix = kotlin.math.round(f.x).toInt(); val iy = kotlin.math.round(f.y).toInt()
         // Janela com 2 px de margem em cada lado (medir ±1 e interpolar com 4×4 vizinhos).
         val m = 2
         val rw = tw + 2 * m; val rh = th + 2 * m
-        // Não limitar a origem da janela: isso deslocaria todos os pixels do bloco.
-        // Sem suporte para interpolar nas bordas, conservar o quadro de referência.
-        if (x0 + ix - m < 0 || y0 + iy - m < 0 ||
-            x0 + ix - m + rw > frame.width || y0 + iy - m + rh > frame.height) return ref.copyOf()
-        val src = IntArray(rw * rh).also { frame.read(x0 + ix - m, y0 + iy - m, rw, rh, it) }
+        val src = IntArray(rw * rh).also { readClamped(frame, x0 + ix - m, y0 + iy - m, rw, rh, it) }
         val lumaSrc = FloatArray(src.size) { a.luts[k].map(Px.luma(src[it])) }
         val lumaRef = FloatArray(n) { Px.luma(ref[it]) }
         fun ssd(ox: Int, oy: Int): Double {
@@ -236,6 +232,7 @@ object Engine {
         val tx = frac(ssd(-1, 0), c0, ssd(1, 0)); val ty = frac(ssd(0, -1), c0, ssd(0, 1))
         if (kotlin.math.abs(tx) < 0.03f && kotlin.math.abs(ty) < 0.03f) {
             return IntArray(n) { i -> src[(i / tw + m) * rw + i % tw + m] }
+                .also { keepReferenceOutside(it, ref, tw, th, x0 + ix, y0 + iy, 0, 0, 0, 0, frame.width, frame.height) }
         }
         // Interpolação cúbica (Catmull-Rom, separável): mantém as bordas nítidas — a bilinear
         // equivale a um filtro de média de meio pixel e borraria cada quadro deslocado.
@@ -259,6 +256,38 @@ object Engine {
                 r += wj * tmp[o]; g += wj * tmp[o + 1]; b2 += wj * tmp[o + 2]
             }
             Px.argb((r + 0.5f).toInt(), (g + 0.5f).toInt(), (b2 + 0.5f).toInt())
+        }.also { keepReferenceOutside(it, ref, tw, th, x0 + ix, y0 + iy, bx - 1, bx + 2, by - 1, by + 2, frame.width, frame.height) }
+    }
+
+    /**
+     * Lê [w]×[h] a partir de (x, y) sem mover os pixels de dentro do quadro (limitar a origem
+     * deslocaria o bloco inteiro); o que cai fora repete a borda e é tratado por [keepReferenceOutside].
+     */
+    private fun readClamped(frame: FrameSource, x: Int, y: Int, w: Int, h: Int, buf: IntArray) {
+        if (x >= 0 && y >= 0 && x + w <= frame.width && y + h <= frame.height) { frame.read(x, y, w, h, buf); return }
+        val ix0 = x.coerceIn(0, frame.width - 1); val iy0 = y.coerceIn(0, frame.height - 1)
+        val ix1 = (x + w).coerceIn(ix0 + 1, frame.width); val iy1 = (y + h).coerceIn(iy0 + 1, frame.height)
+        val iw = ix1 - ix0; val ih = iy1 - iy0
+        val inner = IntArray(iw * ih).also { frame.read(ix0, iy0, iw, ih, it) }
+        for (j in 0 until h) {
+            val row = ((y + j).coerceIn(iy0, iy1 - 1) - iy0) * iw
+            for (i in 0 until w) buf[j * w + i] = inner[row + (x + i).coerceIn(ix0, ix1 - 1) - ix0]
+        }
+    }
+
+    /**
+     * Pixels cujas amostras ([lo]..[hi] em torno de origem + posição) saem do quadro não têm dado
+     * real: recebem a referência. Só esses pixels — o resto do bloco continua com o quadro alinhado,
+     * senão o bloco inteiro perderia a fusão e apareceria como um quadrado de tom diferente.
+     */
+    private fun keepReferenceOutside(
+        out: IntArray, ref: IntArray, tw: Int, th: Int, ax: Int, ay: Int,
+        loX: Int, hiX: Int, loY: Int, hiY: Int, fw: Int, fh: Int,
+    ) {
+        if (ax + loX >= 0 && ay + loY >= 0 && ax + tw - 1 + hiX < fw && ay + th - 1 + hiY < fh) return
+        for (y in 0 until th) {
+            val outY = ay + y + loY < 0 || ay + y + hiY >= fh
+            for (x in 0 until tw) if (outY || ax + x + loX < 0 || ax + x + hiX >= fw) out[y * tw + x] = ref[y * tw + x]
         }
     }
 
@@ -348,15 +377,25 @@ object Engine {
             val n = tw * th
             val ref0 = IntArray(tw * th).also { frames[0].read(x0, y0, tw, th, it) }
             val tilesK = used.map { k -> if (k == 0) ref0 else readAligned(frames[k], a, k, x0, y0, tw, th, ref0) }
-            // Rejeitar a contribuição, sem fabricar uma exposição prevista da referência.
-            // Onde nenhum outro quadro é verificável, a referência sai intacta.
-            val pixelWeights = used.mapIndexed { j, k ->
-                if (k == 0) null else {
-                    val r = reliabilityTile(a, k, x0, y0, tw, th)!!
-                    FloatArray(n) { i -> r[i] * Consistency.agreement(ref0[i], tilesK[j][i], a.luts[k], noise) }
+            // Pixels não confiáveis de cada quadro são trocados pela previsão a partir da referência
+            // (mesma exposição daquele quadro): sem fantasma e sem "buraco" de tom no formato do objeto.
+            // Só remover o peso deixaria a referência sozinha ali, com o tom de outra mistura.
+            for ((j, k) in used.withIndex()) {
+                if (k == 0) continue
+                val r = reliabilityTile(a, k, x0, y0, tw, th)!!
+                val lut = a.luts[k]
+                val t = tilesK[j]
+                for (i in 0 until n) {
+                    val p = if (r[i] > 0f) r[i] * Consistency.agreement(ref0[i], t[i], lut, noise) else 0f
+                    if (p >= 0.999f) continue
+                    val sub = Consistency.predicted(ref0[i], lut)
+                    t[i] = if (p <= 0.001f) sub else Px.argb(
+                        (Px.r(sub) + (Px.r(t[i]) - Px.r(sub)) * p).toInt(),
+                        (Px.g(sub) + (Px.g(t[i]) - Px.g(sub)) * p).toInt(),
+                        (Px.b(sub) + (Px.b(t[i]) - Px.b(sub)) * p).toInt())
                 }
             }
-            out.setPixels(Fusion.blendTile(tilesK, weights, tw, th, x0, y0, w, h, pixelWeights), 0, tw, x0, y0, tw, th)
+            out.setPixels(Fusion.blendTile(tilesK, weights, tw, th, x0, y0, w, h), 0, tw, x0, y0, tw, th)
             done++; progress(done.toFloat() / total)
         }
         return used.size
