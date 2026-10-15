@@ -47,7 +47,7 @@ class UltraHdrExifTest {
 
         val f = File.createTempFile("uhdr", ".jpg").apply { writeBytes(file) }
         ExifInterface(f).apply {
-            setAttribute(ExifInterface.TAG_SOFTWARE, MediaWriter.SOFTWARE)
+            setAttribute(ExifInterface.TAG_SOFTWARE, MediaWriter.software)
             setAttribute(ExifInterface.TAG_MAKE, "samsung")
             setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, "2026:10:15 03:30:00")
             saveAttributes()

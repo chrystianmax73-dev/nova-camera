@@ -177,6 +177,7 @@ object ProcessingQueue {
 
     fun submit(context: Context, job: Job) {
         val app = context.applicationContext
+        MediaWriter.identify(app)
         synchronized(queued) { queued += job }
         // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
         refineCancel?.cancelled = true

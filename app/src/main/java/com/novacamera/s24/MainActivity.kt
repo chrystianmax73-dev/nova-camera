@@ -165,6 +165,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.novacamera.s24.processing.MediaWriter.identify(this)
         enableEdgeToEdge()
         settings = NovaSettings(this)
         Haptics.enabled = settings.haptics

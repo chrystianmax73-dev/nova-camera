@@ -6,6 +6,27 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.12.0 — Noturno: quadros longos com ISO baixo, foto mais clara e preto firme
+
+Motivo: foto real do quarto no Noturno 0.11 saiu com ISO 6539 a 1/24 s (o automático prioriza
+tempo curto), mediana 65/255, ruído ~6× o de uma área lisa diurna e preto em ~23. O Noturno da
+Samsung entrega a mesma cena bem mais clara.
+
+- `NightExposure`: a Nova escolhe a exposição de cada quadro do Noturno. Mesma luz do automático
+  +0,5 EV, redistribuída em tempo longo e ISO baixo, até o limite de tremido estimado pelo
+  giroscópio (`MotionMeter`, RMS dos últimos 0,5 s), pela ampliação e pela OIS. Na mão (~0,02 rad/s)
+  ≈ 1/6 s; apoiado até 0,5 s. No caso real: 1/24 s ISO 6539 → ~1/6 s ISO ~2500 (≈2,6× menos
+  ganho por quadro, antes da fusão). Cena clara (ISO < 400) ou automático já perto do limite: segue
+  como antes. Aquecimento continua limitando os quadros. Aviso "Segure firme · X s" quando a rajada
+  passa de 0,6 s. Só no modo Noturno (o noturno automático da Foto não muda).
+- Tom do Noturno: alvo da mediana 0,42 (antes 0,28) por clareamento dos meios-tons que zera nas
+  altas luzes e não toca pretos profundos; sombras recebem só o que faltar; preto ancorado pelo
+  canal escuro. Na foto real: mediana 65 → 95, p1 23 → 27, p99 inalterado.
+- EXIF "Software" passa a trazer a versão real (estava fixo em "Nova Camera 0.9").
+- Testes: `NightExposureTest`; `ImagingCoreTest` atualizado para o novo alvo.
+- No aparelho: Noturno na mão e apoiado (o aviso de tempo muda), cena com janela clara (altas luzes
+  não podem estourar mais que antes), tele 3×/5× no escuro (tempo menor), comparação com o Samsung.
+
 ## 0.11.1 — zoom e régua sem disputar espaço
 
 - No 4:3/1:1 a barra de zoom fica na faixa entre o visor e os controles (não cobre mais a imagem).

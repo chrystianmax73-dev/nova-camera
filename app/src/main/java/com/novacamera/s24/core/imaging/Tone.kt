@@ -56,23 +56,32 @@ data class ToneParams(
      * textura fina nem o ruído — não é nitidez artificial e não cria detalhe.
      */
     val clarity: Float = 0f,
+    /**
+     * Clareamento dos meios-tons em EV (só Noturno): sobe a cena inteira até perto do Noturno da
+     * Samsung, sem tocar pretos profundos e diminuindo até zero nas altas luzes (não estoura).
+     */
+    val midLiftEv: Float = 0f,
 ) {
-    val isIdentity get() = shadowLiftEv < 0.02f && highlightCompression < 0.02f && blackLevel < 0.005f && clarity < 0.01f
+    val isIdentity get() = shadowLiftEv < 0.02f && highlightCompression < 0.02f && blackLevel < 0.005f && clarity < 0.01f &&
+        midLiftEv < 0.02f
 
     companion object {
         /**
          * Decide os parâmetros a partir da cena. Conservador: cenas bem expostas recebem quase nada;
-         * a noite é clareada só até um alvo moderado (mantém a atmosfera, não "vira dia").
+         * a noite é clareada até um alvo próximo do Noturno da Samsung (mediana ~0,42), com preto firme.
          */
         fun plan(s: SceneStats, intent: ToneIntent, zoom: Float = 1f): ToneParams {
             // Véu: pelo canal escuro (preserva cenas limpas como o pano verde) e, no caso extremo, pela luminância.
             val fromDark = if (s.darkChannel > 0.09f) ((s.darkChannel - 0.06f) * 0.85f).coerceIn(0f, 0.22f) else 0f
             val fromVeil = if (s.veiled) ((s.p01 - 0.05f) * 0.6f).coerceIn(0f, 0.22f) else 0f
-            val black = max(fromDark, fromVeil)
+            // Noturno: preto firme — o ruído das sombras levanta o preto e deixa a foto "lavada".
+            // Pelo canal escuro (como o véu): cena sem preto real (parede lisa, pano colorido) não é tocada.
+            val fromNight = if (intent == ToneIntent.NIGHT) ((s.darkChannel - 0.03f) * 0.8f).coerceIn(0f, 0.08f) else 0f
+            val black = max(max(fromDark, fromVeil), fromNight)
             // Elevação de sombras: só quando a cena está realmente escura, e bem menos que na 0.6.
             val (target, factor, maxLift) = when (intent) {
                 ToneIntent.LIGHT -> Triple(0.22f, 0.4f, 0.35f)
-                ToneIntent.NIGHT -> Triple(0.28f, 0.8f, 1.2f)
+                ToneIntent.NIGHT -> Triple(0.42f, 0.9f, 1.5f)
                 ToneIntent.HDR -> Triple(0.28f, 0.6f, 0.7f)
                 ToneIntent.PORTRAIT -> Triple(0.22f, 0.3f, 0.25f)
                 ToneIntent.FOOD -> Triple(0.26f, 0.4f, 0.4f)
@@ -90,7 +99,12 @@ data class ToneParams(
                 zoom >= 2.5f -> 0.1f
                 else -> 0f
             } + if (black > 0.04f) 0.08f else 0f).coerceAtMost(if (intent == ToneIntent.PORTRAIT) 0f else 0.28f)
-            return ToneParams(lift, compress, black, clarity)
+            // Noturno: os meios-tons levam a cena até o alvo; as sombras recebem só o que faltar
+            // (mínimo 0,25 EV a mais), sem somar os dois clareamentos na mediana.
+            val need = if (s.p50 < target) log2(target / max(s.p50, 0.01f)) else 0f
+            val midLift = if (intent == ToneIntent.NIGHT) need.coerceIn(0f, 1.4f) else 0f
+            val shadow = if (intent == ToneIntent.NIGHT && need > 0f) max(need - midLift, 0.25f).coerceAtMost(maxLift) else lift
+            return ToneParams(shadow, compress, black, clarity, midLift)
         }
     }
 }
@@ -112,6 +126,11 @@ class ToneMap(
     // Pretos profundos não sobem (corrige os "pretos acinzentados" da 0.6).
     private val lnBlackFull = ln(0.02f)
     private val lnBlackEnd = ln(0.07f)
+    private val lnMidFull = ln(0.25f)
+    private val lnMidEnd = ln(0.85f)
+    // Meios-tons sobem; pretos (listras escuras, cantos) ficam: sem "pretos lavados".
+    private val lnMidBlackFull = ln(0.04f)
+    private val lnMidBlackEnd = ln(0.13f)
 
     /** Aplica a uma região [tile] (w×h) cuja origem na imagem cheia é (x0, y0). */
     fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f, chromaProtection: Float = 0f) {
@@ -132,6 +151,8 @@ class ToneMap(
                 val shadowW = smooth(lnShadowStart, lnShadowFull, baseLog) * smooth(lnBlackFull, lnBlackEnd, baseLog)
                 val highW = smooth(lnHighStart, 0f, baseLog)
                 var deltaLog = params.shadowLiftEv * 0.6931f * shadowW - params.highlightCompression * highW * (baseLog - lnHighStart)
+                if (params.midLiftEv > 0f) deltaLog += params.midLiftEv * 0.6931f *
+                    smooth(lnMidEnd, lnMidFull, baseLog) * smooth(lnMidBlackFull, lnMidBlackEnd, baseLog)
                 if (mid != null && params.clarity > 0f) {
                     val m = mid.sample((x0 + tx + 0.5f) * sx - 0.5f, by)
                     // Forma de média escala (mid − base), limitada: sem halos e sem tocar textura fina.

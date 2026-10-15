@@ -58,7 +58,7 @@ object MirroredPhotoSaver {
                 val exifOut = ExifInterface(pfd.fileDescriptor)
                 exifIn?.let { src -> EXIF_TAGS.forEach { tag -> src.getAttribute(tag)?.let { exifOut.setAttribute(tag, it) } } }
                 exifOut.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-                exifOut.setAttribute(ExifInterface.TAG_SOFTWARE, "Nova Camera")
+                exifOut.setAttribute(ExifInterface.TAG_SOFTWARE, com.novacamera.s24.processing.MediaWriter.software)
                 exifOut.saveAttributes()
             }
             resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)

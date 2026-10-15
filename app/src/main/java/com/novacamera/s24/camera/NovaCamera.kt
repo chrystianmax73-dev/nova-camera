@@ -146,6 +146,15 @@ class NovaCamera(
     private var evIndex = 0
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
+    /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */
+    private val motion = MotionMeter(activity)
+    private var motionWanted = false
+    private val motionLifecycle = object : androidx.lifecycle.DefaultLifecycleObserver {
+        override fun onResume(owner: androidx.lifecycle.LifecycleOwner) { if (motionWanted) motion.start() }
+        override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { motion.stop() }
+    }.also { activity.lifecycle.addObserver(it) }
+    /** Exposição manual do Noturno durante a rajada (null fora dela). */
+    private var nightOverride: com.novacamera.s24.core.NightExposure.Plan? = null
     private var lastStatsPost = 0L
 
     // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
@@ -205,6 +214,8 @@ class NovaCamera(
 
     fun release() {
         released = true
+        motion.stop(); motionWanted = false
+        activity.lifecycle.removeObserver(motionLifecycle)
         nativeRun?.cancel()
         stopRecording()
         handler.removeCallbacksAndMessages(null)
@@ -324,6 +335,8 @@ class NovaCamera(
     fun bind() {
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
+        // Rajada do Noturno interrompida pela troca de câmera/modo: a sessão nova volta ao automático.
+        nightOverride = null
         synchronized(telemetry) { telemetry.breakStream() }
         Choreographer.getInstance().removeFrameCallback(zoomFrame)
         zoomAnimating = false
@@ -389,6 +402,9 @@ class NovaCamera(
         if (wantedExtension == ExtensionMode.NONE && !highSpeed) {
             Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(statsCallback)
         }
+        motionWanted = mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA
+        if (motionWanted && activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) motion.start()
+        else if (!motionWanted) motion.stop()
         if (mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA) {
             val minFps = ModeResolver.extendedExposureMinFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
             val range = info.supportedFrameRateRanges.firstOrNull { it.lower == minFps && it.upper <= 30 }
@@ -1000,13 +1016,19 @@ class NovaCamera(
         applyInterop()
     }
 
-    private fun applyInterop() {
-        val cam = camera ?: return
-        if (activeExtension != ExtensionMode.NONE) return
-        val c = caps ?: return
+    private fun applyInterop(): com.google.common.util.concurrent.ListenableFuture<Void?>? {
+        val cam = camera ?: return null
+        if (activeExtension != ExtensionMode.NONE) return null
+        val c = caps ?: return null
         val b = CaptureRequestOptions.Builder()
         val m = if (mode.isPro) manual else ManualControls()
-        if (m.manualExposure && c.manualSensor) {
+        val night = nightOverride?.takeIf { c.manualSensor && !mode.isPro }
+        if (night != null) {
+            // Noturno: tempo longo + ISO baixo nos quadros da rajada (mesma luz, menos ruído).
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            b.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, night.iso)
+            b.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, night.exposureNs)
+        } else if (m.manualExposure && c.manualSensor) {
             val iso = (m.iso ?: latestStats?.iso ?: 100).let { v -> c.isoRange?.let { v.coerceIn(it.lower, it.upper) } ?: v }
             val exp = (m.exposureNs ?: latestStats?.exposureNs ?: 16_666_666L)
                 .let { v -> c.exposureRangeNs?.let { v.coerceIn(it.lower, it.upper) } ?: v }
@@ -1023,12 +1045,12 @@ class NovaCamera(
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, m.awbMode)
         }
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive &&
-            !mode.isPro && !m.manualExposure
+            !mode.isPro && !m.manualExposure && night == null
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
         }
-        if (aeLocked && c.aeLockAvailable && !m.manualExposure) {
+        if (aeLocked && c.aeLockAvailable && !m.manualExposure && night == null) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
             if (settings.lockWhiteBalanceWithAeAf && c.awbLockAvailable && m.awbMode == null) {
                 b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
@@ -1038,15 +1060,15 @@ class NovaCamera(
         if (c.opticalStabilization) {
             b.setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
         }
-        val manualActive = m.manualExposure && c.manualSensor
-        runCatching {
+        val manualActive = m.manualExposure && c.manualSensor && night == null
+        return runCatching {
             val future = Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(b.build())
             if (manualActive) watchForStall()
             future
         }.onFailure {
             Log.w(TAG, "Interop Camera2 recusado", it)
             if (manualActive) revertManual("A câmera recusou esta combinação manual")
-        }
+        }.getOrNull()
     }
 
     /**
@@ -1306,6 +1328,7 @@ class NovaCamera(
         var captureFacts = previewImagingFacts()
         val exposure = cam.cameraInfo.exposureState
         var captureNote: String? = null
+        var nightPlan: com.novacamera.s24.core.NightExposure.Plan? = null
         var steps: List<Int> = when (kind) {
             JobKind.NIGHT -> {
                 val max = when {
@@ -1314,9 +1337,24 @@ class NovaCamera(
                     else -> ModeResolver.NIGHT_FRAMES
                 }
                 val st = latestStats
-                val (n, note) = CaptureDecision.nightFrames(st?.iso, st?.exposureNs, max)
-                captureNote = note
-                List(n) { 0 }
+                val c = caps
+                val stIso = st?.iso; val stExp = st?.exposureNs
+                if (max > 1 && c != null && c.manualSensor && stIso != null && stExp != null && activeExtension == ExtensionMode.NONE) {
+                    val gyro = motion.rms()
+                    val limit = com.novacamera.s24.core.NightExposure.maxFrameNs(gyro, equivalent(zoomOnLens), c.opticalStabilization)
+                    nightPlan = com.novacamera.s24.core.NightExposure.plan(stIso, stExp,
+                        c.isoRange?.lower ?: 50, c.isoRange?.upper ?: 3200, c.exposureRangeNs?.upper ?: limit,
+                        limit, max, com.novacamera.s24.core.NightExposure.steady(gyro))
+                }
+                val plan = nightPlan
+                if (plan != null) {
+                    captureNote = "Noturno: ${plan.label}"
+                    List(plan.frames) { 0 }
+                } else {
+                    val (n, note) = CaptureDecision.nightFrames(stIso, stExp, max)
+                    captureNote = note
+                    List(n) { 0 }
+                }
             }
             JobKind.HDR -> if (exposure.isExposureCompensationSupported && aeAdjustable())
                 ModeResolver.hdrBracket(exposure.exposureCompensationStep.numerator, exposure.exposureCompensationStep.denominator,
@@ -1330,6 +1368,7 @@ class NovaCamera(
         ic.targetRotation = targetRotation
 
         fun submit() {
+            if (nightOverride != null) { nightOverride = null; applyInterop() }
             if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
@@ -1404,7 +1443,14 @@ class NovaCamera(
                 cam.cameraControl.setExposureCompensationIndex(baseEv).addListener({ take() }, main)
             } else take()
         }
-        shoot(0)
+        val plan = nightPlan
+        if (plan != null) {
+            nightOverride = plan
+            val total = plan.exposureNs * plan.frames
+            if (total >= 600_000_000L) listener.onMessage("Segure firme · ${String.format(Locale.US, "%.1f", total / 1e9).replace('.', ',')} s")
+            val applied = applyInterop()
+            if (applied != null) applied.addListener({ shoot(0) }, main) else { nightOverride = null; shoot(0) }
+        } else shoot(0)
     }
 
     private fun captureModeLabel(m: Int) = when (m) {

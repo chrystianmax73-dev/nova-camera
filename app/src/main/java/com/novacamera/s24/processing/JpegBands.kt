@@ -56,7 +56,7 @@ object JpegBands {
                 tags.forEach { (k,v)->setAttribute(k,v) }
                 setAttribute(ExifInterface.TAG_ORIENTATION,original.getAttribute(ExifInterface.TAG_ORIENTATION) ?: "1")
                 original.getAttribute(ExifInterface.TAG_COLOR_SPACE)?.let { setAttribute(ExifInterface.TAG_COLOR_SPACE,it) }
-                setAttribute(ExifInterface.TAG_SOFTWARE,MediaWriter.SOFTWARE);saveAttributes()
+                setAttribute(ExifInterface.TAG_SOFTWARE,MediaWriter.software);saveAttributes()
             }
             return true
         } catch(e:CancelledException) { throw e }
