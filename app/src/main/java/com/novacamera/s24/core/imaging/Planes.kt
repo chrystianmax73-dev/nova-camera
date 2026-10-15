@@ -102,6 +102,67 @@ object Planes {
         return out
     }
 
+    /**
+     * Filtro guiado em cor (He, Sun, Tang), na versão rápida: coeficientes calculados em [lowGuide]
+     * (RGB reduzido) e aplicados em [fullGuide] (RGB na resolução de saída). A cor separa bordas que
+     * a luminância não vê — pele e tapete bege com o mesmo brilho, por exemplo.
+     */
+    fun guidedFilterColor(lowGuide: Array<Plane>, input: Plane, r: Int, eps: Float, fullGuide: Array<Plane>): Plane {
+        val w = input.w; val h = input.h; val n = w * h
+        val (ir, ig, ib) = lowGuide
+        fun prod(a: Plane, b: Plane) = Plane(w, h, FloatArray(n) { a.data[it] * b.data[it] })
+        val mR = boxBlur(ir, r); val mG = boxBlur(ig, r); val mB = boxBlur(ib, r); val mP = boxBlur(input, r)
+        val mRP = boxBlur(prod(ir, input), r); val mGP = boxBlur(prod(ig, input), r); val mBP = boxBlur(prod(ib, input), r)
+        val vRR = boxBlur(prod(ir, ir), r); val vRG = boxBlur(prod(ir, ig), r); val vRB = boxBlur(prod(ir, ib), r)
+        val vGG = boxBlur(prod(ig, ig), r); val vGB = boxBlur(prod(ig, ib), r); val vBB = boxBlur(prod(ib, ib), r)
+        val aR = Plane(w, h); val aG = Plane(w, h); val aB = Plane(w, h); val b = Plane(w, h)
+        for (i in 0 until n) {
+            val mr = mR.data[i]; val mg = mG.data[i]; val mb = mB.data[i]; val mp = mP.data[i]
+            val cr = mRP.data[i] - mr * mp; val cg = mGP.data[i] - mg * mp; val cb = mBP.data[i] - mb * mp
+            val rr = vRR.data[i] - mr * mr + eps; val rg = vRG.data[i] - mr * mg; val rb = vRB.data[i] - mr * mb
+            val gg = vGG.data[i] - mg * mg + eps; val gb = vGB.data[i] - mg * mb; val bb = vBB.data[i] - mb * mb + eps
+            // Inversa da matriz simétrica 3×3 (covariância + eps·I).
+            val i00 = gg * bb - gb * gb; val i01 = rb * gb - rg * bb; val i02 = rg * gb - rb * gg
+            val i11 = rr * bb - rb * rb; val i12 = rb * rg - rr * gb; val i22 = rr * gg - rg * rg
+            val det = rr * i00 + rg * i01 + rb * i02
+            if (kotlin.math.abs(det) < 1e-12f) { b.data[i] = mp; continue }
+            val ar = (cr * i00 + cg * i01 + cb * i02) / det
+            val ag = (cr * i01 + cg * i11 + cb * i12) / det
+            val ab = (cr * i02 + cg * i12 + cb * i22) / det
+            aR.data[i] = ar; aG.data[i] = ag; aB.data[i] = ab
+            b.data[i] = mp - ar * mr - ag * mg - ab * mb
+        }
+        val qR = boxBlur(aR, r); val qG = boxBlur(aG, r); val qB = boxBlur(aB, r); val qb = boxBlur(b, r)
+        val (fr, fg, fb) = fullGuide
+        val out = Plane(fr.w, fr.h)
+        val sx = w.toFloat() / fr.w; val sy = h.toFloat() / fr.h
+        for (y in 0 until fr.h) {
+            val ly = (y + 0.5f) * sy - 0.5f
+            for (x in 0 until fr.w) {
+                val lx = (x + 0.5f) * sx - 0.5f
+                val i = y * fr.w + x
+                out.data[i] = qR.sample(lx, ly) * fr.data[i] + qG.sample(lx, ly) * fg.data[i] +
+                    qB.sample(lx, ly) * fb.data[i] + qb.sample(lx, ly)
+            }
+        }
+        return out
+    }
+
+    /** Média RGB (0..1) por blocos factor×factor. */
+    fun downsampleRgb(px: IntArray, w: Int, h: Int, factor: Int): Array<Plane> {
+        val ow = max(1, w / factor); val oh = max(1, h / factor)
+        val out = Array(3) { Plane(ow, oh) }
+        for (oy in 0 until oh) for (ox in 0 until ow) {
+            var r = 0f; var g = 0f; var b = 0f; var n = 0
+            for (y in oy * factor until min(h, oy * factor + factor)) for (x in ox * factor until min(w, ox * factor + factor)) {
+                val c = px[y * w + x]; r += Px.r(c); g += Px.g(c); b += Px.b(c); n++
+            }
+            val k = 1f / (255f * max(1, n)); val i = oy * ow + ox
+            out[0].data[i] = r * k; out[1].data[i] = g * k; out[2].data[i] = b * k
+        }
+        return out
+    }
+
     fun resize(src: Plane, w: Int, h: Int): Plane {
         val out = Plane(w, h)
         val sx = src.w.toFloat() / w; val sy = src.h.toFloat() / h

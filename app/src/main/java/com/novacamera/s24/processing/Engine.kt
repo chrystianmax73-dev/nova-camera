@@ -457,15 +457,31 @@ object Engine {
      * Máscara final do retrato: pessoa refinada nas bordas reais da foto, unida às regiões de
      * cabelo e acessórios (também refinadas) — fio de cabelo e armação de óculos não desfocam.
      */
-    fun portraitMatte(bmp: Bitmap, person: Plane, protect: Plane): Plane {
-        val luma = luma(bmp, matteFactor(bmp.width, bmp.height))
-        val p = Portrait.refineMatte(person, luma)
-        val h = Portrait.refineMatte(protect, luma)
-        for (i in p.data.indices) {
-            val t = ((h.data[i] - 0.2f) / 0.4f).coerceIn(0f, 1f)
-            p.data[i] = max(p.data[i], t * t * (3f - 2f * t))
+    fun portraitMatte(bmp: Bitmap, person: Plane, hair: Plane?): Plane {
+        val f = matteFactor(bmp.width, bmp.height)
+        return Portrait.refineMatteColor(person, rgb(bmp, f * 2), rgb(bmp, f), hair)
+    }
+
+    /** Ruído do sensor na foto inteira, lido numa faixa central de até 1024 linhas. */
+    private fun noiseSigma(bmp: Bitmap): Float {
+        val w = bmp.width; val rows = min(bmp.height, 1024); val y0 = (bmp.height - rows) / 2
+        val px = IntArray(w * rows).also { bmp.getPixels(it, 0, w, 0, y0, w, rows) }
+        return Portrait.noiseSigma(px, w, rows)
+    }
+
+    /** RGB médio (0..1) por blocos factor×factor, lido em faixas. */
+    fun rgb(bmp: Bitmap, factor: Int): Array<Plane> {
+        val w = bmp.width; val h = bmp.height
+        val ow = max(1, w / factor); val oh = max(1, h / factor)
+        val out = Array(3) { Plane(ow, oh) }
+        val band = IntArray(w * factor)
+        for (oy in 0 until oh) {
+            val rows = min(factor, h - oy * factor)
+            bmp.getPixels(band, 0, w, 0, oy * factor, w, rows)
+            val part = Planes.downsampleRgb(band, w, rows, factor)
+            for (k in 0 until 3) System.arraycopy(part[k].data, 0, out[k].data, oy * ow, min(ow, part[k].w))
         }
-        return p
+        return out
     }
 
     /** Refina a máscara grosseira da segmentação nas bordas reais da foto. */
@@ -486,22 +502,20 @@ object Engine {
         val sw = small.width; val sh = small.height
         val smallPx = IntArray(sw * sh).also { small.getPixels(it, 0, sw, 0, 0, sw, sh) }
         if (small !== bmp) small.recycle()
-        // Proteção: transições semitransparentes (fios de cabelo, barba, armação) pendem para a
-        // pessoa — melhor um fio de fundo nítido que um fio de cabelo desfocado.
-        val protectedMatte = Plane(matte.w, matte.h, FloatArray(matte.data.size) { i ->
-            val t = ((matte.data[i] - 0.08f) / 0.47f).coerceIn(0f, 1f); t * t * (3f - 2f * t)
-        })
+        // A máscara já vem final de [portraitMatte] (borda firme; transição larga só no cabelo).
+        val protectedMatte = matte
         val smallMatte = Planes.resize(protectedMatte, sw, sh)
         val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (3 + 6 * s).toInt()))
         val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (6 + 24 * s).toInt()))
         val dist = Portrait.backgroundDistance(protectedMatte)
+        val grain = noiseSigma(bmp)
         progress(0.4f)
         val total = tileCount(w, h)
         var done = 0
         tiles(w, h) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
-            Portrait.compositeTile(buf, tw, th, x0, y0, w, h, protectedMatte, dist, near, far, sw, sh)
+            Portrait.compositeTile(buf, tw, th, x0, y0, w, h, protectedMatte, dist, near, far, sw, sh, grain)
             bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
             done++; progress(0.4f + 0.6f * (done.toFloat() / total))
         }

@@ -15,8 +15,8 @@ import kotlin.math.max
 /**
  * Segmentação do Retrato com o modelo MediaPipe "selfie_multiclass_256x256" (Apache-2.0),
  * embutido em assets e executado offline. Além de pessoa × fundo, separa **cabelo**, pele do rosto,
- * pele do corpo, roupa e acessórios (óculos etc.) — o cabelo e os acessórios são protegidos do
- * desfoque mesmo onde a máscara de pessoa é incerta.
+ * pele do corpo, roupa e acessórios/objetos na mão (óculos, controle): tudo o que não é fundo fica
+ * nítido; só o cabelo recebe transição larga.
  *
  * Limites do modelo: entrada 256×256 (bordas finas são refinadas depois na foto em resolução
  * cheia por [Engine.refineMatte]); feito para pessoas próximas; não separa animais ou objetos.
@@ -29,13 +29,12 @@ object PersonSegmenter {
     private const val BACKGROUND = 0
     private const val HAIR = 1
     private const val FACE_SKIN = 3
-    private const val ACCESSORIES = 5
 
     class Result(
         /** Confiança de "é pessoa" (1 − fundo). */
         val person: Plane,
-        /** Cabelo + acessórios (óculos, chapéu): regiões que nunca devem ser desfocadas. */
-        val protect: Plane,
+        /** Cabelo: única região com transição larga (fios finos). Acessórios e objetos já estão em [person]. */
+        val hair: Plane,
         /** Fração da imagem ocupada pela pessoa. */
         val coverage: Float,
         /** Fração ocupada por pele do rosto (rosto detectado de fato). */
@@ -67,11 +66,9 @@ object PersonSegmenter {
             val bg = plane(BACKGROUND)
             val person = Plane(bg.w, bg.h, FloatArray(bg.data.size) { 1f - bg.data[it] })
             val hair = plane(HAIR)
-            val acc = if (masks.size > ACCESSORIES) plane(ACCESSORIES) else Plane(bg.w, bg.h)
-            val protect = Plane(bg.w, bg.h, FloatArray(bg.data.size) { max(hair.data[it], acc.data[it]) })
             val face = plane(FACE_SKIN)
             val n = person.data.size.toFloat()
-            return Result(person, protect, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
+            return Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
         } finally {
             segmenter.close()
             if (small !== photo) small.recycle()

@@ -6,6 +6,19 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.9.4 — Retrato: borda justa e fundo com o grão da foto
+
+Teste do usuário (controle remoto na mão sobre tapete bege) mostrou franja de tapete nítido em volta do braço e brilho na borda do polegar. Reproduzido localmente com o mesmo modelo de segmentação sobre a foto: a máscara passava 20–40 px além da borda real.
+
+| Problema | Causa | Correção | Medição |
+|---|---|---|---|
+| Franja de fundo nítido em volta de braço, mão e objetos | Refinamento da máscara guiado só pela luminância (pele e tapete bege têm o mesmo brilho) e transição puxada para a pessoa em todo o contorno | Filtro guiado **em cor** (coeficientes em 1/4, aplicação em 1/2 da resolução), em duas passadas; transição firme fora do cabelo; larga só onde o modelo vê cabelo | Cena sintética de mesmo brilho: franja 9,8% → 0,05% da faixa de 40 px em volta; pessoa perdida 0,2% (`PortraitEdgeTest`). Foto do usuário: transição colada na borda (comparação local) |
+| Objetos na mão (controle) | O modelo já marca como "outros"; antes só entravam pela proteção larga | Tudo o que não é fundo fica nítido com borda firme | Foto do usuário: controle inteiro na máscara |
+| Fundo liso demais ("recorte colado") | O desfoque apaga o ruído do sensor | O ruído medido na própria foto (laplaciano, blocos mais lisos) volta ao fundo desfocado; foto limpa = sem grão | `PortraitGrainTest` |
+| Cabelo e barba | — | Sem regressão na selfie do dossiê (comparação local) | — |
+
+A suavidade no topo do controle na foto do usuário não vem da máscara (o controle inteiro estava nítido na máscara): é desfoque óptico (topo inclinado, mais longe do foco) e/ou redução de ruído. Limite que continua: o modelo de segmentação é de pessoas; objetos sozinhos (sem a mão) ou animais não são separados — o próximo passo é profundidade estimada (Depth Anything V2 Small, Apache-2.0).
+
 ## 0.9.3 — disparo instantâneo medido e fotos Ultra HDR
 
 | Item | O que foi feito | Validação | No aparelho |

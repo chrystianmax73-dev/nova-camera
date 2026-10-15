@@ -288,7 +288,7 @@ object ProcessingQueue {
                 progress(0.68f, "Separando pessoa e fundo")
                 val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
                 if (seg != null && seg.coverage >= 0.03f) {
-                    session.saveMatte(Engine.portraitMatte(base, seg.person, seg.protect))
+                    session.saveMatte(Engine.portraitMatte(base, seg.person, seg.hair))
                     session.hasPerson = true
                 } else {
                     note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"

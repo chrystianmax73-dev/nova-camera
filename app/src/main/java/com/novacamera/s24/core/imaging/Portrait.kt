@@ -23,6 +23,42 @@ object Portrait {
         return refined
     }
 
+    private fun smooth(a: Float, b: Float, x: Float): Float {
+        val t = ((x - a) / (b - a)).coerceIn(0f, 1f); return t * t * (3 - 2 * t)
+    }
+
+    /**
+     * Máscara final do retrato, em cor e em duas passadas: a máscara grosseira da segmentação
+     * (256 px no modelo) é ajustada às bordas reais pela cor da foto ([low] = RGB reduzido para os
+     * coeficientes, [full] = RGB na resolução da máscara). Na segunda passada o raio cai à metade
+     * para fechar a borda. Fora do cabelo a transição é curta (mão, braço, objetos: borda firme,
+     * sem franja de fundo nítido); só no cabelo ([hair], confiança do modelo) ela pende para a
+     * pessoa, onde um fio de fundo nítido incomoda menos que um fio de cabelo desfocado.
+     */
+    fun refineMatteColor(coarse: Plane, low: Array<Plane>, full: Array<Plane>, hair: Plane?): Plane {
+        val lw = low[0].w; val lh = low[0].h
+        val m0 = if (coarse.w != lw || coarse.h != lh) Planes.resize(coarse, lw, lh) else coarse
+        val r1 = max(2, min(lw, lh) / 60)
+        val pass1 = Planes.guidedFilterColor(low, m0, r1, 4e-4f, low)
+        val m1 = Plane(lw, lh, FloatArray(lw * lh) { smooth(0.25f, 0.75f, pass1.data[it]) })
+        val q = Planes.guidedFilterColor(low, m1, max(1, r1 / 2), 2e-4f, full)
+        val fw = full[0].w; val fh = full[0].h
+        val hairW = hair?.let { hp ->
+            val hb = Planes.boxBlur(Planes.resize(hp, lw, lh), max(1, r1 / 2))
+            Plane(lw, lh, FloatArray(lw * lh) { smooth(0.15f, 0.45f, hb.data[it]) })
+        }
+        val out = Plane(fw, fh)
+        val sx = lw.toFloat() / fw; val sy = lh.toFloat() / fh
+        for (y in 0 until fh) for (x in 0 until fw) {
+            val i = y * fw + x
+            val a = q.data[i].coerceIn(0f, 1f)
+            val firm = smooth(0.35f, 0.65f, a)
+            val hw = hairW?.sample((x + 0.5f) * sx - 0.5f, (y + 0.5f) * sy - 0.5f) ?: 0f
+            out.data[i] = if (hw <= 0f) firm else firm + (smooth(0.08f, 0.55f, a) - firm) * hw
+        }
+        return out
+    }
+
     /**
      * Distância normalizada (0 no contorno → 1 longe) de cada ponto do fundo até a pessoa,
      * usada para o desfoque gradual. Transformada de distância em duas passadas (chanfro).
@@ -91,6 +127,8 @@ object Portrait {
     fun compositeTile(
         tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int,
         matte: Plane, distance: Plane, blurNear: IntArray, blurFar: IntArray, smallW: Int, smallH: Int,
+        /** Desvio do ruído do sensor (níveis 0..255) devolvido ao fundo desfocado; 0 = sem grão. */
+        grainSigma: Float = 0f,
     ) {
         val mx = matte.w.toFloat() / fullW; val my = matte.h.toFloat() / fullH
         val bx = smallW.toFloat() / fullW; val by = smallH.toFloat() / fullH
@@ -104,9 +142,57 @@ object Portrait {
             val i = ty * tw + tx
             val c = tile[i]
             val k = smoothT(t)
-            fun mix(o: Int, n: Int, f: Int): Int { val bg = n + (f - n) * k; return (o * a + bg * (1f - a) + 0.5f).toInt() }
+            // O desfoque apaga o ruído: sem devolver o grão, o fundo fica liso e a pessoa parece recortada.
+            val grain = if (grainSigma > 0f) grainSigma * gaussHash(x0 + tx, y0 + ty) * (1f - a) else 0f
+            fun mix(o: Int, n: Int, f: Int): Int { val bg = n + (f - n) * k + grain; return (o * a + bg * (1f - a) + 0.5f).toInt() }
             tile[i] = Px.argb(mix(Px.r(c), Px.r(near), Px.r(far)), mix(Px.g(c), Px.g(near), Px.g(far)), mix(Px.b(c), Px.b(near), Px.b(far)))
         }
+    }
+
+    /** Ruído gaussiano determinístico por posição (soma de 4 uniformes), média 0 e desvio ≈ 1. */
+    fun gaussHash(x: Int, y: Int): Float {
+        var hsh = x * 73856093 xor y * 19349663
+        var s = 0f
+        repeat(4) {
+            hsh = hsh xor (hsh ushr 13); hsh *= 0x5bd1e995; hsh = hsh xor (hsh ushr 15)
+            s += (hsh ushr 8).toFloat() / (1 shl 24)
+        }
+        return (s - 2f) * 1.7320508f
+    }
+
+    /**
+     * Desvio do ruído (luminância, 0..255) estimado pelo laplaciano: mediana por bloco e o
+     * percentil 20 entre blocos — os blocos mais lisos dominam, então textura não conta como ruído.
+     */
+    fun noiseSigma(px: IntArray, w: Int, h: Int, block: Int = 64): Float {
+        val medians = ArrayList<Float>()
+        val vals = FloatArray((block / 2) * (block / 2))
+        var by = 1
+        while (by + block < h - 1) {
+            var bx = 1
+            while (bx + block < w - 1) {
+                var n = 0
+                var y = by
+                while (y < by + block) {
+                    var x = bx
+                    while (x < bx + block) {
+                        fun l(i: Int) = Px.luma(px[i]) * 255f
+                        val i = y * w + x
+                        vals[n++] = kotlin.math.abs(4 * l(i) - l(i - 1) - l(i + 1) - l(i - w) - l(i + w))
+                        x += 2
+                    }
+                    y += 2
+                }
+                vals.sort(0, n)
+                medians += vals[n / 2]
+                bx += block
+            }
+            by += block
+        }
+        if (medians.isEmpty()) return 0f
+        medians.sort()
+        // Mediana de |N(0, 20σ²)| = 0,6745·√20·σ.
+        return (medians[medians.size / 5] / (0.6745f * 4.4721f)).coerceIn(0f, 6f)
     }
 
     private fun smoothT(t: Float) = (t * 2.2f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
