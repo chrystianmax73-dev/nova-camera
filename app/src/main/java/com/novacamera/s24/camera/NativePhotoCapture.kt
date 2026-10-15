@@ -124,8 +124,8 @@ class NativePhotoCapture(context: Context) {
         if(array!=null && r.point!=null) {
             val z=r.cameraZoom.coerceAtLeast(1f)
             val cw=(array.width()/z).toInt();val ch=(array.height()/z).toInt()
-            val x=(array.centerX()+(r.point.first-0.5f)*cw).toInt().coerceIn(array.left,array.right-1)
-            val y=(array.centerY()+(r.point.second-0.5f)*ch).toInt().coerceIn(array.top,array.bottom-1)
+            val x=(array.left+r.point.first*array.width()).toInt().coerceIn(array.left,array.right-1)
+            val y=(array.top+r.point.second*array.height()).toInt().coerceIn(array.top,array.bottom-1)
             val radius=maxOf(8,minOf(cw,ch)/16)
             val rect=android.graphics.Rect((x-radius).coerceAtLeast(array.left),(y-radius).coerceAtLeast(array.top),
                 (x+radius).coerceAtMost(array.right),(y+radius).coerceAtMost(array.bottom))

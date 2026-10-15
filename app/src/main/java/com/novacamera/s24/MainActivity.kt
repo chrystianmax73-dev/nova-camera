@@ -792,6 +792,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         // Sempre visível nos modos de foto: mostra a resolução real que será gravada nesta lente.
         resChip.visibility = if (!video && photoCapable && res != null) View.VISIBLE else View.GONE
         resChip.text = res?.let(::mp) ?: ""
+        resChip.contentDescription = resChip.text + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true

@@ -39,7 +39,12 @@ object LensSelection {
         // Em Foto com luz suficiente, preferir a lente nativa mesmo sob câmera lógica.
         // Vídeo/baixa luz continuam com a política estável do firmware.
         if (preferNative) {
-            lenses.filter { it.covers(target) && it.intrinsic <= target + 0.01f }
+            // Paradas comerciais são arredondadas: a tele 5x do SM-S928B anuncia ~5,1x.
+            // Aceitar essa pequena diferença sem pedir zoom físico abaixo de 1; a UI
+            // recebe a ampliação real. Não aceitar uma lente mais longa arbitrariamente.
+            lenses.filter { (it.covers(target) && it.intrinsic <= target + 0.01f) ||
+                (it.physicalCameraId != null && it.minZoom <= 1f &&
+                    it.intrinsic > target && it.intrinsic <= target * 1.04f) }
                 .maxWithOrNull(compareBy<LensOption> { it.intrinsic }.thenBy { it.physicalCameraId != null })?.let { return choice(it) }
         }
         if(!preferNative && lenses.any { it.routeKey==currentId && it.physicalCameraId!=null }) {

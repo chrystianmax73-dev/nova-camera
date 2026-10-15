@@ -99,6 +99,7 @@ object NcnnDenoiser {
         val nx = (w + TILE - 1) / TILE; val ny = (h + TILE - 1) / TILE
         val inferenceStarted = SystemClock.elapsedRealtime()
         var firstTileMs = 0L
+        var steadyTileMs = 0L
         var runMs = 0L
         var completed = 0
         var result: IntArray? = null
@@ -107,6 +108,7 @@ object NcnnDenoiser {
         try {
             outTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             for (ty in 0 until ny) for (tx in 0 until nx) {
+                val tileStarted = SystemClock.elapsedRealtime()
                 if (cancel.cancelled) throw CancelledException()
                 if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
                     DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted)) {
@@ -129,12 +131,6 @@ object NcnnDenoiser {
                 completed++
                 if (completed == 1) {
                     firstTileMs = elapsed
-                    if (!DenoisePolicy.projectedFits(elapsed, nx * ny, loadMs)) {
-                        status = "fallback: custo projetado excede orçamento"
-                        // A primeira inferência pode incluir preparação Vulkan: manter o cache
-                        // permite medir novamente já aquecido na próxima foto, sem recarregar pesos.
-                        return false
-                    }
                     result = IntArray(w * h)
                 }
                 outTile.getPixels(den, 0, size, 0, 0, size, size)
@@ -146,6 +142,19 @@ object NcnnDenoiser {
                         (Px.r(o) + (Px.r(d) - Px.r(o)) * s + 0.5f).toInt(),
                         (Px.g(o) + (Px.g(d) - Px.g(o)) * s + 0.5f).toInt(),
                         (Px.b(o) + (Px.b(d) - Px.b(o)) * s + 0.5f).toInt())
+                }
+                // A primeira chamada Vulkan pode compilar pipelines. Medir dois blocos
+                // seguintes, incluindo cópias/mistura, antes de projetar a foto inteira.
+                // Todos os blocos continuam sujeitos aos mesmos limites de tempo/térmica.
+                if (completed == 2 || completed == 3) {
+                    steadyTileMs = maxOf(steadyTileMs, SystemClock.elapsedRealtime() - tileStarted)
+                }
+                if (completed >= 3 && !DenoisePolicy.remainingFits(
+                        SystemClock.elapsedRealtime() - started,
+                        SystemClock.elapsedRealtime() - inferenceStarted,
+                        steadyTileMs, nx * ny - completed)) {
+                    status = "fallback: custo sustentado projetado excede orçamento"
+                    return false
                 }
                 progress(completed.toFloat() / (nx * ny))
             }
@@ -161,7 +170,7 @@ object NcnnDenoiser {
         } finally {
             lastUsedMs = SystemClock.elapsedRealtime()
             report = "NAFNet $status · backend=${if (gpu) "Vulkan" else "CPU"}, reutilizado=$reused, " +
-                "carga=${loadMs}ms, primeira inferência=${firstTileMs}ms, inferência=${runMs}ms, " +
+                "carga=${loadMs}ms, primeira inferência=${firstTileMs}ms, bloco sustentado=${steadyTileMs}ms, inferência=${runMs}ms, " +
                 "total=${lastUsedMs - started}ms, blocos=$completed/${nx * ny}, $w×$h, " +
                 "PSS início/fim=${pssBeforeKb}/${android.os.Debug.getPss()} KiB (não pico), " +
                 "térmico=${heatBefore?.thermalStatus}/${ProcessingQueue.heat?.thermalStatus}, " +

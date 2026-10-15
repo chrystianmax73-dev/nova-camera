@@ -51,6 +51,7 @@ data class CameraState(
     /** Resoluções reais desta lente (vazio quando o modo usa a padrão, como no processamento Nova). */
     val photoSizeOptions: List<com.novacamera.s24.core.SizeOption> = emptyList(),
     val photoSize: com.novacamera.s24.core.SizeOption? = null,
+    val photoNativeCapture: Boolean = false,
     /** Resoluções do sensor que o fabricante não libera pela API pública (só informadas). */
     val photoSizeBlocked: List<com.novacamera.s24.core.SizeOption> = emptyList(),
     val hdr: com.novacamera.s24.settings.HdrOption = com.novacamera.s24.settings.HdrOption.OFF,
@@ -85,3 +86,4 @@ interface CameraListener {
     /** Rajada em andamento (quadro [done] de [total]). */
     fun onBurstProgress(done: Int, total: Int) {}
 }
+

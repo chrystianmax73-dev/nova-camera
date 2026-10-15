@@ -20,4 +20,11 @@ object DenoisePolicy {
 
     fun expired(elapsedTotalMs: Long, elapsedInferenceMs: Long): Boolean =
         elapsedTotalMs >= TOTAL_BUDGET_MS || elapsedInferenceMs >= INFERENCE_BUDGET_MS
+
+    /** Aquecimento já pago; só o trabalho restante usa o custo dos blocos seguintes. */
+    fun remainingFits(elapsedTotalMs: Long, elapsedInferenceMs: Long, steadyTileMs: Long, remainingTiles: Int): Boolean =
+        elapsedTotalMs >= 0 && elapsedInferenceMs >= 0 && steadyTileMs >= 0 && remainingTiles >= 0 &&
+            !expired(elapsedTotalMs, elapsedInferenceMs) &&
+            steadyTileMs.toDouble() * remainingTiles <=
+                minOf(TOTAL_BUDGET_MS - elapsedTotalMs, INFERENCE_BUDGET_MS - elapsedInferenceMs)
 }

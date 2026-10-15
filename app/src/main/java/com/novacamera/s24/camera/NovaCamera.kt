@@ -130,6 +130,8 @@ class NovaCamera(
     private var nativePhotoSelected = false
     private var nativeTarget: SizeOption? = null
     private var nativeMeterPoint: Pair<Float,Float>? = null
+    @Volatile private var referenceEquivalentMm: Float? = null
+    @Volatile private var referenceMeasured = false
     private var caps: CameraCapabilities? = null
     private var activeExtension = ExtensionMode.NONE
     private var heat: DeviceHeat? = null
@@ -292,7 +294,7 @@ class NovaCamera(
         val facing = if (isFront) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
         val infos = p.availableCameraInfos.filter { it.lensFacing == facing }
         val def = defaultInfo(isFront)
-        lenses = LensCatalog.lenses(infos, def)
+        lenses = LensCatalog.lenses(infos, def,referenceEquivalentMm)
         defaultLensId = def?.let { Camera2CameraInfo.from(it).cameraId }
         currentLensId = defaultLensId
         zoomOnLens = 1f
@@ -322,6 +324,7 @@ class NovaCamera(
         zoomGate.reset()
         if (freshSessionRequested) {
             freshSessionRequested = false
+            referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
             failedPhysicalRoutes.clear()
             pendingZoomOnLens = 1f
@@ -330,6 +333,12 @@ class NovaCamera(
         }
         val support = supportFor(mode)
         val (_, _, oemHdr) = oemFacts[isFront] ?: Triple(false, false, false)
+
+        if(mode.isVideo) lenses.firstOrNull { it.routeKey==currentLensId && it.physicalCameraId!=null }?.let { child ->
+            val parent=lenses.firstOrNull { it.cameraId==child.cameraId && it.physicalCameraId==null }
+            pendingZoomOnLens=child.intrinsic*zoomOnLens/(parent?.intrinsic ?: 1f)
+            currentLensId=child.cameraId
+        }
 
         // Extensões do fabricante só existem na câmera padrão de cada lado.
         val wantedExtension = when {
@@ -590,7 +599,7 @@ class NovaCamera(
         zoomGate.reset()
         cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
         listener.onZoom(equivalent(zoomOnLens))
-        physicalLabels = LensCatalog.physicalLabels(cam.cameraInfo)
+        physicalLabels = LensCatalog.physicalLabels(cam.cameraInfo,referenceEquivalentMm)
         pinned?.let { listener.onActiveLens(lensLabel(it)) }
         synchronized(telemetry) {
             telemetry.setExpectedFps(fps)
@@ -628,7 +637,7 @@ class NovaCamera(
             screenFlash = isFront && !cam.cameraInfo.hasFlashUnit(),
             photoResolution = if (nativePhotoSelected) chosenSize?.let { android.util.Size(it.width,it.height) } else imageCapture?.resolutionInfo?.resolution,
             photoSizeOptions = if (mode == CaptureMode.FOTO || processingKind(support) == null) sizeOptions else emptyList(),
-            photoSize = chosenSize, photoSizeBlocked = sizeBlocked,
+            photoSize = chosenSize, photoNativeCapture=nativePhotoSelected, photoSizeBlocked = sizeBlocked,
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
             timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
@@ -641,7 +650,7 @@ class NovaCamera(
         if (!nativePhotoSelected && actual != null && wanted != null && actual.width.toLong()*actual.height < wanted.pixels*0.9 &&
             mode == CaptureMode.FOTO && !isFront && wantedExtension == ExtensionMode.NONE && !settings.raw && settings.aspect==AspectRatioOption.RATIO_4_3) {
             nativePhotoSelected=true;nativeTarget=wanted
-            val corrected=s.copy(photoResolution=android.util.Size(wanted.width,wanted.height))
+            val corrected=s.copy(photoResolution=android.util.Size(wanted.width,wanted.height),photoNativeCapture=true)
             state=corrected;listener.onCameraState(corrected)
             listener.onMessage("${wanted.label} será capturada diretamente pelo sensor")
         } else if (actual != null && wanted != null && !nativePhotoSelected && actual.width.toLong() * actual.height < wanted.pixels * 0.9)
@@ -820,7 +829,18 @@ class NovaCamera(
         aeLocked = false
         applyInterop()
         val point = previewView.meteringPointFactory.createPoint(x, y)
-        nativeMeterPoint=point.x to point.y
+        // Transformação pública: respeita rotação, recorte e escala da prévia.
+        // MeteringPoint.x/y são API interna do CameraX e não devem ser lidos aqui.
+        nativeMeterPoint = runCatching {
+            val inverse=android.graphics.Matrix()
+            val transform=previewView.sensorToViewTransform ?: return@runCatching null
+            if(!transform.invert(inverse)) return@runCatching null
+            val array=Camera2CameraInfo.from(cam.cameraInfo).getCameraCharacteristic(
+                android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return@runCatching null
+            val mapped=floatArrayOf(x,y);inverse.mapPoints(mapped)
+            ((mapped[0]-array.left)/array.width()).coerceIn(0f,1f) to
+                ((mapped[1]-array.top)/array.height()).coerceIn(0f,1f)
+        }.getOrNull()
         val manualFocus = mode.isPro && manual.focusDiopters != null
         val flags = if (manualFocus) FocusMeteringAction.FLAG_AE
                     else FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
@@ -1018,6 +1038,25 @@ class NovaCamera(
             val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
             val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()
             previewOptics = (currentLens?.physicalCameraId ?: physical) to opticalResult.get(CaptureResult.LENS_FOCAL_LENGTH)
+            if(!isFront && !referenceMeasured && currentLensId==defaultLensId && currentLens?.physicalCameraId==null && zoom!=null && kotlin.math.abs(zoom-1f)<0.02f) {
+                val realSize=runCatching { activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
+                    .getCameraCharacteristics(physical ?: caps?.cameraId ?: error("Sem câmera"))
+                    .get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE) }.getOrNull()
+                val realEq=LensCatalog.equivalentFocal(opticalResult.get(CaptureResult.LENS_FOCAL_LENGTH),realSize)
+                if(realEq!=null){
+                    referenceMeasured=true
+                    handler.post {
+                        referenceEquivalentMm=realEq
+                        val p=provider
+                        if(p!=null && !isFront && !released){
+                            val infos=p.availableCameraInfos.filter { it.lensFacing==CameraSelector.LENS_FACING_BACK }
+                            lenses=LensCatalog.lenses(infos,defaultInfo(false),realEq)
+                            currentLens=lenses.firstOrNull { it.routeKey==currentLensId }
+                            camera?.let { physicalLabels=LensCatalog.physicalLabels(it.cameraInfo,realEq) }
+                        }
+                    }
+                }
+            }
             val ts = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: 0L
             val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
             if (lensChanged) handler.post { listener.onActiveLens(lensLabel(currentLens?.physicalCameraId ?: physical)) }
@@ -1102,8 +1141,8 @@ class NovaCamera(
                 nativeRun=null
                 if(!paused&&!released){
                     settings.setPhotoPixels(currentLensKey(),null);bind()
-                    listener.onPhotoSaved(null)
-                    listener.onMessage("${target.label} não foi aceita pelo firmware: ${error ?: "sessão indisponível"}. Resolução padrão restaurada")
+                    listener.onMessage("${target.label} não foi aceita pelo firmware: ${error ?: "sessão indisponível"}. Capturando na resolução padrão")
+                    if(imageCapture!=null)capturePhoto() else listener.onPhotoSaved(null)
                 }
             } else io.execute {
                 val physical=r.physicalId ?: captureResult?.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
