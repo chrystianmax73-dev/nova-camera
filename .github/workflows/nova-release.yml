@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/nova-adaptive-imaging]
+    branches: [codex/native-camera-resolution]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -38,6 +38,35 @@ jobs:
           print(f'Testes: {total-skipped-failed} aprovados, {skipped} locais dispensados, {failed} falhas')
           assert failed == 0
           PYTEST
+      - name: Codec JPEG real em host com imagem sintética 200 MP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PYJPEG'
+          from PIL import Image, ImageCms
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP'])
+          profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+          Image.new('RGB',(16320,12240),(150,95,70)).save(root/'large.jpg',quality=95,icc_profile=profile)
+          Image.new('RGB',(64,64),(150,95,70)).save(root/'progressive.jpg',progressive=True)
+          PYJPEG
+          c++ -std=c++17 -shared -fPIC app/src/main/cpp/jpeg_bands.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" -ljpeg -o "$RUNNER_TEMP/libNovaJpegTest.so"
+          javac -d "$RUNNER_TEMP/jpegtest" tools/jpeg_bands/JpegBands.java
+          /usr/bin/time -f '%M' -o "$RUNNER_TEMP/jpeg-rss.txt" java -Xmx32m -cp "$RUNNER_TEMP/jpegtest" com.novacamera.s24.processing.JpegBands "$RUNNER_TEMP/libNovaJpegTest.so" "$RUNNER_TEMP/large.jpg" "$RUNNER_TEMP/final.jpg" "$RUNNER_TEMP/progressive.jpg"
+          python3 - <<'PYJPEG'
+          from PIL import Image
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP'])
+          a=Image.open(root/'large.jpg'); b=Image.open(root/'final.jpg')
+          assert a.size==b.size==(16320,12240)
+          assert a.info['icc_profile']==b.info['icc_profile'], 'Perfil ICC perdido'
+          rss=int((root/'jpeg-rss.txt').read_text().strip())
+          assert rss<180*1024, f'Memória host excessiva: {rss} KiB'
+          print(f'JPEG 200 MP sequencial: dimensões/ICC preservados; pico RSS host {rss} KiB. Não é medição no S24.')
+          PYJPEG
       - name: Preparar chave persistente (somente de GitHub Secrets)
         shell: bash
         env:

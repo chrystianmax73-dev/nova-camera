@@ -120,15 +120,15 @@ object CameraDiagnostics {
     fun resolutionVerdict(c: CameraCharacteristics): String {
         @Suppress("UNCHECKED_CAST")
         val lists = JpegSizeLists.from { k -> c.get(k as CameraCharacteristics.Key<Any?>) }
-        val opts = PhotoSizes.options(lists.regular, lists.highRes, 4f / 3f)
+        val opts = PhotoSizes.nativeOptions(lists.regular,lists.highRes,lists.maxResOnly,4f/3f,Build.VERSION.SDK_INT>=31 && lists.ultraHighResolutionSensor)
         val blocked = PhotoSizes.blocked(opts, lists.maxResOnly, 4f / 3f)
         val pixelArray = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
         val maxArray = if (Build.VERSION.SDK_INT >= 31) c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION) else null
         val sensorMp = ((maxArray ?: pixelArray)?.let { it.width.toLong() * it.height / 1e6 } ?: 0.0)
         return buildString {
             append("Resoluções de foto 4:3 oferecidas: ")
-            append(opts.joinToString { it.label + if (it.highResolution) " (alta res.)" else "" }.ifEmpty { "nenhuma" })
-            append("\nBloqueadas (só no modo de resolução máxima do sensor): ")
+            append(opts.joinToString { it.label + if (it.maximumPixelMode) " (Camera2 nativo; sessão a validar)" else if (it.highResolution) " (alta res.)" else "" }.ifEmpty { "nenhuma" })
+            append("\nNão disponíveis nesta configuração: ")
             append(blocked.joinToString { it.label }.ifEmpty { "nenhuma anunciada" })
             val best = opts.maxOfOrNull { it.megapixels } ?: 0.0
             if (sensorMp > best * 1.5) append(String.format(Locale.US,

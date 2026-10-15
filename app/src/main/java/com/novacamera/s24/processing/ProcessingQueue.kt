@@ -30,6 +30,7 @@ enum class JobKind(val label: String, val tone: ToneIntent) {
     FOOD("Food", ToneIntent.FOOD),
     /** FOTO: ajuste automático e adaptativo da foto comum (muitas vezes nenhum). */
     AUTO("Automático", ToneIntent.LIGHT),
+    PHOTO("Foto", ToneIntent.LIGHT),
 }
 
 class Job(
@@ -202,6 +203,7 @@ object ProcessingQueue {
         var originalUri: Uri? = null
         fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
 
+        job.imagingFacts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
         session.zoom = job.zoom
         session.signature = job.signature
         try {
@@ -227,7 +229,7 @@ object ProcessingQueue {
 
             // 2. Fusão (orientação do sensor), lendo os quadros por faixas.
             var base: Bitmap
-            var note = ""
+            var note = job.captureNote ?: ""
             if (frames.size > 1 && (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
@@ -323,12 +325,15 @@ object ProcessingQueue {
         // Aquecimento severo/crítico: a foto comum fica como está.
         if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { session.dir.deleteRecursively(); return finish(job, session, null, null, null) }
         post(JobProgress(job.id, job.kind, 0.1f, "Analisando", pending))
+        val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
+        BitmapFactory.decodeByteArray(frame.jpeg,0,frame.jpeg.size,bounds)
+        if(bounds.outWidth.toLong()*bounds.outHeight>20_000_000L) { runHighResolutionAuto(context,job,session);return }
         val bmp = Engine.orient(JpegSource(frame).let { s -> s.decodeFull().also { s.close() } }, frame.rotationDegrees, false)
         val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(frame.jpeg))
         val facts = job.imagingFacts.copy(
-            iso = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 },
+            iso = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 } ?: job.imagingFacts.iso,
             exposureNs = exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, 0.0)
-                .takeIf { it.isFinite() && it > 0 && it < 60 }?.let { (it * 1_000_000_000).toLong() })
+                .takeIf { it.isFinite() && it > 0 && it < 60 }?.let { (it * 1_000_000_000).toLong() } ?: job.imagingFacts.exposureNs)
         facts.toMeta().forEach { (k, v) -> session.meta.setProperty(k, v) }
         session.meta.setProperty("nai.enabled", "true")
         val plan = Engine.planAdaptive(bmp, job.zoom, facts)
@@ -357,6 +362,36 @@ object ProcessingQueue {
         finish(job, session, target, originalUri, null)
     }
 
+    /** Ajuste e assinatura em faixas para 50/200 MP; grava novamente a única URI final. */
+    private fun runHighResolutionAuto(context: Context,job: Job,session: Session) {
+        val target=job.sourceUri ?: return finish(job,session,null,null,null)
+        session.original.writeBytes(job.frames[0].jpeg)
+        session.original.copyTo(session.base,overwrite=true)
+        session.meta.setProperty("banded","true")
+        val originalUri=if(keepOriginals) MediaWriter.insertBytes(context.contentResolver,job.frames[0].jpeg,
+            "NOVA_${session.id}_original.jpg",MediaWriter.ORIGINALS) else null
+        session.originalUri=originalUri
+        job.imagingFacts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
+        session.meta.setProperty("nai.enabled","true")
+        val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
+        BitmapFactory.decodeFile(session.base.path,bounds)
+        val sample=BitmapFactory.decodeFile(session.base.path,BitmapFactory.Options().apply {
+            inSampleSize=maxOf(1,maxOf(bounds.outWidth,bounds.outHeight)/1024)
+        }) ?: error("Prévia indisponível")
+        val plan=Engine.planAdaptive(sample,job.zoom,job.imagingFacts);sample.recycle()
+        session.tone=if(job.autoTone)1f else 0f
+        if((plan.skip||!job.autoTone)&&job.signature==null){session.dir.deleteRecursively();finish(job,session,null,null,null);return}
+        val output=File(session.dir,"final.tmp.jpg")
+        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature,job.cancel,session.exif) {
+            post(JobProgress(job.id,job.kind,0.15f+0.8f*it,"Ajustando",pending))
+        }
+        if(ok) context.contentResolver.openOutputStream(target,"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } }
+            ?: error("Sem acesso à fotografia final")
+        output.delete()
+        session.note=if(ok)"Alta resolução processada em faixas" else "Mantido JPEG do sensor: processamento em faixas indisponível ou além do orçamento"
+        session.enhancedUri=target;session.save();finish(job,session,target,originalUri,null)
+    }
+
     /** Se o usuário desativou "manter originais" e o processamento não terminou, o original vai para a galeria. */
     private fun saveOriginalFallback(context: Context, session: Session, name: String, job: Job): Uri? {
         if (job.kind == JobKind.AUTO || !session.original.exists()) return null
@@ -377,7 +412,7 @@ object ProcessingQueue {
      */
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
         val kind = session.kind
-        val plan = if (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true")
+        val plan = if (kind == JobKind.PHOTO || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
                 session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
         else Engine.planTone(bmp, kind.tone, session.zoom)
@@ -396,9 +431,11 @@ object ProcessingQueue {
         if (bounds.outWidth <= 0) return null
         var sample = 1
         while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
-        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+        val bmp=BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
             inSampleSize = sample; inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
-        })
+        }) ?: return null
+        val rotation=runCatching { androidx.exifinterface.media.ExifInterface(file).rotationDegrees }.getOrDefault(0)
+        return Engine.orient(bmp,rotation,false).also { if(it!==bmp)bmp.recycle() }
     }
 
     /** Regrava a versão aprimorada em resolução cheia com novas intensidades (na fila, em segundo plano). */
@@ -406,6 +443,21 @@ object ProcessingQueue {
         val app = context.applicationContext
         executor.execute {
             val ok = runCatching {
+                if(session.meta.getProperty("banded")=="true") {
+                    val sample=decodeForScreen(session.base,1024) ?: error("Prévia ausente")
+                    // Plano em coordenadas do JPEG, para preservar a orientação EXIF na saída.
+                    val exif=androidx.exifinterface.media.ExifInterface(session.base)
+                    val unrotated=Engine.orient(sample,(360-exif.rotationDegrees)%360,false)
+                    if(unrotated!==sample)sample.recycle()
+                    val plan=Engine.planAdaptive(unrotated,session.zoom,com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
+                        session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
+                    unrotated.recycle()
+                    val output=File(session.dir,"reedit.tmp.jpg")
+                    check(JpegBands.process(session.base,output,plan,tone,session.signature,CancelToken(),session.exif){})
+                    app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    output.delete();session.tone=tone;session.save()
+                    return@runCatching
+                }
                 val bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply { inMutable = true })
                     ?: error("base ausente")
                 session.tone = tone; session.blur = blur

@@ -17,14 +17,14 @@ class PerformanceRegressionTest {
         assertEquals(3f, gate.completed(gate.generation)!!, 0f)
     }
 
-    @Test fun photoTeleSelectionPreservesLogicalCameraAndVideoPolicy() {
+    @Test fun photoTeleSelectionUsesNativeWhileVideoKeepsLogicalPolicy() {
         val main = LensOption("main", 1f, 1f, 30f)
         val tele = LensOption("tele", 5f, 1f, 10f)
         val exposed = listOf(main, tele)
         assertEquals("tele", LensSelection.choose(exposed, "main", "main", 10f, true)!!.cameraId)
         assertEquals(2f, LensSelection.choose(exposed, "main", "main", 10f, true)!!.zoomOnLens, 0f)
         assertEquals("main", LensSelection.choose(exposed, "main", "main", 10f)!!.cameraId)
-        assertEquals("main", LensSelection.choose(listOf(main.copy(logical = true), tele), "main", "main", 10f, true)!!.cameraId)
+        assertEquals("tele", LensSelection.choose(listOf(main.copy(logical = true), tele), "main", "main", 10f, true)!!.cameraId)
         assertEquals("main", LensSelection.choose(exposed, "tele", "main", 1f, true)!!.cameraId)
     }
 

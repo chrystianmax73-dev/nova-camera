@@ -6,7 +6,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Uma resolução de foto que a câmera realmente anuncia ao Android. */
-data class SizeOption(val width: Int, val height: Int, val highResolution: Boolean) {
+data class SizeOption(val width: Int, val height: Int, val highResolution: Boolean, val maximumPixelMode: Boolean = false) {
     val pixels get() = width.toLong() * height
     val megapixels get() = pixels / 1e6
     val label get() = "${megapixels.roundToInt()} MP"
@@ -55,6 +55,20 @@ object PhotoSizes {
         return out.filter { it.pixels * 10 >= standard.pixels * 9 }
     }
 
+    /** JPEGs do mapa máximo, acessíveis por sessão Camera2 própria, nunca tamanhos RAW. */
+    fun nativeOptions(regular: List<Pair<Int, Int>>, highRes: List<Pair<Int, Int>>,
+        maximumJpeg: List<Pair<Int, Int>>, aspect: Float?, maximumModeAvailable: Boolean): List<SizeOption> {
+        val standard = options(regular, highRes, aspect)
+        if (!maximumModeAvailable) return standard
+        val known = (regular + highRes).toSet()
+        val maximum = maximumJpeg.filter { it !in known && matches(it.first,it.second,aspect) }
+            .map { SizeOption(it.first,it.second,true,true) }
+        return (standard + maximum).sortedByDescending { it.pixels }.fold(mutableListOf<SizeOption>()) { result, size ->
+            if (result.none { abs(it.pixels.toDouble()/size.pixels-1.0)<0.20 }) result.add(size)
+            result
+        }
+    }
+
     /** Resolução padrão: a maior saída normal (não de alta resolução) até ~16 MP, ou a maior normal. */
     fun standard(options: List<SizeOption>): SizeOption? {
         val regular = options.filter { !it.highResolution }
@@ -81,3 +95,4 @@ object PhotoSizes {
         return options.minByOrNull { abs(kotlin.math.ln(it.pixels.toDouble() / savedPixels)) }
     }
 }
+
