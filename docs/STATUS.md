@@ -6,6 +6,18 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.11.1 — zoom e régua sem disputar espaço
+
+- No 4:3/1:1 a barra de zoom fica na faixa entre o visor e os controles (não cobre mais a imagem).
+  A régua dos controles ao vivo abre nessa mesma faixa; enquanto aberta, a barra de zoom some e a
+  pinça continua funcionando. Em 16:9 e tela cheia o zoom segue dentro do visor e sobe junto com o
+  painel quando a régua abre.
+- Faixa de chips (Desfoque/Exposição/Tom/Temperatura) rola na horizontal quando não cabe (fonte
+  grande do sistema); centralizada quando cabe.
+- Validação: render da interface em 1080×2340 com densidade 420 dpi e barras do sistema simuladas
+  (Foto/Retrato/Tele, régua aberta e fechada). No aparelho: abrir e fechar a régua em 4:3 e 16:9,
+  fonte do sistema no máximo.
+
 ## 0.11.0 — controles criativos ao vivo (prévia = foto)
 
 | Item | O que foi feito | Validação | No aparelho |

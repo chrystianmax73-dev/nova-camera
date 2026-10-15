@@ -3,6 +3,7 @@ package com.novacamera.s24.ui
 import android.content.Context
 import android.view.Gravity
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.novacamera.s24.core.CameraMath
@@ -24,12 +25,22 @@ class LiveControls(context: Context) : LinearLayout(context) {
     }
 
     var listener: Listener? = null
+    /** Régua abriu/fechou (a tela reposiciona o zoom). */
+    var onRulerChanged: ((Boolean) -> Unit)? = null
+    val rulerOpen get() = open != null
+    /** Altura que a régua acrescenta ao painel quando abre. */
+    val rulerSlot get() = dpi(52)
 
     private val note = TextView(context).apply {
         setTextColor(Nova.TEXT_MUTED); textSize = 11f; gravity = Gravity.CENTER; visibility = View.GONE
     }
     private val ruler = RulerView(context).apply { visibility = View.GONE }
     private val chipRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
+    // Rola na horizontal se não couber (fonte grande do sistema, 4 chips no Retrato); centralizada quando cabe.
+    private val chipScroll = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; isFillViewport = true
+        addView(chipRow, LayoutParams(-2, -2))
+    }
     private val chips = Kind.entries.associateWith { k -> TextChip(context).apply { contentDescription = k.title } }
     private var open: Kind? = null
 
@@ -42,7 +53,7 @@ class LiveControls(context: Context) : LinearLayout(context) {
         gravity = Gravity.CENTER_HORIZONTAL
         addView(note, LayoutParams(-2, -2))
         addView(ruler, LayoutParams(-1, dpi(52)))
-        addView(chipRow, LayoutParams(-1, -2))
+        addView(chipScroll, LayoutParams(-1, -2))
         chips.forEach { (k, chip) ->
             chipRow.addView(chip, LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
             chip.setOnClickListener { Haptics.tap(chip); toggle(k) }
@@ -66,9 +77,18 @@ class LiveControls(context: Context) : LinearLayout(context) {
 
     fun setNote(text: String?) { note.text = text ?: ""; note.visibility = if (text == null) View.GONE else View.VISIBLE }
 
-    private fun toggle(k: Kind) { if (open == k) close() else { open = k; ruler.visibility = View.VISIBLE; refresh() } }
+    private fun toggle(k: Kind) {
+        if (open == k) { close(); return }
+        val was = open
+        open = k; ruler.visibility = View.VISIBLE; refresh()
+        if (was == null) onRulerChanged?.invoke(true)
+    }
 
-    private fun close() { open = null; ruler.visibility = View.GONE; refresh() }
+    private fun close() {
+        val was = open
+        open = null; ruler.visibility = View.GONE; refresh()
+        if (was != null) onRulerChanged?.invoke(false)
+    }
 
     private fun reset(k: Kind) {
         when (k) {

@@ -362,6 +362,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
         liveControls = com.novacamera.s24.ui.LiveControls(this).apply {
             visibility = View.GONE
+            onRulerChanged = { updateZoomVisibility() }
             listener = object : com.novacamera.s24.ui.LiveControls.Listener {
                 override fun onBlur(v: Float) = camera.setPortraitBlur(v)
                 override fun onEv(index: Int) = camera.setExposureIndex(index)
@@ -458,6 +459,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     /** Posiciona visor e controles conforme proporção, modo e áreas seguras do sistema. */
+    private var zoomAvailable = true
+    private var zoomInBand = false
+
+    private fun updateZoomVisibility() {
+        zoomBar.visibility = if (zoomAvailable && !(zoomInBand && liveControls.rulerOpen)) View.VISIBLE else View.INVISIBLE
+    }
+
     private fun layoutAll(mode: CaptureMode = camera.mode) {
         val w = root.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val h = root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
@@ -485,12 +493,19 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         (bottom.layoutParams as FrameLayout.LayoutParams).bottomMargin = insetBottom + dpi(6)
         bottom.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
         (bottomScrim.layoutParams as FrameLayout.LayoutParams).height = bottom.measuredHeight + insetBottom + dpi(48)
-        // Zoom sempre dentro do visor, logo acima da borda inferior (ou acima dos controles, se o visor os cobrir).
         zoomBar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         val bottomTop = h - insetBottom - dpi(6) - bottom.measuredHeight
         val previewBottom = pTop + pHeight.coerceAtMost(h)
+        // No 4:3/1:1 sobra uma faixa entre o visor e os controles: o zoom fica nela, sem cobrir a imagem.
+        // A régua dos controles ao vivo abre nessa mesma faixa; enquanto aberta, o zoom some (a pinça segue).
+        val rulerExtra = if (liveControls.rulerOpen) liveControls.rulerSlot else 0
+        val band = bottomTop + rulerExtra - previewBottom
+        zoomInBand = !video && band >= zoomBar.measuredHeight
         (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin =
-            minOf(previewBottom - dpi(14), bottomTop - dpi(8)) - zoomBar.measuredHeight
+            if (zoomInBand) previewBottom + (band - zoomBar.measuredHeight) / 2
+            // Senão, dentro do visor, logo acima da borda inferior (ou acima dos controles, se o visor os cobrir).
+            else minOf(previewBottom - dpi(14), bottomTop - dpi(8)) - zoomBar.measuredHeight
+        updateZoomVisibility()
         (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
             (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
         (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
@@ -827,7 +842,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         shutter.alpha = if (state.support.canCapture) 1f else 0.5f
         overlay.focusEnabled = state.support.canCapture
         zoomBar.stops = state.zoomStops
-        zoomBar.visibility = if (state.zoomStops.size > 1 || state.zoomMax > state.zoomMin * 1.05f) View.VISIBLE else View.INVISIBLE
+        zoomAvailable = state.zoomStops.size > 1 || state.zoomMax > state.zoomMin * 1.05f
+        updateZoomVisibility()
         if (!state.support.canCapture) {
             infoCard.text = "${state.mode.label} indisponível neste aparelho\n\n${state.support.note}"
             infoCard.visibility = View.VISIBLE
