@@ -3,6 +3,7 @@
 Branch separada codex/native-camera-resolution, a partir de f3573ec (base Claude + 0.8.3). Nenhum merge na versão estável.
 
 Implementação:
+- Estimativa de quadros perdidos reinicia o intervalo temporal ao pausar/reconfigurar a sessão: o longo período entre sessões do diagnóstico recebido não será contabilizado como queda de desempenho do sensor.
 - NAFNet mede os dois blocos seguintes ao primeiro antes de projetar o custo restante. Carga, primeira inferência (inclusive preparação Vulkan), custo sustentado com cópias/mistura e total são separados no diagnóstico. Os mesmos limites de 8 s totais/6 s de processamento e fallback sem alterar parcialmente a foto continuam. Isso corrige a estimativa; não comprova que a rede terminará em 12 MP no aparelho.
 - Foto AUTO decide após a referência real: um quadro em cenas simples, HDR com contraluz/altas luzes e sombras, até três quadros noturnos com ISO/exposição/sombras suficientes. Reutiliza alinhamento, redução de fantasmas, fusão e fallback existentes. Aquecimento/economia de energia evitam fusão automática. Preferências explícitas OFF/NOVA/OEM são preservadas; AUTO é padrão apenas onde não havia escolha salva.
 - Seleção de resolução não fica oculta no modo Foto com processamento. Alta resolução Foto 4:3 usa uma sessão Camera2 própria temporária, libera CameraX antes de abrir, aguarda AF/AE e restaura a prévia depois. JPEGs públicos normais/alta resolução e mapa máximo são separados. O mapa RAW não é tratado como JPEG.

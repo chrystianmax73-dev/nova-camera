@@ -191,6 +191,7 @@ class NovaCamera(
         if (isRecording || paused || nativeRun != null || released) return
         paused = true
         nativeRun?.cancel()
+        synchronized(telemetry) { telemetry.breakStream() }
         provider?.unbindAll()
         camera = null
     }
@@ -219,7 +220,7 @@ class NovaCamera(
      * o ViewPort precisa ser lido depois do novo layout para a foto corresponder ao enquadramento.
      */
     fun setMode(m: CaptureMode, rebind: Boolean = true) {
-        if (isRecording || m == mode) return
+        if (isRecording || nativeRun != null || m == mode) return
         mode = m
         settings.lastMode = m
         resetFocusState()
@@ -229,7 +230,7 @@ class NovaCamera(
     }
 
     fun switchFacing(rebind: Boolean = true) {
-        if (isRecording) return
+        if (isRecording || nativeRun != null) return
         isFront = !isFront
         resetFocusState()
         evIndex = 0
@@ -318,7 +319,8 @@ class NovaCamera(
 
     fun bind() {
         val p = provider ?: return
-        if (isRecording || paused) return
+        if (isRecording || paused || nativeRun != null || released) return
+        synchronized(telemetry) { telemetry.breakStream() }
         Choreographer.getInstance().removeFrameCallback(zoomFrame)
         zoomAnimating = false
         zoomGate.reset()

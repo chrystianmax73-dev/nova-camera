@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PerformanceRegressionTest {
+    @Test fun pausedSessionIsNotCountedAsThousandsOfDroppedFrames() {
+        val t=ZoomTelemetry()
+        t.frame(1_000_000_000L,1f,"5",1)
+        t.breakStream()
+        t.frame(1_601_000_000_000L,1f,"5",1_600_001)
+        assertEquals(0,t.droppedFrames)
+        t.frame(1_601_100_000_000L,1f,"5",1_600_101)
+        assertTrue(t.droppedFrames>=1)
+    }
     @Test fun lateZoomCallbackCannotApplyOldSessionTarget() {
         val gate = ZoomRequestGate()
         assertEquals(10f, gate.offer(10f)!!, 0f)
