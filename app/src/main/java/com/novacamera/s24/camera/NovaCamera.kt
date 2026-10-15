@@ -518,6 +518,9 @@ class NovaCamera(
                 .setTargetRotation(targetRotation)
             pinned?.let { Camera2Interop.Extender(ib).setPhysicalCameraId(it) }
             val formats = runCatching { ImageCapture.getImageCaptureCapabilities(info).supportedOutputFormats }.getOrDefault(emptySet())
+            com.novacamera.s24.processing.UltraHdr.deviceReport = "Ultra HDR do aparelho (JPEG_R) para apps: " +
+                (if (ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR in formats) "anunciado" else "não anunciado") +
+                " · a Nova gera o próprio gainmap no HDR"
             rawAvailable = mode == CaptureMode.PRO && !isFront && ImageCapture.OUTPUT_FORMAT_RAW_JPEG in formats
             rawActive = rawAvailable && settings.raw
             if (rawActive) ib.setOutputFormat(ImageCapture.OUTPUT_FORMAT_RAW_JPEG)

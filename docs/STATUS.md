@@ -6,6 +6,17 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.9.3 — disparo instantâneo medido e fotos Ultra HDR
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| Atraso do disparo medido | Diagnóstico registra, por modo de captura: toque→início da captura, toque→exposição do sensor (carimbo do quadro; negativo = quadro anterior ao toque) e toque→imagem, mediana das últimas 20 fotos | `ShutterLogTest` | Números reais com e sem o disparo instantâneo |
+| Disparo instantâneo (ZSL) | Foto de um quadro usa o modo ZSL do CameraX quando a câmera anuncia suporte (`isZslSupported`); rajadas (Noturno/HDR), RAW e extensões do fabricante ficam como estavam. Opção "Disparo instantâneo" (ligada) para comparar | Compilação/lint. O CameraX cai para o modo normal se o ZSL não puder ser usado (ex.: flash) | Se o S24 anuncia ZSL; atraso medido; nitidez e ruído comparados com o modo "qualidade máxima"; nos brackets de HDR com ZSL, se cada quadro tem a exposição pedida (o HDR mede o ganho real de cada quadro e não depende disso) |
+| Ultra HDR próprio | No HDR (incluindo o HDR escolhido pelo modo Adaptativo), o quadro mais escuro do bracket mede o realce que estourou na referência. A foto final continua SDR e ganha um gainmap (Android 14+): até 2 stops acima do branco, só onde a cena passou do branco; meios-tons e sombras sem ganho; um objeto que se moveu nunca escurece a cena (só aumenta). Vale também na reedição | `HdrGainTest` (6), `UltraHdrAttachTest` (2), `hdrFusionReportsSceneAboveSdrWhite`, `UltraHdrExifTest` (o EXIF gravado depois preserva XMP, índice MPF e o gainmap) | **A codificação Ultra HDR em si não roda no ambiente de testes**: confirmar na galeria do S24 que a foto HDR mostra realces mais claros na tela HDR, e que telas/apps SDR mostram a mesma foto de antes |
+| Ultra HDR do fabricante | Só diagnóstico: se a câmera anuncia JPEG_R a apps. Não foi ligado: não há como confirmar aqui se combina com ZSL sem impedir a câmera de abrir | Compilação | Linha "Ultra HDR do aparelho" no diagnóstico |
+
+Limites: a curva de tom da Samsung é aproximada pela sRGB ao medir a cena; Noturno, Retrato e FOTO de um quadro não têm faixa extra medida e não recebem gainmap (não se inventa brilho).
+
 ## 0.9.2 — IA de redução de ruído em segundo plano
 
 Antes, a IA (NAFNet) rodava antes de salvar, com limite de 6 s. Uma foto de 12 MP tem 192 blocos e o custo estimado na GPU é de dezenas de ms por bloco, então a IA era quase sempre descartada (o log do aparelho mostrou descarte logo no início).

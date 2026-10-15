@@ -343,7 +343,14 @@ object Engine {
      * entra se for consistente com a referência (meia resolução + verificação em resolução cheia).
      * Devolve quantos quadros entraram; 1 = só a referência (fusão insegura).
      */
-    fun fuseInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, progress: (Float) -> Unit): Int {
+    /**
+     * [onScene] recebe a luminância da cena acima do branco SDR (quadro escuro do bracket), em
+     * resolução reduzida e na orientação do sensor, para o gainmap Ultra HDR; null se não houver.
+     */
+    fun fuseInto(
+        frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken,
+        onScene: ((Plane?) -> Unit)? = null, progress: (Float) -> Unit,
+    ): Int {
         val w = out.width; val h = out.height
         val used = frames.indices.filter { a.usable[it] }
         if (used.size < 2) {
@@ -368,6 +375,7 @@ object Engine {
                 })
             }
         }
+        onScene?.invoke(runCatching { com.novacamera.s24.core.imaging.HdrGain.scene(lumas) }.getOrNull())
         val weights = Fusion.weights(lumas, lumas[0])
         val noise = a.noise
         val total = tileCount(w, h)

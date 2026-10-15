@@ -218,6 +218,36 @@ class EngineAndroidTest {
         assertTrue("divisa dos blocos ${seam / beside}× o salto vizinho", seam / beside < 1.4f)
     }
 
+    /**
+     * Ultra HDR: janela estourada na referência e registrada no quadro −2 EV (deslocado pela mão).
+     * A fusão entrega a luminância da cena ~2,5× o branco SDR na janela e mantém os meios-tons.
+     */
+    @Test
+    fun hdrFusionReportsSceneAboveSdrWhite() {
+        fun frame(gain: Float, dx: Int, seed: Long): ByteArray {
+            val rnd = Random(seed)
+            val px = IntArray(w * h) { i ->
+                val x = i % w + dx; val y = i / w
+                val lin = if (x in 600..760 && y in 150..400) 2.5 else 0.06 + 0.5 * (x.coerceIn(0, w) / w.toDouble()) * (0.6 + 0.4 * sin(y / 40.0))
+                val v = ((Math.pow((lin * gain).coerceIn(0.0, 1.0), 1 / 2.2) + rnd.nextGaussian() * 0.005) * 255).toInt().coerceIn(0, 255)
+                (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+            return jpeg(px)
+        }
+        val frames = listOf(frame(1f, 0, 1), frame(0.25f, 5, 2)).map { CapturedFrame(it, 0, null) }
+        val sources = frames.map(::JpegSource)
+        val a = Engine.align(sources, CancelToken()) {}
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        var scene: com.novacamera.s24.core.imaging.Plane? = null
+        Engine.fuseInto(sources, out, a, CancelToken(), onScene = { scene = it }) {}
+        sources.forEach { it.close() }
+        val s = scene ?: error("sem cena HDR")
+        val f = w.toFloat() / s.w
+        fun at(x: Int, y: Int) = s[(x / f).toInt(), (y / f).toInt()]
+        assertEquals(2.5f, at(680, 280), 0.6f)
+        assertTrue("meio-tom não ganha brilho: ${at(200, 500)}", at(200, 500) < 0.5f)
+    }
+
     /** Quadro impossível de alinhar (giro grande): é descartado e a referência sai intacta. */
     @Test
     fun unsafeFusionFallsBackToReference() {

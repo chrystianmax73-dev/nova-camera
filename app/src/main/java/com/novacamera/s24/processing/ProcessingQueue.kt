@@ -11,6 +11,7 @@ import android.util.Log
 import com.novacamera.s24.core.DeviceHeat
 import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.core.imaging.Plane
+import com.novacamera.s24.core.imaging.oriented
 import com.novacamera.s24.core.imaging.ToneIntent
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -72,6 +73,8 @@ class Session(val dir: File) {
     val original get() = File(dir, "original.jpg")
     val base get() = File(dir, "base.jpg")
     val matteFile get() = File(dir, "matte.bin")
+    /** Luminância da cena acima do branco SDR (HDR Nova), já na orientação da foto. */
+    val hdrFile get() = File(dir, "hdr.bin")
     private val metaFile get() = File(dir, "meta.properties")
     val meta = Properties().also { p -> if (metaFile.exists()) metaFile.inputStream().use(p::load) }
 
@@ -107,6 +110,18 @@ class Session(val dir: File) {
         set(v) { v.forEach { (k, value) -> meta.setProperty("exif.$k", value) } }
 
     fun save() { metaFile.outputStream().use { meta.store(it, null) } }
+
+    fun saveHdr(p: Plane) = savePlane(hdrFile, p)
+    fun loadHdr(): Plane? = loadPlane(hdrFile)
+    private fun savePlane(f: File, p: Plane) = DataOutputStream(f.outputStream().buffered()).use { out ->
+        out.writeInt(p.w); out.writeInt(p.h); p.data.forEach(out::writeFloat)
+    }
+    private fun loadPlane(f: File): Plane? = if (!f.exists()) null else runCatching {
+        DataInputStream(f.inputStream().buffered()).use { inp ->
+            val w = inp.readInt(); val h = inp.readInt()
+            Plane(w, h, FloatArray(w * h) { inp.readFloat() })
+        }
+    }.getOrNull()
 
     fun saveMatte(p: Plane) = DataOutputStream(matteFile.outputStream().buffered()).use { out ->
         out.writeInt(p.w); out.writeInt(p.h); p.data.forEach(out::writeFloat)
@@ -233,6 +248,7 @@ object ProcessingQueue {
             // 2. Fusão (orientação do sensor), lendo os quadros por faixas.
             var base: Bitmap
             var note = job.captureNote ?: ""
+            var hdrScene: Plane? = null
             if (frames.size > 1 && (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
@@ -246,13 +262,16 @@ object ProcessingQueue {
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
                                else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
                     } else {
-                        val n = Engine.fuseInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Combinando exposições") }
+                        val n = Engine.fuseInto(sources, base, a, job.cancel, onScene = { hdrScene = it }) {
+                            progress(0.2f + 0.45f * it, "Combinando exposições")
+                        }
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
                                else "$n de ${frames.size} exposições combinadas (só onde coincidem)"
                     }
                     session.meta.setProperty("unsafe", a.unsafe.joinToString { "%.2f".format(java.util.Locale.US, it) })
                 } finally { sources.forEach { it.close() } }
                 base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
+                hdrScene?.let { runCatching { session.saveHdr(it.oriented(frame0.rotationDegrees, job.mirror)) } }
             } else {
                 base = orig
                 if (job.kind == JobKind.NIGHT || job.kind == JobKind.HDR)
@@ -282,6 +301,7 @@ object ProcessingQueue {
             // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
             render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") }
             job.signature?.let { Signature.draw(base, it) }
+            UltraHdr.attach(session, base)
             progress(0.96f, "Salvando")
             val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
             val enhanced = MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
@@ -369,6 +389,7 @@ object ProcessingQueue {
             render(session, bmp, session.tone, session.blur, token) {}
             if (token.cancelled) throw CancelledException()
             session.signature?.let { Signature.draw(bmp, it) }
+            UltraHdr.attach(session, bmp)
             MediaWriter.write(context.contentResolver, uri, bmp, session.exif,
                 "Nova ${session.kind.label}" + if (session.note.isNotEmpty()) " · ${session.note}" else "")
             session.meta.setProperty(AI_KEY, AI_DONE); session.save()
@@ -538,6 +559,7 @@ object ProcessingQueue {
                 session.tone = tone; session.blur = blur
                 render(session, bmp, tone, blur, CancelToken()) {}
                 session.signature?.let { Signature.draw(bmp, it) }
+                UltraHdr.attach(session, bmp)
                 val uri = session.enhancedUri ?: error("sem versão aprimorada")
                 MediaWriter.write(app.contentResolver, uri, bmp, session.exif, "Nova ${session.kind.label}")
                 bmp.recycle()
