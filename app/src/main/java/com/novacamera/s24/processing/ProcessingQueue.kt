@@ -47,6 +47,7 @@ class Job(
     val captureNote: String? = null,
     /** AUTO: ajuste de tom permitido (desligado = só a assinatura). */
     val autoTone: Boolean = true,
+    val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -323,7 +324,14 @@ object ProcessingQueue {
         if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { session.dir.deleteRecursively(); return finish(job, session, null, null, null) }
         post(JobProgress(job.id, job.kind, 0.1f, "Analisando", pending))
         val bmp = Engine.orient(JpegSource(frame).let { s -> s.decodeFull().also { s.close() } }, frame.rotationDegrees, false)
-        val plan = Engine.planTone(bmp, JobKind.AUTO.tone, job.zoom)
+        val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(frame.jpeg))
+        val facts = job.imagingFacts.copy(
+            iso = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 },
+            exposureNs = exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, 0.0)
+                .takeIf { it.isFinite() && it > 0 && it < 60 }?.let { (it * 1_000_000_000).toLong() })
+        facts.toMeta().forEach { (k, v) -> session.meta.setProperty(k, v) }
+        session.meta.setProperty("nai.enabled", "true")
+        val plan = Engine.planAdaptive(bmp, job.zoom, facts)
         val tone = job.autoTone && !plan.skip
         if (!tone && job.signature == null) {
             bmp.recycle()
@@ -369,7 +377,10 @@ object ProcessingQueue {
      */
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
         val kind = session.kind
-        val plan = Engine.planTone(bmp, kind.tone, session.zoom)
+        val plan = if (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true")
+            Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
+                session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
+        else Engine.planTone(bmp, kind.tone, session.zoom)
         Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()

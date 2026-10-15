@@ -14,6 +14,8 @@ object Adaptive {
         val params: ToneParams, val strength: Float, val base: Plane, val mid: Plane?,
         /** Explicação curta da decisão (vai para a revisão e para a validação). */
         val reason: String,
+        val stats: SceneStats? = null,
+        val imaging: AdaptiveImaging.Decision? = null,
     ) {
         /** Nada a fazer: a foto é salva como saiu da câmera. */
         val skip get() = strength <= 0f || params.isIdentity
@@ -65,16 +67,16 @@ object Adaptive {
         val params = ToneParams.plan(stats, intent, zoom)
         val base = ToneMap.baseFrom(luma)
         val mid = if (params.clarity > 0f) ToneMap.midFrom(luma) else null
-        if (params.isIdentity) return Plan(params, 0f, base, mid, "cena bem exposta: sem ajuste")
+        if (params.isIdentity) return Plan(params, 0f, base, mid, "cena bem exposta: sem ajuste", stats)
         val orig = quality(preview, w, h)
         for (s in floatArrayOf(1f, 0.65f, 0.35f)) {
             val test = preview.copyOf()
             ToneMap(base, params, w, h, mid).applyTile(test, w, h, 0, 0, s)
             if (acceptable(orig, quality(test, w, h), intent)) {
-                return Plan(params, s, base, mid, "ajuste ${(s * 100).toInt()}% (${describe(params)})")
+                return Plan(params, s, base, mid, "ajuste ${(s * 100).toInt()}% (${describe(params)})", stats)
             }
         }
-        return Plan(params, 0f, base, mid, "ajuste pioraria a foto: mantida como capturada")
+        return Plan(params, 0f, base, mid, "ajuste pioraria a foto: mantida como capturada", stats)
     }
 
     private fun describe(p: ToneParams) = buildList {
@@ -84,3 +86,4 @@ object Adaptive {
         if (p.clarity > 0.01f) add("contraste local")
     }.joinToString()
 }
+

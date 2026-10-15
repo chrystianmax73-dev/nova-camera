@@ -378,6 +378,12 @@ object Engine {
         return Adaptive.plan(px, w, h, intent, zoom)
     }
 
+    /** Complemento automático da FOTO; plano legado continua disponível para A/B e demais modos. */
+    fun planAdaptive(bmp: Bitmap, zoom: Float, facts: com.novacamera.s24.core.imaging.ImagingFacts): Adaptive.Plan {
+        val (px, w, h) = preview(bmp)
+        return com.novacamera.s24.core.imaging.AdaptiveImaging.plan(px, w, h, ToneIntent.LIGHT, zoom, facts)
+    }
+
     /**
      * Aplica o plano (+ visual Food, se pedido) no lugar. [userStrength] (revisão) multiplica a
      * intensidade decidida pelo plano; 1 = a decisão automática.
@@ -390,7 +396,7 @@ object Engine {
         tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
-            map.applyTile(buf, tw, th, x0, y0, s)
+            map.applyTile(buf, tw, th, x0, y0, s, plan.imaging?.protection ?: 0f)
             if (food) FoodLook.applyTile(buf, userStrength)
             bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
             done++; progress(done.toFloat() / total)

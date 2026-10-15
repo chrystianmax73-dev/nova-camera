@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/reference-performance]
+    branches: [codex/nova-adaptive-imaging]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -26,6 +26,18 @@ jobs:
           gradle-version: '8.13'
       - name: Testes e lint antes de gerar a prévia
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Resumo dos testes executados
+        run: |
+          python3 - <<'PYTEST'
+          import pathlib, xml.etree.ElementTree as ET
+          total = skipped = failed = 0
+          for file in pathlib.Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root = ET.parse(file).getroot()
+              total += int(root.attrib['tests']); skipped += int(root.attrib.get('skipped',0))
+              failed += int(root.attrib.get('failures',0)) + int(root.attrib.get('errors',0))
+          print(f'Testes: {total-skipped-failed} aprovados, {skipped} locais dispensados, {failed} falhas')
+          assert failed == 0
+          PYTEST
       - name: Preparar chave persistente (somente de GitHub Secrets)
         shell: bash
         env:
@@ -94,7 +106,7 @@ jobs:
           set -euo pipefail
           PREVIOUS="$RUNNER_TEMP/previous-apk"
           mkdir -p "$PREVIOUS"
-          gh release download nova-test-11 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
+          gh release download nova-test-16 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
           OLD_APK="$(find "$PREVIOUS" -name '*.apk' -print -quit)"
           NEW_APK="app/build/outputs/apk/release/app-release.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"

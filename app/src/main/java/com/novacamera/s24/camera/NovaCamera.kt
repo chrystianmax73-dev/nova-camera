@@ -502,6 +502,7 @@ class NovaCamera(
         try {
             p.unbindAll()
             retiredEffect?.close(); retiredEffect = null
+            previewOptics = null to null
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
         } catch (e: Exception) {
@@ -955,6 +956,7 @@ class NovaCamera(
 
     @Volatile private var lowLightFpsWarned = false
     private var lastSensorReportMs = 0L
+    @Volatile private var previewOptics: Pair<String?, Float?> = null to null
 
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
@@ -965,6 +967,7 @@ class NovaCamera(
             latestStats = stats
             val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
             val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()
+            previewOptics = physical to result.get(CaptureResult.LENS_FOCAL_LENGTH)
             val ts = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: 0L
             val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
             if (lensChanged) handler.post { listener.onActiveLens(lensLabel(physical)) }
@@ -1227,13 +1230,24 @@ class NovaCamera(
         val sig = signatureStyle()
         if ((!settings.autoProcess && sig == null) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
         val zoom = equivalent(zoomOnLens)
+        val cameraId = camera?.let { runCatching { Camera2CameraInfo.from(it.cameraInfo).cameraId }.getOrNull() }
+        val optics = previewOptics
+        val sensor = runCatching {
+            activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
+                .getCameraCharacteristics(optics.first ?: cameraId ?: error("sem câmera"))
+                .get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        }.getOrNull()
+        val facts = com.novacamera.s24.core.imaging.ImagingFacts(
+            device = "${Build.MANUFACTURER}/${Build.MODEL}", cameraId = cameraId,
+            physicalId = optics.first, focalMm = optics.second,
+            sensorWidthMm = sensor?.width, sensorHeightMm = sensor?.height)
         io.execute {
             val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return@execute
             val rotation = runCatching {
                 androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
             }.getOrDefault(0)
             val job = Job(JobKind.AUTO, listOf(CapturedFrame(bytes, rotation, null)), mirror = false, zoom = zoom,
-                sourceUri = uri, signature = sig, autoTone = settings.autoProcess)
+                sourceUri = uri, signature = sig, autoTone = settings.autoProcess, imagingFacts = facts)
             handler.post { ProcessingQueue.submit(activity, job) }
         }
     }
