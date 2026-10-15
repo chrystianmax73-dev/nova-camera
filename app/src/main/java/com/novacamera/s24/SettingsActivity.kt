@@ -87,7 +87,7 @@ class SettingsActivity : NovaScreen() {
             { settings.mirrorFrontPhoto }, { settings.mirrorFrontPhoto = it })
         info("Resolução", "Escolhida por lente no botão de megapixels da barra superior, entre as resoluções que cada câmera " +
             "realmente libera a outros apps. O que o fabricante bloqueia aparece como bloqueado ao tocar no botão.")
-        switch("Disparo instantâneo", "Usa um quadro capturado no instante do toque (ZSL), quando a câmera oferece. " +
+        switch("Disparo instantâneo", "Dispara com latência mínima (sem esperar o ajuste de foco/exposição da foto). " +
             "O diagnóstico mostra o atraso medido com e sem, para comparar.", { settings.instantShutter }, { settings.instantShutter = it })
         switch("Grade de composição", null, { settings.grid }, { settings.grid = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })

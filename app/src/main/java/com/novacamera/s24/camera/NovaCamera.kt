@@ -189,8 +189,13 @@ class NovaCamera(
         return maxOf(STALL_PREVIEW_MS, expNs / 1_000_000L * 3 + 1000L)
     }
 
+    private val recentStalls = ArrayDeque<Long>()
+
     private fun onPreviewStalled(cam: Camera) {
         if (cam !== camera || released || paused) return
+        val nowMs = SystemClock.uptimeMillis()
+        while (recentStalls.isNotEmpty() && nowMs - recentStalls.first() > 60_000L) recentStalls.removeFirst()
+        recentStalls.addLast(nowMs)
         val line = String.format(Locale.US, "%s · %s · lente %s · zoom %.2f× · efeito=%s · análise=%s · versão %s",
             SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()), mode.label, currentLens?.routeKey ?: "?",
             equivalent(zoomOnLens), portraitEffect != null, portraitAnalysis != null,
@@ -198,10 +203,22 @@ class NovaCamera(
         Log.w(TAG, "prévia parada: $line")
         synchronized(telemetry) { telemetry.log(SystemClock.uptimeMillis(), "prévia parada; reabrindo") }
         com.novacamera.s24.core.StallLog.add(activity, line)
-        if (portraitAnalysis != null) {
-            liveBlurBlocked = true
-            listener.onMessage("Prévia do desfoque pausada para não travar; a foto continua com desfoque")
-        } else listener.onMessage("A imagem parou; reabrindo a câmera")
+        when {
+            portraitAnalysis != null -> {
+                liveBlurBlocked = true
+                listener.onMessage("Prévia do desfoque pausada para não travar; a foto continua com desfoque")
+            }
+            // Segunda parada em 1 min: sem o efeito da prévia nesta sessão (evita reabrir em ciclo).
+            recentStalls.size >= 2 && portraitEffect != null -> {
+                portraitPreviewFailed = true
+                listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
+            }
+            recentStalls.size >= 3 -> {
+                listener.onMessage("A imagem parou várias vezes; feche e abra a câmera")
+                return
+            }
+            else -> listener.onMessage("A imagem parou; reabrindo a câmera")
+        }
         pendingZoomOnLens = zoomOnLens
         bind()
     }
@@ -584,12 +601,13 @@ class NovaCamera(
             // ZSL acrescenta um fluxo de reprocessamento. Somado à análise do desfoque ao vivo do
             // Retrato (prévia + foto + análise + ZSL), a câmera do S24 Ultra para de entregar quadros
             // ~2 s depois de abrir (diagnóstico 0.14.1: 58 quadros e a prévia congela).
-            val liveAnalysis = mode == CaptureMode.RETRATO && settings.portraitLivePreview && !liveBlurBlocked
-            val zsl = !burst && !liveAnalysis && settings.instantShutter && wantedExtension == ExtensionMode.NONE &&
-                !(mode == CaptureMode.PRO && settings.raw) && runCatching { info.isZslSupported }.getOrDefault(false)
+            // Diagnóstico 0.14.3 (S24 Ultra, Android 17): com ZSL a prévia também para na frontal e na
+            // troca para 3×/5× na Foto (efeito da prévia + foto + reprocessamento), e o quadro ZSL em
+            // pouca luz sai com a redução de ruído rápida da prévia (pele "encerada"). ZSL desligado:
+            // o disparo instantâneo usa latência mínima, que passa pelo processamento de foto do aparelho.
             val captureMode = when {
                 burst -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                zsl -> ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
+                settings.instantShutter && wantedExtension == ExtensionMode.NONE -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
                 else -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
             }
             ShutterLog.configured = when {

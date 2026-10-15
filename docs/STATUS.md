@@ -6,6 +6,17 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.5 — ZSL desligado; vigia sem ciclo
+
+- Diagnóstico 0.14.3 (S24 Ultra, Android 17): 10 paradas da prévia na Foto — frontal ("lente 1")
+  e no zoom 3×/5× — todas com ZSL + efeito da prévia; o vigia reabria a cada 3 s (ciclo). Foto da
+  selfie em pouca luz (ISO 2090, 1/24 s, "um quadro"): pele encerada = redução de ruído rápida do
+  quadro ZSL + tremido.
+- ZSL desligado em todos os modos: "Disparo instantâneo" passa a usar latência mínima (o aparelho
+  processa a foto como foto, não como quadro da prévia).
+- Vigia: 2ª parada em 1 min desliga Tom/Temperatura ao vivo nesta sessão (sem efeito na prévia);
+  3ª parada não reabre mais (pede para fechar e abrir).
+
 ## 0.14.4 — Noturno contra a luz e assinatura nos modos do fabricante
 
 - Foto real (frasco, 3×, ISO 2194, contra a luz): parede esbranquiçada e armário escuro magenta
