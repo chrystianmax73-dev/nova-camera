@@ -6,6 +6,16 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.9.5 — Retrato com profundidade estimada (Depth Anything V2 Small)
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| Modelo | Depth Anything V2 **Small** (Apache-2.0) convertido para ncnn no CI (`tools/depth/export_ncnn.py`): entrada 392×392, ~48 MB em fp16, ~58 GFLOPs por foto (uma inferência). O CI confere a licença no model card, compara ncnn × PyTorch (correlação ≥ 0,995, erro ≤ 3% da faixa) e testa sanidade (piso em perspectiva: baixo mais perto que cima). Falhou ⇒ APK sem o modelo, Retrato como na 0.9.4 | Caminho de conversão validado localmente com pesos aleatórios: correlação 1,00000, erro 0,11% | Tempo (linha "Profundidade" no diagnóstico), memória, temperatura |
+| Desfoque pela profundidade | Foco = mediana da profundidade dentro da pessoa. Desfoque cresce com a distância ao plano de foco (zona nítida de 4% da faixa da cena, máximo a 39%); o que está à frente também desfoca; o que está no foco fica nítido mesmo fora da máscara (objeto na mão, chão sob os pés). A borda continua definida pela máscara por cor; o fundo colado no contorno herda o desfoque do vizinho (sem franja) | `DepthPortraitTest` (4), `depthKeepsInFocusObjectSharpOutsidePersonMask` | Qualidade da profundidade em cenas reais (a validação local não tem os pesos reais) |
+| Retrato de objetos | Sem pessoa detectada, o assunto é o que está mais perto no centro do quadro; a máscara sai do plano de foco, refinada pela cor | `DepthPortraitTest` | Objetos, animais, comida |
+
+Limites: profundidade relativa (sem escala métrica) e de baixa resolução (392 px); erros do modelo aparecem como diferenças de desfoque, não como recortes, porque a borda nítida vem da máscara. Superfícies espelhadas/vidro e céu podem ter profundidade errada.
+
 ## 0.9.4 — Retrato: borda justa e fundo com o grão da foto
 
 Teste do usuário (controle remoto na mão sobre tapete bege) mostrou franja de tapete nítido em volta do braço e brilho na borda do polegar. Reproduzido localmente com o mesmo modelo de segmentação sobre a foto: a máscara passava 20–40 px além da borda real.

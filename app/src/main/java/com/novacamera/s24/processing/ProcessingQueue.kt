@@ -10,7 +10,9 @@ import android.os.Process
 import android.util.Log
 import com.novacamera.s24.core.DeviceHeat
 import com.novacamera.s24.core.ThermalPolicy
+import com.novacamera.s24.core.imaging.DepthPortrait
 import com.novacamera.s24.core.imaging.Plane
+import com.novacamera.s24.core.imaging.Planes
 import com.novacamera.s24.core.imaging.oriented
 import com.novacamera.s24.core.imaging.ToneIntent
 import java.io.DataInputStream
@@ -111,6 +113,10 @@ class Session(val dir: File) {
 
     fun save() { metaFile.outputStream().use { meta.store(it, null) } }
 
+    /** Desfoque pela profundidade estimada (0 = no foco), na orientação da foto. */
+    val depthFile get() = File(dir, "depth_blur.bin")
+    fun saveBlurMap(p: Plane) = savePlane(depthFile, p)
+    fun loadBlurMap(): Plane? = loadPlane(depthFile)
     fun saveHdr(p: Plane) = savePlane(hdrFile, p)
     fun loadHdr(): Plane? = loadPlane(hdrFile)
     private fun savePlane(f: File, p: Plane) = DataOutputStream(f.outputStream().buffered()).use { out ->
@@ -287,13 +293,28 @@ object ProcessingQueue {
             if (job.kind == JobKind.PORTRAIT) {
                 progress(0.68f, "Separando pessoa e fundo")
                 val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
-                if (seg != null && seg.coverage >= 0.03f) {
-                    session.saveMatte(Engine.portraitMatte(base, seg.person, seg.hair))
-                    session.hasPerson = true
-                } else {
-                    note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
-                           else "Nenhuma pessoa detectada: foto salva sem desfoque (o Retrato separa pessoas)"
+                val person = seg?.takeIf { it.coverage >= 0.03f }
+                // Profundidade estimada: desfoque proporcional à distância ao foco; sem pessoa, o
+                // assunto é o que está mais perto no centro (objeto, animal).
+                progress(0.69f, "Estimando profundidade")
+                val depth = runCatching { DepthEstimator.estimate(context, base) }
+                    .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
+                    ?.let { DepthPortrait.normalize(Planes.resize(it, max(1, base.width / 8), max(1, base.height / 8))) }
+                val focus = depth?.let { DepthPortrait.focus(it, person?.person) }
+                when {
+                    person != null -> {
+                        session.saveMatte(Engine.portraitMatte(base, person.person, person.hair))
+                        session.hasPerson = true
+                    }
+                    depth != null && focus != null -> {
+                        session.saveMatte(Engine.portraitMatte(base, DepthPortrait.inFocus(depth, focus), null))
+                        session.hasPerson = true
+                        note = "Sem pessoa: foco no que está mais perto no centro (profundidade estimada)"
+                    }
+                    else -> note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
+                                   else "Nenhuma pessoa detectada: foto salva sem desfoque (o Retrato separa pessoas)"
                 }
+                if (session.hasPerson && depth != null && focus != null) runCatching { session.saveBlurMap(DepthPortrait.blurMap(depth, focus)) }
             }
             session.note = note
             session.save()
@@ -515,7 +536,7 @@ object ProcessingQueue {
         Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
-            if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel) { progress(0.5f + 0.5f * it) }
+            if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) }
         }
         progress(1f)
     }

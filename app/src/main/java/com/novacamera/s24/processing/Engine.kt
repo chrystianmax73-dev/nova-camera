@@ -492,7 +492,8 @@ object Engine {
      * Retrato: o fundo (fora de [matte]) é desfocado em resolução reduzida e composto em blocos;
      * a pessoa é copiada sem alteração. [strength] 0..1 controla o raio do desfoque.
      */
-    fun portraitInPlace(bmp: Bitmap, matte: Plane, strength: Float, cancel: CancelToken, progress: (Float) -> Unit) {
+    /** [blurMap] (profundidade estimada, ver DepthPortrait) substitui a distância ao contorno. */
+    fun portraitInPlace(bmp: Bitmap, matte: Plane, strength: Float, cancel: CancelToken, blurMap: Plane? = null, progress: (Float) -> Unit) {
         val w = bmp.width; val h = bmp.height
         val s = strength.coerceIn(0f, 1f)
         if (s <= 0.01f) { progress(1f); return }
@@ -507,7 +508,7 @@ object Engine {
         val smallMatte = Planes.resize(protectedMatte, sw, sh)
         val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (3 + 6 * s).toInt()))
         val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (6 + 24 * s).toInt()))
-        val dist = Portrait.backgroundDistance(protectedMatte)
+        val dist = blurMap ?: Portrait.backgroundDistance(protectedMatte)
         val grain = noiseSigma(bmp)
         progress(0.4f)
         val total = tileCount(w, h)
@@ -515,7 +516,7 @@ object Engine {
         tiles(w, h) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
-            Portrait.compositeTile(buf, tw, th, x0, y0, w, h, protectedMatte, dist, near, far, sw, sh, grain)
+            Portrait.compositeTile(buf, tw, th, x0, y0, w, h, protectedMatte, dist, near, far, sw, sh, grain, depthMode = blurMap != null)
             bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
             done++; progress(0.4f + 0.6f * (done.toFloat() / total))
         }

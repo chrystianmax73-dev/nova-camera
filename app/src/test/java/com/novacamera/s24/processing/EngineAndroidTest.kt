@@ -248,6 +248,41 @@ class EngineAndroidTest {
         assertTrue("meio-tom não ganha brilho: ${at(200, 500)}", at(200, 500) < 0.5f)
     }
 
+    /**
+     * Retrato com profundidade: um objeto fora da máscara de pessoa, mas no plano de foco (como o
+     * controle na mão), fica nítido; o fundo longe desfoca. Sem profundidade, o objeto desfocaria.
+     */
+    @Test
+    fun depthKeepsInFocusObjectSharpOutsidePersonMask() {
+        val rnd = Random(9)
+        val px = IntArray(w * h) { i ->
+            val v = (128 + 60 * kotlin.math.sin(i % w / 2.0) + 8 * rnd.nextGaussian()).toInt().coerceIn(0, 255)
+            (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+        }
+        fun run(depthOn: Boolean): Bitmap {
+            val bmp = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888, true)
+            val mw = w / 2; val mh = h / 2
+            // Pessoa: faixa central x 200..399; objeto no foco: x 420..520 (fora da máscara).
+            val matte = com.novacamera.s24.core.imaging.Plane(mw, mh, FloatArray(mw * mh) { if ((it % mw) * 2 in 200..399) 1f else 0f })
+            val blur = if (!depthOn) null else com.novacamera.s24.core.imaging.Plane(w / 8, h / 8, FloatArray((w / 8) * (h / 8)) { i ->
+                val x = (i % (w / 8)) * 8; if (x in 200..520) 0f else 1f
+            })
+            Engine.portraitInPlace(bmp, matte, 0.8f, CancelToken(), blur) {}
+            return bmp
+        }
+        val withDepth = run(true); val without = run(false)
+        var objSame = 0; var objTotal = 0; var farChanged = 0; var farTotal = 0
+        for (y in 100 until 600 step 7) {
+            for (x in 440..500 step 3) { objTotal++; if (withDepth.getPixel(x, y) == px[y * w + x]) objSame++ }
+            for (x in 20..120 step 3) { farTotal++; if (withDepth.getPixel(x, y) != px[y * w + x]) farChanged++ }
+        }
+        assertTrue("objeto no foco nítido: $objSame/$objTotal", objSame > objTotal * 0.95)
+        assertTrue("fundo longe desfocado: $farChanged/$farTotal", farChanged > farTotal * 0.9)
+        var objBlurred = 0
+        for (y in 100 until 600 step 7) for (x in 440..500 step 3) if (without.getPixel(x, y) != px[y * w + x]) objBlurred++
+        assertTrue("sem profundidade o objeto desfocava: $objBlurred/$objTotal", objBlurred > objTotal * 0.9)
+    }
+
     /** Quadro impossível de alinhar (giro grande): é descartado e a referência sai intacta. */
     @Test
     fun unsafeFusionFallsBackToReference() {

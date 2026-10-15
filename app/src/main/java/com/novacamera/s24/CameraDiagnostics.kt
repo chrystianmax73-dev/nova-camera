@@ -27,6 +27,7 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.camera.NovaCamera.sensorReport)
             appendLine(com.novacamera.s24.core.imaging.AdaptiveImaging.lastReport)
             appendLine(com.novacamera.s24.processing.NcnnDenoiser.report)
+            appendLine(com.novacamera.s24.processing.DepthEstimator.report)
             appendLine(com.novacamera.s24.core.ShutterLog.report())
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)
             appendLine(com.novacamera.s24.processing.UltraHdr.deviceReport)

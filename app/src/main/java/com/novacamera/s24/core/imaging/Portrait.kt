@@ -129,22 +129,34 @@ object Portrait {
         matte: Plane, distance: Plane, blurNear: IntArray, blurFar: IntArray, smallW: Int, smallH: Int,
         /** Desvio do ruído do sensor (níveis 0..255) devolvido ao fundo desfocado; 0 = sem grão. */
         grainSigma: Float = 0f,
+        /**
+         * [distance] é o desfoque pela profundidade (0 = no plano de foco, nítido; 1 = máximo), e não
+         * a distância ao contorno: pontos no foco ficam com o pixel original mesmo fora da máscara.
+         */
+        depthMode: Boolean = false,
     ) {
         val mx = matte.w.toFloat() / fullW; val my = matte.h.toFloat() / fullH
+        val dx = distance.w.toFloat() / fullW; val dy = distance.h.toFloat() / fullH
         val bx = smallW.toFloat() / fullW; val by = smallH.toFloat() / fullH
         for (ty in 0 until th) for (tx in 0 until tw) {
             val gx = x0 + tx + 0.5f; val gy = y0 + ty + 0.5f
             val a = matte.sample(gx * mx - 0.5f, gy * my - 0.5f)
             if (a >= 0.999f) continue
-            val t = distance.sample(gx * mx - 0.5f, gy * my - 0.5f)
+            val t = distance.sample(gx * dx - 0.5f, gy * dy - 0.5f)
             val near = sampleArgb(blurNear, smallW, smallH, gx * bx - 0.5f, gy * by - 0.5f)
             val far = sampleArgb(blurFar, smallW, smallH, gx * bx - 0.5f, gy * by - 0.5f)
             val i = ty * tw + tx
             val c = tile[i]
-            val k = smoothT(t)
+            val k = if (depthMode) smoothRange(0.25f, 0.9f, t) else smoothT(t)
+            // Profundidade: do nítido (no foco) ao desfoque próximo; sem profundidade, sempre desfoca.
+            val kSharp = if (depthMode) 1f - smoothRange(0.02f, 0.25f, t) else 0f
             // O desfoque apaga o ruído: sem devolver o grão, o fundo fica liso e a pessoa parece recortada.
-            val grain = if (grainSigma > 0f) grainSigma * gaussHash(x0 + tx, y0 + ty) * (1f - a) else 0f
-            fun mix(o: Int, n: Int, f: Int): Int { val bg = n + (f - n) * k + grain; return (o * a + bg * (1f - a) + 0.5f).toInt() }
+            val grain = if (grainSigma > 0f) grainSigma * gaussHash(x0 + tx, y0 + ty) * (1f - a) * (1f - kSharp) else 0f
+            fun mix(o: Int, n: Int, f: Int): Int {
+                val blurred = n + (f - n) * k + grain
+                val bg = blurred + (o - blurred) * kSharp
+                return (o * a + bg * (1f - a) + 0.5f).toInt()
+            }
             tile[i] = Px.argb(mix(Px.r(c), Px.r(near), Px.r(far)), mix(Px.g(c), Px.g(near), Px.g(far)), mix(Px.b(c), Px.b(near), Px.b(far)))
         }
     }
@@ -193,6 +205,10 @@ object Portrait {
         medians.sort()
         // Mediana de |N(0, 20σ²)| = 0,6745·√20·σ.
         return (medians[medians.size / 5] / (0.6745f * 4.4721f)).coerceIn(0f, 6f)
+    }
+
+    private fun smoothRange(a: Float, b: Float, x: Float): Float {
+        val t = ((x - a) / (b - a)).coerceIn(0f, 1f); return t * t * (3 - 2 * t)
     }
 
     private fun smoothT(t: Float) = (t * 2.2f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }

@@ -22,6 +22,10 @@ nos model cards da MediaPipe em 14/10/2026; o que não pôde ser conferido está
 | GrapheneOS Camera | MIT | — | Arquitetura CameraX enxuta | Referência de organização. |
 | MotionCam (f0enix) | **GPL-3.0** | — | Pipeline RAW + Halide | Só estudo; parado desde 2021. |
 
+## O que entrou na 0.9.5
+
+Depth Anything V2 **Small** (Apache-2.0) via ncnn no Retrato: desfoque proporcional à distância ao plano de foco e retrato de objetos sem pessoa. Convertido e conferido no CI; tempo e qualidade no aparelho ainda sem medição.
+
 ## O que entrou na 0.8
 
 MediaPipe Tasks + modelo multiclasse (Retrato), ncnn (runtime de IA com Vulkan) e NAFNet (redução de ruído, experimental). Detalhes e validação em STATUS.md; licenças em THIRD_PARTY.md.
