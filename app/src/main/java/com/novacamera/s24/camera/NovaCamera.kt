@@ -212,6 +212,9 @@ class NovaCamera(
         io.shutdown()
         timelapseExecutor.shutdown()
         videoEffect?.close(); videoEffect = null
+        stopPortraitAnalysis()
+        portraitEffect?.release(); portraitEffect = null
+        portraitExecutor.shutdown()
     }
 
     // ------------------------------------------------------------------ seleção
@@ -394,6 +397,9 @@ class NovaCamera(
 
         val useCases = mutableListOf<UseCase>()
         analysis = null
+        stopPortraitAnalysis()
+        retiredPortraitEffect = portraitEffect
+        portraitEffect = null
         sizeOptions = emptyList(); sizeBlocked = emptyList(); chosenSize = null
         nativePhotoSelected = false; nativeTarget = null
         imageCapture = null
@@ -533,6 +539,9 @@ class NovaCamera(
             imageCapture?.takeUnless { nativePhotoSelected }?.let { useCases += it }
             videoCapture?.let { useCases += it }
             analysis?.let { useCases += it }
+            portraitPreviewFor(support, wide, pinned)?.let { (effect, a) ->
+                portraitEffect = effect; portraitAnalysis = a; useCases += a
+            } ?: listener.onPortraitPreview(null)
             val retired = videoEffect
             videoEffect = null
             retiredEffect = retired
@@ -548,12 +557,14 @@ class NovaCamera(
                 previewView.viewPort?.let(::setViewPort)
                 useCases.forEach(::addUseCase)
                 videoEffect?.let(::addEffect)
+                portraitEffect?.let(::addEffect)
             }.build()
         } else null
 
         try {
             p.unbindAll()
             retiredEffect?.close(); retiredEffect = null
+            retiredPortraitEffect?.release(); retiredPortraitEffect = null
             previewOptics = null to null
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
@@ -1319,7 +1330,8 @@ class NovaCamera(
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
-                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts))
+                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
+                portraitBlur = settings.portraitBlur))
             listener.onProcessingQueued(kind)
         }
 
@@ -1420,6 +1432,56 @@ class NovaCamera(
         }
         clip.toFloat() / px.size to deep.toFloat() / px.size
     }.getOrDefault(0f to 0f)
+
+    // ------------------------------------------------------------------ prévia do Retrato
+
+    private var portraitEffect: PortraitPreviewEffect? = null
+    private var retiredPortraitEffect: PortraitPreviewEffect? = null
+    private var portraitAnalysis: ImageAnalysis? = null
+    private var portraitAnalyzer: PortraitMaskAnalyzer? = null
+    private val portraitExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    /** GL falhou nesta execução do app: sem nova tentativa até reabrir (a foto final não muda). */
+    private var portraitPreviewFailed = false
+
+    /** Intensidade do desfoque (0..1): a prévia muda na hora e a foto usa o mesmo valor. */
+    fun setPortraitBlur(v: Float) {
+        settings.portraitBlur = v.coerceIn(0f, 1f)
+        portraitEffect?.strength = settings.portraitBlur
+    }
+
+    private fun stopPortraitAnalysis() {
+        val a = portraitAnalysis; val an = portraitAnalyzer
+        portraitAnalysis = null; portraitAnalyzer = null
+        a?.clearAnalyzer()
+        an?.let { portraitExecutor.execute { it.close() } }
+    }
+
+    /** Use cases da prévia ao vivo do Retrato, se esta sessão pode tê-la. */
+    private fun portraitPreviewFor(support: ModeSupport, wide: Boolean, pinned: String?): Pair<PortraitPreviewEffect, ImageAnalysis>? {
+        if (mode != CaptureMode.RETRATO || processingKind(support) != JobKind.PORTRAIT || !settings.portraitLivePreview || portraitPreviewFailed) return null
+        val effect = PortraitPreviewEffect.create { e ->
+            Log.w(TAG, "prévia do retrato desligada", e)
+            portraitPreviewFailed = true
+            listener.onMessage("Prévia do desfoque indisponível neste aparelho; a foto continua com o desfoque")
+            listener.onPortraitPreview(null)
+            handler.post { bind() }
+        }.apply { strength = settings.portraitBlur }
+        // Mesma proporção da prévia: os dois buffers cobrem o mesmo campo do sensor.
+        val ab = ImageAnalysis.Builder()
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setResolutionSelector(ResolutionSelector.Builder()
+                .setAspectRatioStrategy(if (wide) AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY else AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(ResolutionStrategy(if (wide) android.util.Size(640, 360) else android.util.Size(640, 480),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                .build())
+        pinned?.let { Camera2Interop.Extender(ab).setPhysicalCameraId(it) }
+        val analysis = ab.build()
+        val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }) { s -> handler.post { listener.onPortraitPreview(s) } }
+        analysis.setAnalyzer(portraitExecutor, analyzer)
+        portraitAnalyzer = analyzer
+        return effect to analysis
+    }
 
     private var videoEffect: androidx.camera.effects.OverlayEffect? = null
     /** Efeito da configuração anterior: só é fechado depois que a câmera solta a sessão. */

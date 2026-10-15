@@ -102,6 +102,10 @@ class SettingsActivity : NovaScreen() {
             "Pictures › Nova Camera › Originais. Desligado: a comparação usa uma cópia privada temporária, " +
             "limitada às quatro últimas fotos processadas.", { settings.keepOriginals }, { settings.keepOriginals = it })
 
+        switch("Prévia do desfoque no Retrato", "O desfoque aparece na tela antes da foto, com a intensidade da régua. " +
+            "É uma prévia em resolução reduzida; a foto passa pelo processamento completo. Desligue se o aparelho esquentar.",
+            { settings.portraitLivePreview }, { settings.portraitLivePreview = it })
+
         section("Assinatura")
         switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
             "Nunca é aplicada ao original.",

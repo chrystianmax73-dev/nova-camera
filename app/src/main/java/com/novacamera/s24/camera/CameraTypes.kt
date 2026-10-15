@@ -79,6 +79,8 @@ interface CameraListener {
     fun onMessage(text: String)
     /** Lente física ativa mudou (só quando a câmera informa). */
     fun onActiveLens(label: String?) {}
+    /** Estado da prévia do desfoque do Retrato (null = funcionando ou desligada). Thread principal. */
+    fun onPortraitPreview(state: String?) {}
     /** O vigia do modo manual devolveu ISO/velocidade ao automático. */
     fun onManualReverted(m: ManualControls) {}
     /** Quadros capturados e entregues ao processamento em segundo plano. */

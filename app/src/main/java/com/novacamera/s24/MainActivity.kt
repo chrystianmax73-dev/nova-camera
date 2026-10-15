@@ -44,6 +44,7 @@ import com.novacamera.s24.camera.NovaCamera
 import com.novacamera.s24.camera.RecordingPhase
 import com.novacamera.s24.core.CameraMath
 import com.novacamera.s24.core.CaptureMode
+import kotlin.math.roundToInt
 import com.novacamera.s24.core.DeviceHeat
 import com.novacamera.s24.core.ModeEngine
 import com.novacamera.s24.core.ThermalPolicy
@@ -115,6 +116,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var infoCard: TextView
     private lateinit var bottom: LinearLayout
     private lateinit var proPanel: ProPanel
+    /** Retrato: régua de intensidade do desfoque (prévia ao vivo e foto usam o mesmo valor). */
+    private lateinit var blurPanel: LinearLayout
+    private lateinit var blurRuler: com.novacamera.s24.ui.RulerView
+    private lateinit var blurNote: TextView
     private lateinit var zoomBar: ZoomBar
     private lateinit var modeStrip: ModeStrip
     private lateinit var shutter: ShutterButton
@@ -357,6 +362,18 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 override fun onEv(index: Int) = camera.setExposureIndex(index)
             }
         }
+        blurNote = TextView(this).apply {
+            setTextColor(Nova.TEXT_MUTED); textSize = 11f; gravity = Gravity.CENTER; visibility = View.GONE
+        }
+        blurRuler = com.novacamera.s24.ui.RulerView(this).apply {
+            contentDescription = "Intensidade do desfoque"
+            onIndex = { i -> camera.setPortraitBlur(i / 10f) }
+        }
+        blurPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE
+            addView(blurNote, LinearLayout.LayoutParams(-2, -2))
+            addView(blurRuler, LinearLayout.LayoutParams(-1, dpi(52)))
+        }
         zoomBar = ZoomBar(this).apply {
             listener = object : ZoomBar.Listener {
                 override fun onStop(value: Float) = camera.zoomTo(value)
@@ -388,6 +405,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         controls.addView(flipButton, FrameLayout.LayoutParams(dpi(48), dpi(48), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dpi(36) })
 
         bottom.addView(proPanel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dpi(4) })
+        bottom.addView(blurPanel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dpi(2) })
         bottom.addView(modeStrip, LinearLayout.LayoutParams(-1, dpi(40)))
         bottom.addView(controls, LinearLayout.LayoutParams(-1, dpi(96)))
         root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
@@ -817,6 +835,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (state.support.engine == ModeEngine.NOVA && state.support.note.isNotBlank() && announcedMode != state.mode) hint.show(state.support.note, 4500)
         announcedMode = state.mode
         proPanel.visibility = if (state.mode.isPro) View.VISIBLE else View.GONE
+        val portrait = state.mode == CaptureMode.RETRATO && state.support.engine == ModeEngine.NOVA && state.support.canCapture
+        blurPanel.visibility = if (portrait) View.VISIBLE else View.GONE
+        if (portrait) blurRuler.set(BLUR_LABELS, (settings.portraitBlur * 10f).roundToInt().coerceIn(0, 10))
         if (state.mode.isPro) {
             proPanel.configure(state.caps, state.evMin, state.evMax, state.evStepNum, state.evStepDen, state.evIndex, camera.manual)
         }
@@ -827,6 +848,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+
+    override fun onPortraitPreview(state: String?) {
+        blurNote.text = state ?: ""
+        blurNote.visibility = if (state == null) View.GONE else View.VISIBLE
+    }
 
     override fun onFocusResult(success: Boolean, locked: Boolean) {
         overlay.setFocusResult(success, locked && camera.exposureLocked)
@@ -1094,6 +1120,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     companion object {
+        /** Intensidade do desfoque em décimos; o valor exibido é o mesmo usado na foto. */
+        private val BLUR_LABELS = List(11) { if (it == 0) "Sem desfoque" else "Desfoque ${it * 10}%" }
         private const val TAG = "NovaCamera"
         private const val TOP_BAR_DP = 52
         private val PRIMARY_MODES = CaptureMode.entries.filter { it.primary }

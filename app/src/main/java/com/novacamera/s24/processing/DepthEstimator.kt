@@ -40,22 +40,43 @@ object DepthEstimator {
     fun estimate(context: Context, photo: Bitmap): Plane? {
         if (!available(context)) { report = "Profundidade: modelo não incluído nesta build"; return null }
         val t0 = SystemClock.elapsedRealtime()
-        val handle = nativeLoad(context.assets, PARAM, BIN, true)
-        if (handle == 0L) { report = "Profundidade: falha ao carregar o modelo"; return null }
-        val tLoad = SystemClock.elapsedRealtime() - t0
-        val input = Bitmap.createScaledBitmap(photo, SIZE, SIZE, true)
+        val session = Session.open(context) ?: run { report = "Profundidade: falha ao carregar o modelo"; return null }
         try {
-            val out = FloatArray(SIZE * SIZE)
+            val tLoad = SystemClock.elapsedRealtime() - t0
             val t1 = SystemClock.elapsedRealtime()
-            val ok = nativeRun(handle, input, out)
-            val tRun = SystemClock.elapsedRealtime() - t1
-            report = "Profundidade (Depth Anything V2 Small): ${if (ok) "ok" else "falhou"} · backend=" +
-                "${if (nativeUsesGpu(handle)) "Vulkan" else "CPU"}, carga=${tLoad}ms, inferência=${tRun}ms"
+            val out = session.run(photo)
+            report = "Profundidade (Depth Anything V2 Small): ${if (out != null) "ok" else "falhou"} · backend=" +
+                "${if (session.gpu) "Vulkan" else "CPU"}, carga=${tLoad}ms, inferência=${SystemClock.elapsedRealtime() - t1}ms"
             Log.i(TAG, report)
-            return if (ok && out.any { it.isFinite() && it != out[0] }) Plane(SIZE, SIZE, out) else null
-        } finally {
-            if (input !== photo) input.recycle()
-            nativeRelease(handle)
+            return out
+        } finally { session.close() }
+    }
+
+    /** Modelo carregado uma vez (prévia ao vivo do Retrato); [close] obrigatório. */
+    class Session private constructor(private val handle: Long) : java.io.Closeable {
+        val gpu = nativeUsesGpu(handle)
+        @Volatile private var closed = false
+        private val out = FloatArray(SIZE * SIZE)
+
+        @Synchronized
+        fun run(photo: Bitmap): Plane? {
+            if (closed) return null
+            val input = Bitmap.createScaledBitmap(photo, SIZE, SIZE, true)
+            try {
+                val ok = nativeRun(handle, input, out)
+                return if (ok && out.any { it.isFinite() && it != out[0] }) Plane(SIZE, SIZE, out.copyOf()) else null
+            } finally { if (input !== photo) input.recycle() }
+        }
+
+        @Synchronized
+        override fun close() { if (!closed) { closed = true; nativeRelease(handle) } }
+
+        companion object {
+            fun open(context: Context): Session? {
+                if (!available(context)) return null
+                val h = nativeLoad(context.assets, PARAM, BIN, true)
+                return if (h == 0L) null else Session(h)
+            }
         }
     }
 }

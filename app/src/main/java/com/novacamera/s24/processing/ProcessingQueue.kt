@@ -51,6 +51,8 @@ class Job(
     /** AUTO: ajuste de tom permitido (desligado = só a assinatura). */
     val autoTone: Boolean = true,
     val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
+    /** Retrato: intensidade escolhida antes da foto (a mesma da prévia). */
+    val portraitBlur: Float = 0.6f,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -177,7 +179,8 @@ object ProcessingQueue {
         executor.execute {
             synchronized(queued) { queued -= job }
             current = job
-            try { run(app, job) } finally { current = null }
+            started[job.id] = android.os.SystemClock.elapsedRealtime() to heat
+            try { run(app, job) } finally { current = null; started.remove(job.id) }
         }
     }
 
@@ -204,6 +207,7 @@ object ProcessingQueue {
         val session = Session(File(sessionsDir(context), "${job.id}"))
         session.dir.mkdirs()
         session.kind = job.kind
+        if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
         val orderedFrames = if (job.kind == JobKind.NIGHT && job.frames.size > 1) runCatching {
@@ -512,7 +516,13 @@ object ProcessingQueue {
         }.getOrNull()
     }
 
+    private val started = java.util.concurrent.ConcurrentHashMap<Long, Pair<Long, DeviceHeat?>>()
+
     private fun finish(job: Job, session: Session, enhanced: Uri?, original: Uri?, message: String?) {
+        started.remove(job.id)?.let { (t0, h0) ->
+            com.novacamera.s24.core.CostLog.add(com.novacamera.s24.core.CostLog.Entry(
+                job.kind.label, android.os.SystemClock.elapsedRealtime() - t0, h0, heat))
+        }
         post(JobProgress(job.id, job.kind, 1f, "Pronto", pending - 1, finished = true,
             enhancedUri = enhanced, originalUri = original, sessionId = if (enhanced != null) session.id else null, message = message))
     }

@@ -6,6 +6,22 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.10.0 — desfoque ao vivo no Retrato, assinatura com dados da captura, zoom confiável
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| Desfoque ao vivo no Retrato | Efeito OpenGL ES 2.0 na pré-visualização (CameraX `CameraEffect`): quadro → cópia 1/4 → desfoque gaussiano separável → composição com a máscara. Máscara dos **mesmos modelos** da foto final (MediaPipe multiclasse + Depth Anything V2 Small + `DepthPortrait.plan`) a partir de uma análise 640×480: pessoa até 10 Hz, profundidade ~1 Hz. A orientação textura × análise é **medida** na abertura (correlação nas quatro orientações), não presumida | `PreviewMaskCalibrationTest` (4), compilação, lint. **O efeito GL não roda no ambiente de testes** | Se a prévia desfoca o fundo (e não o assunto); fluidez; calor; diferença prévia × foto |
+| Régua de intensidade | Retrato: "Sem desfoque" … "Desfoque 100%" acima dos modos; muda a prévia na hora e a foto usa o mesmo valor (mesma escala de raio) | Compilação | Coerência prévia × foto |
+| Proteções | Erro de GL ⇒ efeito desligado e prévia normal (sem tela preta), aviso único; aquecimento moderado reduz a taxa e desliga a profundidade ao vivo; severo pausa o desfoque ao vivo com aviso; profundidade ao vivo pausa enquanto uma foto é processada; opção "Prévia do desfoque no Retrato" | Compilação | — |
+| Zoom ao reabrir | O zoom pedido logo após vincular podia ser recusado (câmera ainda fechada) — a barra mostrava 10x com a imagem em 5x. Agora é reaplicado quando a câmera abre; se o efetivo divergir, a barra mostra o efetivo e o diagnóstico registra | Compilação | Reabrir o app em 10x/5x/0,6x |
+| Assinatura com dados da captura | Opcional: distância focal equivalente, abertura, obturador e ISO lidos do EXIF da própria foto; campo ausente não aparece; nunca atribui a foto a outro aparelho | `CaptureInfoTest` (3) | Conferir os valores com o EXIF na galeria |
+| Retrato: borda das folhas | Borda firme 1–2 px para fora (sem o fio claro do fundo desfocado na beira das folhas) | `PortraitEdgeTest`: franja 0,23%, pessoa perdida 0,12%; foto da planta (local) | — |
+| Custo por foto | Diagnóstico: duração mediana/máxima por modo, variação de temperatura da bateria e estado térmico máximo | `CostLogTest` | Enviar a linha "Custo do processamento" depois de usar |
+
+Limites desta versão: a prévia ao vivo é uma aproximação em resolução reduzida (borda mais macia que a foto; o mapa de profundidade pode estar até ~1 s atrás quando a câmera se move). Desfoque computacional não é abertura óptica: a régua não muda a abertura da lente.
+
+**Fica para as próximas fases** (precisam de medição no aparelho antes de mexer): estabilização de vídeo com zoom, transições entre lentes e câmera frontal, Noturno/HDR/selfie comparados às referências, polimento de interface/tipografia, controles ao vivo nas teles (3x/5x/10x) além de EV e Pro já existentes.
+
 ## 0.9.6 — Retrato: o assunto é o objeto inteiro
 
 Teste do usuário (planta, sem pessoa) na 0.9.5: só uma fatia da planta ficou nítida, o resto da própria planta desfocou com corte duro no meio das folhas, e o desfoque máximo estava forte. Reproduzido localmente com o **mesmo modelo do APK** (extraído da release nova-test-28; sha256 do APK confere) sobre a foto do usuário: a profundidade estava correta (planta clara, separada de piso e parede); o erro era a regra do assunto — uma faixa fina em torno de um ponto de foco.

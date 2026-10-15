@@ -41,18 +41,30 @@ object PersonSegmenter {
         val faceCoverage: Float,
     )
 
+    private fun options() = ImageSegmenter.ImageSegmenterOptions.builder()
+        .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
+        .setRunningMode(RunningMode.IMAGE)
+        .setOutputConfidenceMasks(true)
+        .setOutputCategoryMask(false)
+        .build()
+
     fun segment(context: Context, photo: Bitmap): Result {
-        val scale = INPUT.toFloat() / max(photo.width, photo.height)
+        val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options())
+        try { return run(segmenter, photo, INPUT) } finally { segmenter.close() }
+    }
+
+    /** Segmentador mantido aberto para a prévia ao vivo do Retrato (uma chamada por quadro analisado). */
+    class Live(context: Context) : java.io.Closeable {
+        private val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options())
+        fun segment(frame: Bitmap): Result = run(segmenter, frame, 256)
+        override fun close() = segmenter.close()
+    }
+
+    private fun run(segmenter: ImageSegmenter, photo: Bitmap, input: Int): Result {
+        val scale = input.toFloat() / max(photo.width, photo.height)
         val small = if (scale < 1f)
             Bitmap.createScaledBitmap(photo, max(1, (photo.width * scale).toInt()), max(1, (photo.height * scale).toInt()), true)
         else photo
-        val options = ImageSegmenter.ImageSegmenterOptions.builder()
-            .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
-            .setRunningMode(RunningMode.IMAGE)
-            .setOutputConfidenceMasks(true)
-            .setOutputCategoryMask(false)
-            .build()
-        val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options)
         try {
             val masks = segmenter.segment(BitmapImageBuilder(small).build()).confidenceMasks().get()
             fun plane(i: Int): Plane {
@@ -70,7 +82,6 @@ object PersonSegmenter {
             val n = person.data.size.toFloat()
             return Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
         } finally {
-            segmenter.close()
             if (small !== photo) small.recycle()
         }
     }

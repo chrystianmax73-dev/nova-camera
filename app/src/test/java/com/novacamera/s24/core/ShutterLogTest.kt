@@ -27,3 +27,16 @@ class ShutterLogTest {
         ShutterLog.clear()
     }
 }
+
+class CostLogTest {
+    @Test fun reportsMedianAndHeatPerKind() {
+        CostLog.clear()
+        fun heat(t: Float, s: Int) = DeviceHeat(s, t, false, false, 80)
+        CostLog.add(CostLog.Entry("Noturno", 4000, heat(30f, 0), heat(31f, 1)))
+        CostLog.add(CostLog.Entry("Noturno", 6000, heat(31f, 1), heat(33f, 2)))
+        CostLog.add(CostLog.Entry("Noturno", 5000, heat(32f, 1), heat(33f, 1)))
+        val r = CostLog.report()
+        assertTrue(r, r.contains("Noturno (3): mediana 5.0 s, máx. 6.0 s, bateria +1.3 °C em média, estado térmico máx. 2"))
+        CostLog.clear()
+    }
+}
