@@ -136,7 +136,10 @@ jobs:
           d = snapshot_download("depth-anything/Depth-Anything-V2-Small-hf", local_dir=os.environ["RUNNER_TEMP"] + "/da2s",
                                 allow_patterns=["config.json", "model.safetensors", "LICENSE*", "README.md"])
           w = os.path.join(d, "model.safetensors")
-          print("sha256 dos pesos:", hashlib.sha256(open(w, "rb").read()).hexdigest())
+          digest = hashlib.sha256(open(w, "rb").read()).hexdigest()
+          print("sha256 dos pesos:", digest)
+          # Pesos fixados na primeira conversão aprovada (build 28); mudança no repositório = reprovar.
+          assert digest == "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70", "pesos diferentes dos validados"
           readme = open(os.path.join(d, "README.md"), encoding="utf-8").read().lower()
           assert "license: apache-2.0" in readme, "licença do modelo não é Apache-2.0"
           PY
