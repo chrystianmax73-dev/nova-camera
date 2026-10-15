@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.1 — Retrato em 3× congelava
+
+- Relato: no Retrato, ao tocar em 3×, a prévia trava. Causa provável: com luz suficiente a Nova
+  fixava a lente física da tele; no Retrato são 3 fluxos (prévia com efeito, foto e análise do
+  desfoque) e, numa lente física, o firmware pode não montar a sessão sem acusar erro.
+- Retrato passa a usar a câmera lógica (como o Vídeo): o aparelho troca para a tele no mesmo zoom.
+- Vigia geral: lente física fixa que abre mas para de entregar quadros por 3 s vira rota com falha
+  e a câmera reabre na lente automática, no mesmo zoom, com aviso.
+
 ## 0.14.0 — foco no escuro, detalhe na tele, prévia do Retrato econômica
 
 - Noturno: antes da rajada, foco real no centro (AF disparado, espera até 1,2 s) quando não há

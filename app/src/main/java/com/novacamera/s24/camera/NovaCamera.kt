@@ -353,7 +353,10 @@ class NovaCamera(
         val support = supportFor(mode)
         val (_, _, oemHdr) = oemFacts[isFront] ?: Triple(false, false, false)
 
-        if(mode.isVideo) lenses.firstOrNull { it.routeKey==currentLensId && it.physicalCameraId!=null }?.let { child ->
+        // Vídeo e Retrato na câmera lógica (o aparelho troca para a tele no mesmo zoom). No Retrato,
+        // prévia + foto + análise do desfoque numa lente física fixa podem não montar a sessão e a
+        // prévia congela (relatado no 3×).
+        if(mode.isVideo || mode == CaptureMode.RETRATO) lenses.firstOrNull { it.routeKey==currentLensId && it.physicalCameraId!=null }?.let { child ->
             val parent=lenses.firstOrNull { it.cameraId==child.cameraId && it.physicalCameraId==null }
             pendingZoomOnLens=child.intrinsic*zoomOnLens/(parent?.intrinsic ?: 1f)
             currentLensId=child.cameraId
@@ -584,6 +587,7 @@ class NovaCamera(
             previewOptics = null to null
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
+            if (pinned != null) watchPinnedStart(camera, currentLens)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
             camera = null
@@ -779,7 +783,8 @@ class NovaCamera(
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val st = latestStats
             val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
-            val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes && (!mode.isVideo || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
+            val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes &&
+                    ((!mode.isVideo && mode != CaptureMode.RETRATO) || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
                 preferNative = !mode.isVideo && !isFront && enoughLight)
             if (choice != null && choice.cameraId != currentLensId) {
                 currentLensId = choice.cameraId
@@ -847,6 +852,29 @@ class NovaCamera(
             }
         }
         state.observe(activity, obs)
+    }
+
+    /**
+     * Lente física fixa que abre mas não entrega quadros (sessão recusada em silêncio pelo
+     * firmware): a prévia ficaria congelada. Se os resultados de captura já chegavam antes e
+     * param por [PINNED_STALL_MS], a rota é marcada como falha e a câmera reabre na lente
+     * automática, no mesmo zoom.
+     */
+    private fun watchPinnedStart(cam: Camera?, lens: LensOption?) {
+        if (cam == null || lens?.physicalCameraId == null) return
+        val before = synchronized(telemetry) { telemetry.frames }
+        if (before <= 0) return // firmware sem resultados de captura: não há como medir
+        handler.postDelayed({
+            if (camera !== cam || released || paused || currentLens?.routeKey != lens.routeKey) return@postDelayed
+            val now = synchronized(telemetry) { telemetry.frames }
+            if (now > before) return@postDelayed
+            Log.w(TAG, "lente ${lens.routeKey} sem quadros; voltando à lente automática")
+            failedPhysicalRoutes.add(lens.routeKey)
+            pendingZoomOnLens = equivalent(zoomOnLens)
+            currentLensId = defaultLensId
+            listener.onMessage("Esta lente não respondeu; a câmera escolhe a lente automaticamente")
+            bind()
+        }, PINNED_STALL_MS)
     }
 
     private fun clampZoom(onLens: Float): Float? {
@@ -1837,6 +1865,7 @@ class NovaCamera(
 
     companion object {
         private const val NIGHT_FOCUS_WAIT_MS = 1200L
+        private const val PINNED_STALL_MS = 3000L
         private const val TAG = "NovaCamera"
         private const val AUTO_RETURN_MS = 20_000L
         private const val STALL_TIMEOUT_MS = 1_500L
