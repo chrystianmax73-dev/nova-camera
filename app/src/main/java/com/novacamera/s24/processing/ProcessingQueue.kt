@@ -10,7 +10,6 @@ import android.os.Process
 import android.util.Log
 import com.novacamera.s24.core.DeviceHeat
 import com.novacamera.s24.core.ThermalPolicy
-import com.novacamera.s24.core.imaging.DepthPortrait
 import com.novacamera.s24.core.imaging.Plane
 import com.novacamera.s24.core.imaging.Planes
 import com.novacamera.s24.core.imaging.oriented
@@ -294,27 +293,22 @@ object ProcessingQueue {
                 progress(0.68f, "Separando pessoa e fundo")
                 val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
                 val person = seg?.takeIf { it.coverage >= 0.03f }
-                // Profundidade estimada: desfoque proporcional à distância ao foco; sem pessoa, o
-                // assunto é o que está mais perto no centro (objeto, animal).
+                // Profundidade estimada: assunto inteiro (pessoa ou objeto do centro) nítido e desfoque
+                // crescendo com a distância até ele.
                 progress(0.69f, "Estimando profundidade")
                 val depth = runCatching { DepthEstimator.estimate(context, base) }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
-                    ?.let { DepthPortrait.normalize(Planes.resize(it, max(1, base.width / 8), max(1, base.height / 8))) }
-                val focus = depth?.let { DepthPortrait.focus(it, person?.person) }
-                when {
-                    person != null -> {
-                        session.saveMatte(Engine.portraitMatte(base, person.person, person.hair))
-                        session.hasPerson = true
-                    }
-                    depth != null && focus != null -> {
-                        session.saveMatte(Engine.portraitMatte(base, DepthPortrait.inFocus(depth, focus), null))
-                        session.hasPerson = true
-                        note = "Sem pessoa: foco no que está mais perto no centro (profundidade estimada)"
-                    }
-                    else -> note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
-                                   else "Nenhuma pessoa detectada: foto salva sem desfoque (o Retrato separa pessoas)"
+                val subject = runCatching { Engine.portraitSubject(base, person?.person, person?.hair, depth) }
+                    .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
+                if (subject != null) {
+                    session.saveMatte(subject.matte)
+                    subject.blur?.let { runCatching { session.saveBlurMap(it) } }
+                    session.hasPerson = true
+                    subject.note?.let { note = it }
+                } else {
+                    note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
+                           else "Nenhuma pessoa ou objeto destacado: foto salva sem desfoque"
                 }
-                if (session.hasPerson && depth != null && focus != null) runCatching { session.saveBlurMap(DepthPortrait.blurMap(depth, focus)) }
             }
             session.note = note
             session.save()

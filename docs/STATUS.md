@@ -6,6 +6,17 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.9.6 — Retrato: o assunto é o objeto inteiro
+
+Teste do usuário (planta, sem pessoa) na 0.9.5: só uma fatia da planta ficou nítida, o resto da própria planta desfocou com corte duro no meio das folhas, e o desfoque máximo estava forte. Reproduzido localmente com o **mesmo modelo do APK** (extraído da release nova-test-28; sha256 do APK confere) sobre a foto do usuário: a profundidade estava correta (planta clara, separada de piso e parede); o erro era a regra do assunto — uma faixa fina em torno de um ponto de foco.
+
+| Mudança | Antes | Agora | Validação |
+|---|---|---|---|
+| Assunto sem pessoa | Faixa de ±4–12% da profundidade em torno do ponto mais perto do centro | Objeto inteiro: perto × longe (Otsu); se o lado "perto" ligado ao centro passar de 45% do quadro (chão/parede junto), divide em três faixas e fica com a do centro; só regiões **conectadas** ao centro | Foto da planta: planta inteira nítida, parede, piso e portão desfocados (local). `objectIsWholeAndFloorIsNotSubject` |
+| Assunto com pessoa | Mediana da pessoa ± 4% | Faixa da pessoa (percentis 5–95 ± 4%) conectada a ela: o que ela segura na mesma faixa entra na máscara (borda firme pela cor) | Foto do controle: sem regressão (local). `personKeepsHeldObjectAtSameDepth` |
+| Desfoque | Dentro de uma faixa fina, nítido; fora, crescia rápido | Zero no assunto; o resto, no mínimo 30% e crescendo com a distância até a faixa do assunto; transições suavizadas | Local |
+| Intensidade máxima | raio 6 + 24×força | raio 5 + 18×força (≈ 25% menor no padrão) | — |
+
 ## 0.9.5 — Retrato com profundidade estimada (Depth Anything V2 Small)
 
 | Item | O que foi feito | Validação | No aparelho |

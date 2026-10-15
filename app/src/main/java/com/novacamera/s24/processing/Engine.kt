@@ -469,6 +469,26 @@ object Engine {
         return Portrait.noiseSigma(px, w, rows)
     }
 
+    /** Resultado do assunto do retrato: máscara final (resolução da máscara) e desfoque, se houver profundidade. */
+    class PortraitSubject(val matte: Plane, val blur: Plane?, val note: String?)
+
+    /**
+     * Decide o assunto do retrato a partir da segmentação de pessoa (pode faltar) e da profundidade
+     * estimada (pode faltar). Mesma lógica no app e na validação local. Null = sem assunto.
+     */
+    fun portraitSubject(bmp: Bitmap, person: Plane?, hair: Plane?, depthRaw: Plane?): PortraitSubject? {
+        val depth = depthRaw?.let { DepthPortraitNorm.normalized(it, max(1, bmp.width / 8), max(1, bmp.height / 8)) }
+        if (depth == null) return person?.let { PortraitSubject(portraitMatte(bmp, it, hair), null, null) }
+        val plan = com.novacamera.s24.core.imaging.DepthPortrait.plan(depth, person)
+        if (person == null && plan.subject.data.count { it >= 0.5f } < plan.subject.data.size * 0.01f) return null
+        val note = if (plan.fromPerson) null else "Sem pessoa: assunto pela profundidade estimada (o que está mais perto no centro)"
+        return PortraitSubject(portraitMatte(bmp, plan.subject, if (plan.fromPerson) hair else null), plan.blur, note)
+    }
+
+    private object DepthPortraitNorm {
+        fun normalized(raw: Plane, w: Int, h: Int) = com.novacamera.s24.core.imaging.DepthPortrait.normalize(Planes.resize(raw, w, h))
+    }
+
     /** RGB médio (0..1) por blocos factor×factor, lido em faixas. */
     fun rgb(bmp: Bitmap, factor: Int): Array<Plane> {
         val w = bmp.width; val h = bmp.height
@@ -507,7 +527,7 @@ object Engine {
         val protectedMatte = matte
         val smallMatte = Planes.resize(protectedMatte, sw, sh)
         val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (3 + 6 * s).toInt()))
-        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (6 + 24 * s).toInt()))
+        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (5 + 18 * s).toInt()))
         val dist = blurMap ?: Portrait.backgroundDistance(protectedMatte)
         val grain = noiseSigma(bmp)
         progress(0.4f)
