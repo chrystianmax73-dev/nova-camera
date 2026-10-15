@@ -25,7 +25,12 @@ jobs:
         with:
           gradle-version: '8.13'
       - name: Testes e lint antes de gerar a prévia
-        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+        run: |
+          if ! gradle --no-daemon :app:testDebugUnitTest :app:lintDebug; then
+            REPORT=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            if [[ -f "$REPORT" ]]; then cat "$REPORT"; fi
+            exit 1
+          fi
       - name: Resumo dos testes executados
         run: |
           python3 - <<'PYTEST'
