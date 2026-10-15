@@ -33,8 +33,8 @@ acesso a eles).
 
 | Item | Situação |
 |---|---|
-| Calibração de tom aprovada (0.11) | Restaurada na 0.13: o clareamento da 0.12 foi **retirado** (pedido: sem clareamento artificial / esbranquiçado) |
-| Quadros longos com ISO baixo pelo giroscópio (mesma luz do automático, menos ruído) | Feito na 0.12, mantido **sem o +0,5 EV** |
+| Tom do Noturno | Mantido como na 0.12 (decisão do usuário na 0.13.1) |
+| Quadros longos com ISO baixo pelo giroscópio (+0,5 EV) | Feito na 0.12, mantido |
 | Preto firme pelo canal escuro (evita aspecto lavado sem clarear) | Feito na 0.12, mantido |
 | Foco em pouca luz | **Depende do aparelho**: o AF contínuo do Samsung já é usado; forçar disparo de AF antes da rajada precisa de teste real (risco de atrasar o disparo) |
 | Textura de pele, barba e cabelo | Já existe: sem suavização de pele; fusão não borra textura. A IA (NAFNet) é opcional e só no Noturno/Retrato |

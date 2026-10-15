@@ -6,6 +6,12 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.13.1 — Noturno da 0.12 de volta
+
+- Pedido do usuário: manter o Noturno como na 0.12 (clareamento até mediana ~0,42 e +0,5 EV na
+  captura). A reversão da 0.13.0 foi desfeita; o restante da 0.13 (tele multiquadro, EnergyLog,
+  IA com bateria baixa) continua.
+
 ## 0.13.0 — Noturno natural, tele multiquadro, energia medida
 
 Auditoria completa em `docs/AUDITORIA-0.13.md`.

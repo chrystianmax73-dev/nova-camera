@@ -8,16 +8,13 @@ import kotlin.math.roundToLong
 
 /**
  * Exposição de cada quadro do Noturno. O automático da câmera prioriza tempo curto (ex.: 1/24 s com
- * ISO 6539); a fusão de quadros assim reduz pouco o ruído. Aqui a mesma luz ([BOOST_EV] = 0) é
+ * ISO 6539); a fusão de quadros assim reduz pouco o ruído. Aqui a mesma luz (+[BOOST_EV]) é
  * redistribuída em quadros mais longos com ISO mais baixo, até o limite de tremido estimado pelo
- * giroscópio: o brilho fica o mesmo; o ruído de leitura e o ganho caem antes da fusão.
+ * giroscópio: ruído de leitura e de disparo caem antes da fusão.
  */
 object NightExposure {
-    /**
-     * Sem clareamento: a mesma luz que o automático escolheu (calibração aprovada), só com menos
-     * ruído. Clarear a noite deixa a foto esbranquiçada e irreal.
-     */
-    const val BOOST_EV = 0f
+    /** A noite fica um pouco mais clara já na captura (luz real, não ganho digital). */
+    const val BOOST_EV = 0.5f
     /** Tremido tolerado por quadro, em pixels da foto de 12 MP (a fusão alinha o resto). */
     private const val BLUR_BUDGET_PX = 2f
     /** Quanto a OIS reduz o tremido da mão (conservador). */

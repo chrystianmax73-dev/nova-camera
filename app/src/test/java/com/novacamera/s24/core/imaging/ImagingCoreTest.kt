@@ -109,10 +109,10 @@ class ToneTest {
         val (out, params) = apply(dark, w, h, ToneIntent.NIGHT)
         val before = Planes.percentile(FloatArray(dark.size) { Px.luma(dark[it]) }, 0.5f)
         val after = Planes.percentile(FloatArray(out.size) { Px.luma(out[it]) }, 0.5f)
-        assertTrue(params.shadowLiftEv > 0.3f)
+        assertTrue("$params", params.shadowLiftEv + params.midLiftEv > 0.3f)
         assertTrue("mediana $before → $after", after > before * 1.3f)
-        // Atmosfera: não transforma noite em dia.
-        assertTrue(after < 0.45f)
+        // Mais claro, perto do Noturno da Samsung, mas não vira dia.
+        assertTrue("mediana $after", after < 0.55f)
     }
 
     @Test
