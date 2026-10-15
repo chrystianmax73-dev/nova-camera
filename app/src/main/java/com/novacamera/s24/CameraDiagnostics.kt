@@ -25,6 +25,7 @@ object CameraDiagnostics {
             appendLine("Aparelho: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
             appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
             appendLine(com.novacamera.s24.camera.NovaCamera.sensorReport)
+            appendLine(com.novacamera.s24.core.imaging.AdaptiveImaging.lastReport)
             appendLine(com.novacamera.s24.processing.NcnnDenoiser.report)
             if (extra.isNotBlank()) { appendLine(); append(extra.trimEnd()); appendLine() }
             val ids = runCatching { manager.cameraIdList.toList() }.getOrElse {

@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/reference-performance]
+    branches: [codex/nova-adaptive-imaging]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           PREVIOUS="$RUNNER_TEMP/previous-apk"
           mkdir -p "$PREVIOUS"
-          gh release download nova-test-11 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
+          gh release download nova-test-13 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
           OLD_APK="$(find "$PREVIOUS" -name '*.apk' -print -quit)"
           NEW_APK="app/build/outputs/apk/release/app-release.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"

@@ -114,7 +114,7 @@ class ToneMap(
     private val lnBlackEnd = ln(0.07f)
 
     /** Aplica a uma região [tile] (w×h) cuja origem na imagem cheia é (x0, y0). */
-    fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f) {
+    fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f, chromaProtection: Float = 0f) {
         if (params.isIdentity || strength <= 0f) return
         val s = strength.coerceIn(0f, 1f)
         val black = params.blackLevel * s
@@ -141,7 +141,8 @@ class ToneMap(
                 // Nunca estoura: se o canal mais forte passaria de 255, reduz o ganho (matiz preservada).
                 val peak = max(r, max(g, b))
                 if (peak * gain > 255f) gain = 255f / max(peak, 1f)
-                tile[i] = Px.argb((r * gain + 0.5f).toInt(), (g * gain + 0.5f).toInt(), (b * gain + 0.5f).toInt())
+                val baseline = Px.argb((r * gain + 0.5f).toInt(), (g * gain + 0.5f).toInt(), (b * gain + 0.5f).toInt())
+                tile[i] = if (chromaProtection > 0f) AdaptiveImaging.protect(c, baseline, chromaProtection) else baseline
             }
         }
     }
@@ -169,3 +170,4 @@ class ToneMap(
         }
     }
 }
+
