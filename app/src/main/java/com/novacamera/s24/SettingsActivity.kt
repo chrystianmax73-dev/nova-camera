@@ -106,6 +106,9 @@ class SettingsActivity : NovaScreen() {
         switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
             "Nunca é aplicada ao original.",
             { settings.signatureEnabled }, { settings.signatureEnabled = it })
+        switch("Dados da captura", "Distância focal equivalente, abertura, obturador e ISO gravados pela câmera " +
+            "nesta foto (ex.: 24 mm   f/1.7   1/120 s   ISO 50). Dado que a câmera não informa não aparece.",
+            { settings.signatureCaptureInfo }, { settings.signatureCaptureInfo = it })
         switch("Também nos vídeos", "Vídeo e Vídeo Pro (câmera lenta e timelapse não). No vídeo frontal espelhado a " +
             "assinatura não é aplicada, para não sair invertida.", { settings.signatureVideo }, { settings.signatureVideo = it })
         choice("Posição", null, SignaturePosition.entries.map { it.label }, { settings.signaturePosition.ordinal }) {

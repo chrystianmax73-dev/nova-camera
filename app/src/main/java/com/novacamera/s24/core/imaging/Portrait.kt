@@ -52,7 +52,8 @@ object Portrait {
         for (y in 0 until fh) for (x in 0 until fw) {
             val i = y * fw + x
             val a = q.data[i].coerceIn(0f, 1f)
-            val firm = smooth(0.35f, 0.65f, a)
+            // Borda firme um pouco para fora: sem o fio claro do fundo desfocado na beira de folhas e dedos.
+            val firm = smooth(0.25f, 0.55f, a)
             val hw = hairW?.sample((x + 0.5f) * sx - 0.5f, (y + 0.5f) * sy - 0.5f) ?: 0f
             out.data[i] = if (hw <= 0f) firm else firm + (smooth(0.08f, 0.55f, a) - firm) * hw
         }

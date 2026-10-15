@@ -20,12 +20,23 @@ data class SignatureStyle(
     /** 0.3..1 */
     val opacity: Float = 0.85f,
     val device: String = Signature.deviceName(),
+    /** Incluir a linha com os dados reais da captura (EXIF), quando a câmera os gravou. */
+    val captureInfo: Boolean = false,
+    /** Linha já resolvida do EXIF da foto; null = sem dados (vídeo, ou opção desligada). */
+    val details: String? = null,
 ) {
-    fun toMeta(): String = "${position.name};${size.name};$opacity;$device"
+    fun toMeta(): String = "${position.name};${size.name};$opacity;$device;$captureInfo"
+
+    /** Resolve a linha de dados a partir do EXIF desta foto (só se a opção estiver ligada). */
+    fun withExif(exif: Map<String, String>): SignatureStyle =
+        if (!captureInfo) this else copy(details = com.novacamera.s24.core.CaptureInfo.line(exif))
 
     companion object {
-        fun fromMeta(s: String?): SignatureStyle? = s?.split(';')?.takeIf { it.size == 4 }?.let {
-            runCatching { SignatureStyle(SignaturePosition.valueOf(it[0]), SignatureSize.valueOf(it[1]), it[2].toFloat(), it[3]) }.getOrNull()
+        fun fromMeta(s: String?): SignatureStyle? = s?.split(';')?.takeIf { it.size == 4 || it.size == 5 }?.let {
+            runCatching {
+                SignatureStyle(SignaturePosition.valueOf(it[0]), SignatureSize.valueOf(it[1]), it[2].toFloat(), it[3],
+                    it.getOrNull(4)?.toBoolean() ?: false)
+            }.getOrNull()
         }
     }
 }
@@ -69,8 +80,10 @@ object Signature {
             textSize = h * 0.62f; typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); letterSpacing = 0.06f
         }
         val (t1, t2) = text(style)
-        val w1 = brand.measureText(t1); val w2 = sub.measureText(t2)
-        val block = maxOf(w1, w2)
+        val t3 = style.details
+        val info = Paint(sub).apply { textSize = h * 0.55f; this.alpha = (alpha * 0.85f).roundToInt(); letterSpacing = 0.04f }
+        val w1 = brand.measureText(t1); val w2 = sub.measureText(t2); val w3 = t3?.let { info.measureText(it) } ?: 0f
+        val block = maxOf(w1, w2, w3)
         val left = when (style.position) {
             SignaturePosition.LEFT -> margin
             SignaturePosition.CENTER -> (width - block) / 2f
@@ -81,10 +94,13 @@ object Signature {
             SignaturePosition.CENTER -> (width - w) / 2f
             SignaturePosition.RIGHT -> left + block - w
         }
-        val baseline2 = height - margin
+        // Com dados da captura: marca, aparelho e a linha técnica, de cima para baixo.
+        val baseline3 = height - margin
+        val baseline2 = if (t3 != null) baseline3 - info.textSize * 1.45f else baseline3
         val baseline1 = baseline2 - sub.textSize * 1.35f
         canvas.drawText(t1, x(w1), baseline1, brand)
         canvas.drawText(t2, x(w2), baseline2, sub)
+        t3?.let { canvas.drawText(it, x(w3), baseline3, info) }
     }
 
     /**

@@ -619,6 +619,7 @@ class NovaCamera(
         zoomGate.reset()
         cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
         listener.onZoom(equivalent(zoomOnLens))
+        watchInitialZoom(cam)
         physicalLabels = LensCatalog.physicalLabels(cam.cameraInfo,referenceEquivalentMm)
         pinned?.let { listener.onActiveLens(lensLabel(it)) }
         synchronized(telemetry) {
@@ -785,6 +786,37 @@ class NovaCamera(
         if (mode.isVideo) zoomCurve.animateTo(zoomOnLens, target, SystemClock.uptimeMillis(), FOLLOW_SMOOTHING_MS)
         else zoomCurve.jumpTo(target)
         startZoomLoop()
+    }
+
+    /**
+     * Logo depois de vincular, a câmera ainda não está aberta e o CameraX recusa o zoom (o pedido
+     * acima pode se perder): a barra mostraria 10x com a imagem em 5x. Quando a câmera abre, o zoom
+     * pedido é reaplicado; se o efetivo ainda divergir, a barra passa a mostrar o efetivo — nunca
+     * um zoom que não está aplicado.
+     */
+    private fun watchInitialZoom(cam: androidx.camera.core.Camera) {
+        val state = cam.cameraInfo.cameraState
+        val obs = object : androidx.lifecycle.Observer<androidx.camera.core.CameraState> {
+            override fun onChanged(value: androidx.camera.core.CameraState) {
+                if (camera !== cam) { state.removeObserver(this); return }
+                if (value.type != androidx.camera.core.CameraState.Type.OPEN) return
+                state.removeObserver(this)
+                val wanted = cameraZoom(zoomOnLens)
+                cam.cameraControl.setZoomRatio(wanted).addListener({
+                    if (camera !== cam) return@addListener
+                    val actual = cam.cameraInfo.zoomState.value?.zoomRatio ?: return@addListener
+                    if (kotlin.math.abs(actual - wanted) > 0.02f * wanted) {
+                        synchronized(telemetry) { telemetry.log(SystemClock.uptimeMillis(), "zoom pedido $wanted, aplicado $actual") }
+                        val lens = currentLens
+                        val parent = lenses.firstOrNull { it.cameraId == lens?.cameraId && it.physicalCameraId == null }
+                        zoomOnLens = if (lens?.physicalCameraId != null) actual * (parent?.intrinsic ?: 1f) / lens.intrinsic else actual
+                        zoomTarget = zoomOnLens; zoomCurve.jumpTo(zoomOnLens)
+                        listener.onZoom(equivalent(zoomOnLens))
+                    }
+                }, main)
+            }
+        }
+        state.observe(activity, obs)
     }
 
     private fun clampZoom(onLens: Float): Float? {
@@ -1421,7 +1453,8 @@ class NovaCamera(
 
     private fun signatureStyle(): com.novacamera.s24.processing.SignatureStyle? =
         if (!settings.signatureEnabled) null else com.novacamera.s24.processing.SignatureStyle(
-            settings.signaturePosition, settings.signatureSize, settings.signatureOpacity)
+            settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
+            captureInfo = settings.signatureCaptureInfo)
 
     /** Sem exposição manual nem extensão: a compensação de EV realmente muda a exposição. */
     private fun aeAdjustable() = !manual.manualExposure && activeExtension == ExtensionMode.NONE

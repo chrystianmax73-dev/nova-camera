@@ -315,7 +315,7 @@ object ProcessingQueue {
 
             // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
             render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") }
-            job.signature?.let { Signature.draw(base, it) }
+            job.signature?.let { Signature.draw(base, it.withExif(session.exif)) }
             UltraHdr.attach(session, base)
             progress(0.96f, "Salvando")
             val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
@@ -403,7 +403,7 @@ object ProcessingQueue {
             }
             render(session, bmp, session.tone, session.blur, token) {}
             if (token.cancelled) throw CancelledException()
-            session.signature?.let { Signature.draw(bmp, it) }
+            session.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
             UltraHdr.attach(session, bmp)
             MediaWriter.write(context.contentResolver, uri, bmp, session.exif,
                 "Nova ${session.kind.label}" + if (session.note.isNotEmpty()) " · ${session.note}" else "")
@@ -464,7 +464,7 @@ object ProcessingQueue {
         if (!tone) session.tone = 0f
         session.save()
         if (tone) Engine.toneInPlace(bmp, plan, 1f, false, job.cancel) { post(JobProgress(job.id, job.kind, 0.2f + 0.7f * it, "Ajustando", pending)) }
-        job.signature?.let { Signature.draw(bmp, it) }
+        job.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
         if (job.cancel.cancelled) throw CancelledException()
         MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
         bmp.recycle()
@@ -493,7 +493,7 @@ object ProcessingQueue {
         session.tone=if(job.autoTone)1f else 0f
         if((plan.skip||!job.autoTone)&&job.signature==null){session.dir.deleteRecursively();finish(job,session,null,null,null);return}
         val output=File(session.dir,"final.tmp.jpg")
-        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature,job.cancel,session.exif) {
+        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature?.withExif(session.exif),job.cancel,session.exif) {
             post(JobProgress(job.id,job.kind,0.15f+0.8f*it,"Ajustando",pending))
         }
         if(ok) context.contentResolver.openOutputStream(target,"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } }
@@ -564,7 +564,7 @@ object ProcessingQueue {
                         session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
                     unrotated.recycle()
                     val output=File(session.dir,"reedit.tmp.jpg")
-                    check(JpegBands.process(session.base,output,plan,tone,session.signature,CancelToken(),session.exif){})
+                    check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif){})
                     app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
                     output.delete();session.tone=tone;session.save()
                     return@runCatching
@@ -573,7 +573,7 @@ object ProcessingQueue {
                     ?: error("base ausente")
                 session.tone = tone; session.blur = blur
                 render(session, bmp, tone, blur, CancelToken()) {}
-                session.signature?.let { Signature.draw(bmp, it) }
+                session.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
                 UltraHdr.attach(session, bmp)
                 val uri = session.enhancedUri ?: error("sem versão aprimorada")
                 MediaWriter.write(app.contentResolver, uri, bmp, session.exif, "Nova ${session.kind.label}")

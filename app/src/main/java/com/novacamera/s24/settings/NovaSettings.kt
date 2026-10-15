@@ -60,6 +60,8 @@ class NovaSettings(context: Context) {
     var signatureSize get() = enum("signature_size", com.novacamera.s24.processing.SignatureSize.MEDIUM); set(v) = put("signature_size", v.name)
     /** Também nos vídeos (Vídeo e Vídeo Pro; não no vídeo frontal espelhado). */
     var signatureVideo get() = bool("signature_video", true); set(v) = put("signature_video", v)
+    /** Linha com distância focal equivalente, abertura, obturador e ISO lidos do EXIF da foto. */
+    var signatureCaptureInfo get() = bool("signature_capture_info", false); set(v) = put("signature_capture_info", v)
     var signatureOpacity get() = int("signature_opacity", 85) / 100f; set(v) = put("signature_opacity", (v * 100).toInt())
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)
