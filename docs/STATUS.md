@@ -6,6 +6,14 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.3 — causa do travamento do Retrato: ZSL + análise ao vivo
+
+- Diagnóstico real (0.14.1, SM-S928B, Android 17): sessão RETRATO na câmera 0, lente física 5
+  (1×), **58 quadros e parou** — antes de qualquer zoom. O travamento é do Retrato, não do 3×.
+- No Retrato estavam ligados ao mesmo tempo: prévia (com efeito), foto, análise RGBA do desfoque ao
+  vivo e o fluxo de reprocessamento do ZSL. Correção: sem ZSL quando a análise ao vivo está ligada
+  (o Retrato usa o disparo normal, como antes da 0.9.2). O vigia da 0.14.2 continua como rede.
+
 ## 0.14.2 — Retrato em 3× ainda travava: vigia da prévia e registro
 
 - A 0.14.1 (câmera lógica no Retrato) não resolveu: a causa não é a lente física fixa.

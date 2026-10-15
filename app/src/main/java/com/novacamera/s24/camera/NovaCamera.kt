@@ -581,7 +581,11 @@ class NovaCamera(
             val burst = processingKind(support) == JobKind.NIGHT || processingKind(support) == JobKind.HDR
             // Foto de um quadro: disparo sem atraso (ZSL, quadro do buffer recente) quando a câmera
             // anuncia suporte; rajadas continuam com latência mínima, e RAW/extensões sem ZSL.
-            val zsl = !burst && settings.instantShutter && wantedExtension == ExtensionMode.NONE &&
+            // ZSL acrescenta um fluxo de reprocessamento. Somado à análise do desfoque ao vivo do
+            // Retrato (prévia + foto + análise + ZSL), a câmera do S24 Ultra para de entregar quadros
+            // ~2 s depois de abrir (diagnóstico 0.14.1: 58 quadros e a prévia congela).
+            val liveAnalysis = mode == CaptureMode.RETRATO && settings.portraitLivePreview && !liveBlurBlocked
+            val zsl = !burst && !liveAnalysis && settings.instantShutter && wantedExtension == ExtensionMode.NONE &&
                 !(mode == CaptureMode.PRO && settings.raw) && runCatching { info.isZslSupported }.getOrDefault(false)
             val captureMode = when {
                 burst -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
