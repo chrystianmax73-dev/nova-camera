@@ -65,6 +65,8 @@ jobs:
           from PIL import Image
           from pathlib import Path
           import os
+          # Somente os JPEGs sintéticos criados acima, com dimensões conhecidas.
+          Image.MAX_IMAGE_PIXELS = 240_000_000
           root = Path(os.environ['RUNNER_TEMP'])
           a=Image.open(root/'large.jpg'); b=Image.open(root/'final.jpg')
           assert a.size==b.size==(16320,12240)
