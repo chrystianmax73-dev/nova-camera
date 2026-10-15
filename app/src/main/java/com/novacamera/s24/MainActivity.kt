@@ -684,7 +684,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun cycleHdr() {
         val oem = cameraState?.oemHdrAvailable == true
         settings.hdr = when (settings.hdr) {
-            HdrOption.OFF -> HdrOption.NOVA
+            HdrOption.AUTO -> HdrOption.NOVA
+            HdrOption.OFF -> HdrOption.AUTO
             HdrOption.NOVA -> if (oem) HdrOption.OEM else HdrOption.OFF
             HdrOption.OEM -> HdrOption.OFF
         }
@@ -692,6 +693,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         showTransition()
         camera.bind()
         hint.show(when (settings.hdr) {
+            HdrOption.AUTO -> "Foto adaptativa: HDR e redução de ruído quando a cena precisa"
             HdrOption.OFF -> "HDR desligado"
             HdrOption.NOVA -> "HDR Nova: 3 exposições combinadas no aparelho"
             HdrOption.OEM -> "HDR do fabricante"
@@ -730,8 +732,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun cyclePhotoResolution() {
         val s = cameraState ?: return
         val blocked = s.photoSizeBlocked.joinToString { it.label }
-        val blockedNote = if (blocked.isNotEmpty()) "\n$blocked: bloqueado pelo fabricante para outros apps" else ""
-        if (s.processing != null) return hint.show("${s.mode.label} usa a resolução padrão (processamento multiquadro)$blockedNote", 3000)
+        val blockedNote = if (blocked.isNotEmpty()) "\n$blocked: modo máximo exige captura nativa JPEG em Foto 4:3" else ""
+        if (s.processing != null && s.mode != CaptureMode.FOTO) return hint.show("${s.mode.label} usa a resolução padrão (processamento multiquadro)$blockedNote", 3000)
         val options = s.photoSizeOptions
         if (options.size <= 1) {
             return hint.show("Esta lente libera só ${options.firstOrNull()?.label ?: s.photoResolution?.let { mp(it) } ?: "uma resolução"} a outros apps$blockedNote", 3500)
@@ -785,11 +787,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: "${s?.videoFps ?: 30} fps"
         hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
         hdrChip.active = s?.hdr != null && s.hdr != HdrOption.OFF
-        hdrChip.text = if (s?.hdr == HdrOption.OEM) "HDR·S" else "HDR"
+        hdrChip.text = when(s?.hdr) { HdrOption.AUTO -> "AUTO"; HdrOption.OEM -> "HDR·S"; else -> "HDR" }
         val res = s?.photoResolution
         // Sempre visível nos modos de foto: mostra a resolução real que será gravada nesta lente.
         resChip.visibility = if (!video && photoCapable && res != null) View.VISIBLE else View.GONE
         resChip.text = res?.let(::mp) ?: ""
+        resChip.contentDescription = resChip.text.toString() + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
@@ -895,7 +898,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             return
         }
         // O ajuste automático da FOTO é rápido e silencioso: sem selo de progresso.
-        if (auto) return
+        if (auto || p.kind==JobKind.PHOTO) return
         procChip.text = "${p.kind.label} · ${p.stage} ${Math.round(p.fraction * 100)}%  ✕"
         procChip.contentDescription = "Processando ${p.kind.label}, ${Math.round(p.fraction * 100)} por cento. Toque para cancelar"
         procChip.visibility = View.VISIBLE

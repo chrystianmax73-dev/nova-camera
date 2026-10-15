@@ -66,7 +66,7 @@ data class CameraCapabilities(
 object LensCatalog {
     /** Distância focal equivalente em 35 mm (diagonal), a partir da focal e do tamanho físico do sensor. */
     fun equivalentFocal(focalMm: Float?, sensor: SizeF?): Float? {
-        if (focalMm == null || sensor == null || sensor.width <= 0f) return null
+        if (focalMm == null || !focalMm.isFinite() || focalMm<=0f || sensor == null || sensor.width<=0f || sensor.height<=0f) return null
         val diag = sqrt(sensor.width * sensor.width + sensor.height * sensor.height)
         return focalMm * 43.27f / diag
     }
@@ -97,12 +97,12 @@ object LensCatalog {
      * (ex.: "Ultra-angular", "Principal", "Tele 3×", "Tele 5×").
      */
     @OptIn(ExperimentalCamera2Interop::class)
-    fun physicalLabels(info: CameraInfo): Map<String, String> {
-        val reference = equivalentFocal(info) ?: return emptyMap()
+    fun physicalLabels(info: CameraInfo, referenceOverride: Float? = null): Map<String, String> {
+        val reference = referenceOverride ?: equivalentFocal(info) ?: return emptyMap()
         return runCatching { info.physicalCameraInfos }.getOrDefault(emptySet()).mapNotNull { p ->
             val id = Camera2CameraInfo.from(p).cameraId
             val eq = equivalentFocal(p) ?: return@mapNotNull null
-            id to lensName(eq / reference)
+            id to (lensName(eq / reference) + " · ${Math.round(eq)} mm eq.")
         }.toMap()
     }
 
@@ -113,16 +113,31 @@ object LensCatalog {
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
-    fun lenses(infos: List<CameraInfo>, defaultInfo: CameraInfo?): List<LensOption> {
-        val reference = defaultInfo?.let(::equivalentFocal)
-        return infos.map { info ->
-            val eq = equivalentFocal(info)
-            val intrinsic = if (eq != null && reference != null && reference > 0f) eq / reference else 1f
+    fun lenses(infos: List<CameraInfo>, defaultInfo: CameraInfo?, referenceOverride: Float? = null): List<LensOption> {
+        val defaultId=defaultInfo?.let { Camera2CameraInfo.from(it).cameraId }
+        val reference = referenceOverride ?: defaultInfo?.let(::equivalentFocal)
+        return infos.flatMap { info ->
+            val id=Camera2CameraInfo.from(info).cameraId
+            val eq = if(id==defaultId && referenceOverride!=null)referenceOverride else equivalentFocal(info)
+            val intrinsic = if(id==defaultId)1f else if (eq != null && reference != null && reference > 0f) eq / reference else 1f
             val (lo, hi) = zoomRange(info)
             val c = Camera2CameraInfo.from(info)
             val logical = runCatching { c.getCameraCharacteristic(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
                 ?.contains(CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) == true }.getOrDefault(false)
-            LensOption(c.cameraId, intrinsic, lo, hi, logical)
+            val focal = c.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull()
+            val parent = LensOption(c.cameraId, intrinsic, lo, hi, logical, focalMm=focal, equivalentMm=eq)
+            val physical = if (!logical) emptyList() else runCatching { info.physicalCameraInfos.toList() }.getOrDefault(emptyList())
+                .mapNotNull { child ->
+                    val childEq = equivalentFocal(child) ?: return@mapNotNull null
+                    if (reference == null || reference <= 0f) return@mapNotNull null
+                    val cc = Camera2CameraInfo.from(child)
+                    val f = cc.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull()
+                    val maxDigital = cc.getCameraCharacteristic(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+                    val native=childEq/reference
+                    if(!parent.covers(native))return@mapNotNull null
+                    LensOption(c.cameraId,native,1f,minOf(maxDigital,parent.effectiveMax/native).coerceAtLeast(1f),false,cc.cameraId,f,childEq)
+                }
+            listOf(parent) + physical
         }
     }
 }
@@ -150,7 +165,7 @@ class JpegSizeLists(
                 ultra = key(android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.contains(16) == true
                 val maxMap = key(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
                 val known = (regular + high).toSet()
-                maxOnly = runCatching { conv(maxMap?.getOutputSizes(jpeg)) + conv(maxMap?.getOutputSizes(android.graphics.ImageFormat.RAW_SENSOR)) }
+                maxOnly = runCatching { conv(maxMap?.getOutputSizes(jpeg)) }
                     .getOrDefault(emptyList()).filter { it !in known }
             }
             return JpegSizeLists(regular, high, maxOnly, ultra)

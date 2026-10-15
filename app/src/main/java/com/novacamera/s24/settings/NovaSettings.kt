@@ -6,7 +6,7 @@ import com.novacamera.s24.core.CaptureMode
 
 enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), RATIO_1_1("1:1"), FULL("Tela") }
 /** HDR da FOTO: desligado, fusão própria de exposições (Nova) ou extensão do fabricante. */
-enum class HdrOption(val label: String) { OFF("Desligado"), NOVA("Automático (Nova)"), OEM("Fabricante") }
+enum class HdrOption(val label: String) { AUTO("Adaptativo"), OFF("Desligado"), NOVA("Automático (Nova)"), OEM("Fabricante") }
 enum class FlashOption(val label: String) { OFF("Desligado"), AUTO("Automático"), ON("Ligado") }
 enum class VideoQualityOption(val label: String) { AUTO("Automática"), MAX("Máxima"), UHD("4K UHD"), FHD("Full HD"), HD("HD") }
 
@@ -31,7 +31,7 @@ class NovaSettings(context: Context) {
     var aspect get() = enum("aspect", AspectRatioOption.RATIO_4_3); set(v) = put("aspect", v.name)
     var flash get() = enum("flash", FlashOption.OFF); set(v) = put("flash", v.name)
     var timerSeconds get() = int("timer", 0); set(v) = put("timer", v)
-    var hdr get() = enum("hdr", if (bool("oem_hdr", false)) HdrOption.OEM else HdrOption.OFF); set(v) = put("hdr", v.name)
+    var hdr get() = enum("hdr", if (bool("oem_hdr", false)) HdrOption.OEM else HdrOption.AUTO); set(v) = put("hdr", v.name)
     /** Megapixels escolhidos por câmera (id do Camera2); ausente = resolução padrão. */
     fun photoPixels(cameraId: String?): Long? = prefs.getLong("photo_px_$cameraId", -1L).takeIf { it > 0 }
     fun setPhotoPixels(cameraId: String?, pixels: Long?) =

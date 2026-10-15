@@ -103,6 +103,9 @@ class ZoomTelemetry(private val capacity: Int = 120) {
 
     fun setExpectedFps(fps: Int) { if (fps > 0) expectedFrameNs = 1_000_000_000L / fps }
 
+    /** Uma pausa/reconfiguração não é um intervalo de quadros perdidos do sensor. */
+    fun breakStream() { lastFrameNs = 0L; commandAtMs = 0L }
+
     /**
      * Um resultado de captura. [zoomRatio] = CONTROL_ZOOM_RATIO aplicado (API 30+), [physicalId] = lente física ativa.
      * Retorna true quando a lente física mudou (para avisar a interface).
