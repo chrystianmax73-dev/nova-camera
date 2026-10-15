@@ -539,8 +539,8 @@ class NovaCamera(
             imageCapture?.takeUnless { nativePhotoSelected }?.let { useCases += it }
             videoCapture?.let { useCases += it }
             analysis?.let { useCases += it }
-            portraitPreviewFor(support, wide, pinned)?.let { (effect, a) ->
-                portraitEffect = effect; portraitAnalysis = a; useCases += a
+            portraitPreviewFor(support, wide, pinned, wantedExtension)?.let { (effect, a) ->
+                portraitEffect = effect; portraitAnalysis = a; a?.let { useCases += it }
             } ?: listener.onPortraitPreview(null)
             val retired = videoEffect
             videoEffect = null
@@ -594,7 +594,7 @@ class NovaCamera(
                     failedPhysicalRoutes.add(currentLens!!.routeKey)
                     pendingZoomOnLens = equivalent(zoomOnLens)
                     currentLensId = defaultLensId
-                    listener.onMessage("Esta saída física não foi aceita; usando a seleção automática de lentes")
+                    listener.onMessage("Esta lente não pôde ser usada diretamente; a câmera escolhe a lente automaticamente")
                 }
                 currentLensId != defaultLensId -> {
                     currentLensId = defaultLensId
@@ -794,7 +794,10 @@ class NovaCamera(
 
     private fun followTarget(target: Float) {
         zoomTarget = target
-        if (mode.isVideo) zoomCurve.animateTo(zoomOnLens, target, SystemClock.uptimeMillis(), FOLLOW_SMOOTHING_MS)
+        // No vídeo, o mesmo tremor do dedo vira um salto de enquadramento maior quanto maior a
+        // ampliação: a suavização cresce com ela (110 ms em 1x, ~200 ms em 10x).
+        if (mode.isVideo) zoomCurve.animateTo(zoomOnLens, target, SystemClock.uptimeMillis(),
+            com.novacamera.s24.core.ZoomCurve.followSmoothingMs(FOLLOW_SMOOTHING_MS, equivalent(target)))
         else zoomCurve.jumpTo(target)
         startZoomLoop()
     }
@@ -1179,7 +1182,7 @@ class NovaCamera(
             override fun onError(exception: ImageCaptureException) {
                 Log.e(TAG, "Falha na foto", exception)
                 listener.onPhotoSaved(null)
-                listener.onMessage("A foto não foi salva (${exception.imageCaptureError})")
+                listener.onMessage("A foto não foi salva (erro ${exception.imageCaptureError})")
             }
         })
     }
@@ -1188,7 +1191,7 @@ class NovaCamera(
     private fun captureNativePhoto() {
         val target=nativeTarget ?: return
         val cam=camera ?: return
-        if(!ProcessingQueue.canAccept())return listener.onMessage("Aguarde o processamento anterior")
+        if(!ProcessingQueue.canAccept())return listener.onMessage("Aguarde: processando as fotos anteriores")
         if((heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE)return listener.onMessage("Aguarde o aparelho esfriar para alta resolução")
         val id=Camera2CameraInfo.from(cam.cameraInfo).cameraId
         val c=activity.getSystemService(android.hardware.camera2.CameraManager::class.java).getCameraCharacteristics(id)
@@ -1206,7 +1209,8 @@ class NovaCamera(
                 nativeRun=null
                 if(!paused&&!released){
                     settings.setPhotoPixels(currentLensKey(),null);bind()
-                    listener.onMessage("${target.label} não foi aceita pelo firmware: ${error ?: "sessão indisponível"}. Capturando na resolução padrão")
+                    Log.w(TAG, "alta resolução recusada: ${error ?: "sessão indisponível"}")
+                    listener.onMessage("${target.label} indisponível agora; capturando na resolução padrão")
                     if(imageCapture!=null)capturePhoto() else listener.onPhotoSaved(null)
                 }
             } else io.execute {
@@ -1224,7 +1228,7 @@ class NovaCamera(
                     nativeRun=null
                     if(!paused&&!released)bind()
                     listener.onPhotoSaved(uri)
-                    if(uri!=null)enhanceIfEnabled(uri,facts) else listener.onMessage("A fotografia nativa não foi salva")
+                    if(uri!=null)enhanceIfEnabled(uri,facts) else listener.onMessage("A foto em alta resolução não foi salva")
                 }
             }
         }
@@ -1254,7 +1258,7 @@ class NovaCamera(
                 Log.e(TAG, "Falha na foto RAW+JPEG", exception)
                 pending = -1
                 listener.onPhotoSaved(null)
-                listener.onMessage("A foto RAW não foi salva (${exception.imageCaptureError})")
+                listener.onMessage("A foto RAW não foi salva (erro ${exception.imageCaptureError})")
             }
         })
     }
@@ -1282,7 +1286,7 @@ class NovaCamera(
             }
             override fun onError(exception: ImageCaptureException) {
                 Log.e(TAG, "Falha na selfie", exception)
-                handler.post { listener.onPhotoSaved(null); listener.onMessage("A selfie não foi salva (${exception.imageCaptureError})") }
+                handler.post { listener.onPhotoSaved(null); listener.onMessage("A selfie não foi salva (erro ${exception.imageCaptureError})") }
             }
         })
     }
@@ -1296,7 +1300,7 @@ class NovaCamera(
      */
     private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind, shot: ShotTimer? = null) {
         var kind=initialKind
-        if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: ainda processando as fotos anteriores")
+        if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: processando as fotos anteriores")
         val cam = camera ?: return
         val h = heat
         var captureFacts = previewImagingFacts()
@@ -1331,7 +1335,7 @@ class NovaCamera(
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
-                portraitBlur = settings.portraitBlur))
+                portraitBlur = settings.portraitBlur, style = currentStyle()))
             listener.onProcessingQueued(kind)
         }
 
@@ -1443,6 +1447,19 @@ class NovaCamera(
     /** GL falhou nesta execução do app: sem nova tentativa até reabrir (a foto final não muda). */
     private var portraitPreviewFailed = false
 
+    /** Tom e temperatura ao vivo: a prévia muda na hora e a foto usa a mesma conta. */
+    fun setStyle(style: com.novacamera.s24.core.imaging.PhotoStyle) {
+        settings.styleTone = style.tone; settings.styleWarmth = style.warmth
+        portraitEffect?.style = style
+    }
+
+    /** O estilo vale nesta sessão (efeito ativo e modo que grava pelo motor Nova). */
+    val styleActive get() = portraitEffect != null
+
+    private fun currentStyle() =
+        if (portraitEffect != null) com.novacamera.s24.core.imaging.PhotoStyle(settings.styleTone, settings.styleWarmth)
+        else com.novacamera.s24.core.imaging.PhotoStyle()
+
     /** Intensidade do desfoque (0..1): a prévia muda na hora e a foto usa o mesmo valor. */
     fun setPortraitBlur(v: Float) {
         settings.portraitBlur = v.coerceIn(0f, 1f)
@@ -1456,16 +1473,30 @@ class NovaCamera(
         an?.let { portraitExecutor.execute { it.close() } }
     }
 
-    /** Use cases da prévia ao vivo do Retrato, se esta sessão pode tê-la. */
-    private fun portraitPreviewFor(support: ModeSupport, wide: Boolean, pinned: String?): Pair<PortraitPreviewEffect, ImageAnalysis>? {
-        if (mode != CaptureMode.RETRATO || processingKind(support) != JobKind.PORTRAIT || !settings.portraitLivePreview || portraitPreviewFailed) return null
+    /**
+     * Efeito de pré-visualização desta sessão: estilo ao vivo nos modos de foto do motor Nova (todas
+     * as lentes) e, no Retrato, também o desfoque com a máscara. Extensões do fabricante não aceitam
+     * efeitos — nelas não há estilo ao vivo (e a foto também não recebe estilo).
+     */
+    private fun portraitPreviewFor(support: ModeSupport, wide: Boolean, pinned: String?, extension: Int): Pair<PortraitPreviewEffect, ImageAnalysis?>? {
+        if (portraitPreviewFailed || extension != ExtensionMode.NONE || !support.canCapture) return null
+        val portrait = mode == CaptureMode.RETRATO && processingKind(support) == JobKind.PORTRAIT && settings.portraitLivePreview
+        val styleMode = settings.liveControls && (mode == CaptureMode.FOTO ||
+            (mode in listOf(CaptureMode.RETRATO, CaptureMode.NOITE, CaptureMode.FOOD) && processingKind(support) != null))
+        if (!portrait && !styleMode) return null
         val effect = PortraitPreviewEffect.create { e ->
             Log.w(TAG, "prévia do retrato desligada", e)
             portraitPreviewFailed = true
             listener.onMessage("Prévia do desfoque indisponível neste aparelho; a foto continua com o desfoque")
             listener.onPortraitPreview(null)
             handler.post { bind() }
-        }.apply { strength = settings.portraitBlur }
+        }.apply {
+            strength = settings.portraitBlur
+            blurEnabled = portrait
+            style = if (styleMode) com.novacamera.s24.core.imaging.PhotoStyle(settings.styleTone, settings.styleWarmth)
+                    else com.novacamera.s24.core.imaging.PhotoStyle()
+        }
+        if (!portrait) return effect to null
         // Mesma proporção da prévia: os dois buffers cobrem o mesmo campo do sensor.
         val ab = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
@@ -1527,7 +1558,8 @@ class NovaCamera(
      */
     private fun enhanceIfEnabled(uri: android.net.Uri, captureFacts: com.novacamera.s24.core.imaging.ImagingFacts? = null) {
         val sig = signatureStyle()
-        if ((!settings.autoProcess && sig == null) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
+        val style = currentStyle()
+        if ((!settings.autoProcess && sig == null && style.neutral) || mode != CaptureMode.FOTO || !ProcessingQueue.canAccept()) return
         val zoom = equivalent(zoomOnLens)
         val facts = captureFacts ?: previewImagingFacts()
         io.execute {
@@ -1536,7 +1568,7 @@ class NovaCamera(
                 androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees
             }.getOrDefault(0)
             val job = Job(JobKind.AUTO, listOf(CapturedFrame(bytes, rotation, null)), mirror = false, zoom = zoom,
-                sourceUri = uri, signature = sig, autoTone = settings.autoProcess, imagingFacts = facts)
+                sourceUri = uri, signature = sig, autoTone = settings.autoProcess, imagingFacts = facts, style = style)
             handler.post { ProcessingQueue.submit(activity, job) }
         }
     }

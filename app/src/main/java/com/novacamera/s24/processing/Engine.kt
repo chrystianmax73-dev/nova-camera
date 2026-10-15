@@ -489,6 +489,17 @@ object Engine {
         fun normalized(raw: Plane, w: Int, h: Int) = com.novacamera.s24.core.imaging.DepthPortrait.normalize(Planes.resize(raw, w, h))
     }
 
+    /** Estilo ao vivo (tom/temperatura) na imagem pronta, em blocos. */
+    fun styleInPlace(bmp: Bitmap, style: com.novacamera.s24.core.imaging.PhotoStyle, cancel: CancelToken) {
+        if (style.neutral) return
+        tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
+            if (cancel.cancelled) throw CancelledException()
+            val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
+            style.applyTile(buf)
+            bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
+        }
+    }
+
     /** RGB médio (0..1) por blocos factor×factor, lido em faixas. */
     fun rgb(bmp: Bitmap, factor: Int): Array<Plane> {
         val w = bmp.width; val h = bmp.height

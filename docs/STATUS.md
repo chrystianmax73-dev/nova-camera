@@ -6,6 +6,20 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.11.0 — controles criativos ao vivo (prévia = foto)
+
+| Item | O que foi feito | Validação | No aparelho |
+|---|---|---|---|
+| Faixa de controles ao vivo | Acima dos modos: **Desfoque** (Retrato), **Exposição**, **Tom**, **Temperatura**. Toque abre a régua, outro toque fecha, toque longo volta ao neutro; o chip mostra o valor. Vale em qualquer lente (0,6x a 10x) nos modos Foto, Retrato, Noturno e Food do motor Nova | Compilação/lint | Fluidez e leitura dos chips |
+| Tom e temperatura | `PhotoStyle`: a **mesma conta** no shader da prévia e em toda foto gravada (Foto comum, alta resolução em faixas, Noturno, HDR, Retrato, Food, reedição e refino da IA), sempre depois do restante do processamento — a mesma ordem da prévia. Tom: curva monótona na luminância (matiz preservado); temperatura: ganhos de balanço com brilho mantido. A descrição da foto registra o estilo | `PhotoStyleTest` (5): neutro = identidade, curva monótona, cinza continua cinza, temperatura mantém o brilho | Prévia × foto lado a lado |
+| Extensões do fabricante | Não aceitam efeitos de prévia: nelas a faixa mostra só Exposição e a foto não recebe estilo (nada de prévia diferente da foto) | Compilação | — |
+| Zoom no vídeo | Suavização do zoom que segue o dedo cresce com a ampliação (110 ms em 1x, ~200 ms em 10x): o tremor do dedo não vira salto de enquadramento na tele | `ZoomFollowSmoothingTest` | Gravar com zoom em 5x/10x |
+| Textos | Mensagens técnicas reescritas (alta resolução recusada, lente direta, códigos de erro), "Em desenvolvimento" removido, licenças completas (Depth Anything V2 Small, libjpeg-turbo) | — | — |
+
+Já existentes e mantidos: estabilização da prévia/vídeo pela API pública (`setPreviewStabilizationEnabled` — mesmo EIS na tela e no arquivo — ou do vídeo) e OIS explícita; transição de lente/câmera com imagem congelada até o primeiro quadro real.
+
+Noturno, HDR e selfie **comparados às referências**: as 10 referências são de outras cenas e aparelhos; comparação útil exige pares Nova × Samsung da mesma cena. Sem esses pares, mudar a curva do Noturno ou da pele seria ajuste no escuro.
+
 ## 0.10.0 — desfoque ao vivo no Retrato, assinatura com dados da captura, zoom confiável
 
 | Item | O que foi feito | Validação | No aparelho |

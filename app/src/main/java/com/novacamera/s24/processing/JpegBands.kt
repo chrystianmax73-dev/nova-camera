@@ -18,7 +18,8 @@ object JpegBands {
     private external fun close(handle: Long, complete: Boolean): Boolean
 
     fun process(input: File, output: File, plan: Adaptive.Plan, intensity: Float,
-        signature: SignatureStyle?, cancel: CancelToken, tags: Map<String,String>, progress: (Float)->Unit): Boolean {
+        signature: SignatureStyle?, cancel: CancelToken, tags: Map<String,String>,
+        style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(), progress: (Float)->Unit): Boolean {
         if(!available)return false
         val handle=open(input.path,output.path)
         if(handle==0L){output.delete();return false}
@@ -37,6 +38,7 @@ object JpegBands {
                 check(android.os.SystemClock.elapsedRealtime()<deadline) { "Orçamento de processamento excedido" }
                 val count=read(handle,pixels,minOf(rows,h-y));check(count>0)
                 if(!plan.skip) tone.applyTile(pixels,w,count,0,y,plan.strength*intensity,plan.imaging?.protection ?: 0f)
+                if(!style.neutral) for(i in 0 until w*count) pixels[i]=style.apply(pixels[i])
                 if(signature!=null) {
                     val strip=Bitmap.createBitmap(w,count,Bitmap.Config.ARGB_8888).apply { setPixels(pixels,0,w,0,0,w,count) }
                     try {

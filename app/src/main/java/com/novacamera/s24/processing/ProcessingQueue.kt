@@ -53,6 +53,8 @@ class Job(
     val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
     /** Retrato: intensidade escolhida antes da foto (a mesma da prévia). */
     val portraitBlur: Float = 0.6f,
+    /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
+    val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -102,6 +104,9 @@ class Session(val dir: File) {
     var note: String
         get() = meta.getProperty("note", "")
         set(v) { meta.setProperty("note", v) }
+    var style: com.novacamera.s24.core.imaging.PhotoStyle
+        get() = com.novacamera.s24.core.imaging.PhotoStyle.fromMeta(meta.getProperty("style"))
+        set(v) { meta.setProperty("style", v.toMeta()) }
     var zoom: Float
         get() = meta.getProperty("zoom", "1").toFloat()
         set(v) { meta.setProperty("zoom", v.toString()) }
@@ -207,6 +212,7 @@ object ProcessingQueue {
         val session = Session(File(sessionsDir(context), "${job.id}"))
         session.dir.mkdirs()
         session.kind = job.kind
+        session.style = job.style
         if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
@@ -453,7 +459,7 @@ object ProcessingQueue {
         session.meta.setProperty("nai.enabled", "true")
         val plan = Engine.planAdaptive(bmp, job.zoom, facts)
         val tone = job.autoTone && !plan.skip
-        if (!tone && job.signature == null) {
+        if (!tone && job.signature == null && job.style.neutral) {
             bmp.recycle()
             session.dir.deleteRecursively()
             return finish(job, session, null, null, null)
@@ -464,10 +470,12 @@ object ProcessingQueue {
         val originalUri = if (keepOriginals && tone)
             MediaWriter.insertBytes(resolver, frame.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS) else null
         session.originalUri = originalUri
-        session.note = if (tone) plan.reason else "Só assinatura (ajuste automático desligado)"
+        session.note = listOfNotNull(if (tone) plan.reason else if (job.signature != null) "Só assinatura (ajuste automático desligado)" else null,
+            job.style.label()).joinToString(" · ")
         if (!tone) session.tone = 0f
         session.save()
         if (tone) Engine.toneInPlace(bmp, plan, 1f, false, job.cancel) { post(JobProgress(job.id, job.kind, 0.2f + 0.7f * it, "Ajustando", pending)) }
+        Engine.styleInPlace(bmp, job.style, job.cancel)
         job.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
         if (job.cancel.cancelled) throw CancelledException()
         MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
@@ -495,9 +503,10 @@ object ProcessingQueue {
         }) ?: error("Prévia indisponível")
         val plan=Engine.planAdaptive(sample,job.zoom,job.imagingFacts);sample.recycle()
         session.tone=if(job.autoTone)1f else 0f
-        if((plan.skip||!job.autoTone)&&job.signature==null){session.dir.deleteRecursively();finish(job,session,null,null,null);return}
+        if((plan.skip||!job.autoTone)&&job.signature==null&&job.style.neutral){session.dir.deleteRecursively();finish(job,session,null,null,null);return}
+        session.style=job.style
         val output=File(session.dir,"final.tmp.jpg")
-        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature?.withExif(session.exif),job.cancel,session.exif) {
+        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature?.withExif(session.exif),job.cancel,session.exif,job.style) {
             post(JobProgress(job.id,job.kind,0.15f+0.8f*it,"Ajustando",pending))
         }
         if(ok) context.contentResolver.openOutputStream(target,"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } }
@@ -542,6 +551,8 @@ object ProcessingQueue {
             val matte = session.loadMatte()
             if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) }
         }
+        // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
+        Engine.styleInPlace(bmp, session.style, cancel)
         progress(1f)
     }
 
@@ -574,7 +585,7 @@ object ProcessingQueue {
                         session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
                     unrotated.recycle()
                     val output=File(session.dir,"reedit.tmp.jpg")
-                    check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif){})
+                    check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif,session.style){})
                     app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
                     output.delete();session.tone=tone;session.save()
                     return@runCatching

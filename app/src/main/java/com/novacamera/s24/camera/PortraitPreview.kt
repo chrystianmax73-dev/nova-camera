@@ -46,6 +46,16 @@ class PortraitPreviewEffect private constructor(
         get() = processor.strength
         set(v) { processor.strength = v.coerceIn(0f, 1f) }
 
+    /** Retrato (máscara + desfoque). Fora do Retrato só o estilo é aplicado, sem o custo do desfoque. */
+    var blurEnabled: Boolean
+        get() = processor.blurEnabled
+        set(v) { processor.blurEnabled = v }
+
+    /** Tom e temperatura ao vivo: mesma conta da foto ([com.novacamera.s24.core.imaging.PhotoStyle]). */
+    var style: com.novacamera.s24.core.imaging.PhotoStyle
+        get() = com.novacamera.s24.core.imaging.PhotoStyle(processor.tone, processor.warmth)
+        set(v) { processor.tone = v.tone; processor.warmth = v.warmth }
+
     /** Máscara em coordenadas do buffer da câmera (linha 0 = topo do quadro da análise). */
     fun updateMask(mask: ByteArray, w: Int, h: Int) = processor.postMask(mask, w, h)
 
@@ -76,6 +86,9 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     val executor = Executor { r -> handler.post(r) }
 
     @Volatile var strength = 0.6f
+    @Volatile var blurEnabled = false
+    @Volatile var tone = 0f
+    @Volatile var warmth = 0f
     @Volatile private var released = false
 
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
@@ -196,19 +209,22 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         st.getTransformMatrix(stMatrix)
         if (outputs.isEmpty()) return
         ensureFbos()
-        // 1) Cópia reduzida em coordenadas do buffer (as mesmas da máscara).
-        drawTo(fbo[0], smallW, smallH) {
-            use(progCopy); bindOes(progCopy, "uCam", 0)
-            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progCopy, "uTex"), 1, false, identity, 0)
-        }
-        pendingCalibration?.let { analysis -> pendingCalibration = null; calibrate(analysis) }
-        // 2) Desfoque separável (duas iterações), raio proporcional à intensidade e na escala da foto final.
         val s = strength
-        val radius = (5f + 18f * s) * maxOf(smallW, smallH) / 1000f
-        repeat(2) {
-            blurPass(fboTex[0], fbo[1], radius / 4f, 0f)
-            blurPass(fboTex[1], fbo[2], 0f, radius / 4f)
-            if (it == 0) copyTex(fboTex[2], fbo[0])
+        val blur = blurEnabled
+        if (blur) {
+            // 1) Cópia reduzida em coordenadas do buffer (as mesmas da máscara).
+            drawTo(fbo[0], smallW, smallH) {
+                use(progCopy); bindOes(progCopy, "uCam", 0)
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progCopy, "uTex"), 1, false, identity, 0)
+            }
+            pendingCalibration?.let { analysis -> pendingCalibration = null; calibrate(analysis) }
+            // 2) Desfoque separável (duas iterações), raio proporcional à intensidade e na escala da foto final.
+            val radius = (5f + 18f * s) * maxOf(smallW, smallH) / 1000f
+            repeat(2) {
+                blurPass(fboTex[0], fbo[1], radius / 4f, 0f)
+                blurPass(fboTex[1], fbo[2], 0f, radius / 4f)
+                if (it == 0) copyTex(fboTex[2], fbo[0])
+            }
         }
         // 3) Composição para cada saída.
         for (o in outputs) {
@@ -222,7 +238,9 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             bindTex(progFinal, "uMask", 2, if (maskTex != 0) maskTex else fboTex[2])
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progFinal, "uTex"), 1, false, texMatrix, 0)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(progFinal, "uFlip"), maskFlipX, maskFlipY)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uOn"), if (hasMask && s > 0.01f) 1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uOn"), if (blur && hasMask && s > 0.01f) 1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uTone"), tone)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uWarmth"), warmth)
             drawQuad(progFinal)
             EGLExt.eglPresentationTimeANDROID(display, o.egl, st.timestamp)
             EGL14.eglSwapBuffers(display, o.egl)
@@ -369,17 +387,23 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                 gl_FragColor = c;
             }"""
         // Máscara: luminância = assunto (1 nítido), alfa = quanto desfocar pela profundidade.
-        private const val FS_FINAL = """
+        // Estilo depois do desfoque: mesma ordem da foto (render → estilo).
+        private val FS_FINAL = """
             #extension GL_OES_EGL_image_external : require
-            precision mediump float;
+            precision highp float;
             uniform samplerExternalOES uCam; uniform sampler2D uBlur; uniform sampler2D uMask;
             uniform mat4 uTex; uniform vec2 uFlip; uniform float uOn; varying vec2 vUv;
+            ${com.novacamera.s24.core.imaging.PhotoStyle.GLSL}
             void main() {
                 vec2 b = (uTex * vec4(vUv, 0.0, 1.0)).xy;
                 vec4 sharp = texture2D(uCam, b);
-                vec4 m = texture2D(uMask, mix(b, vec2(1.0) - b, uFlip));
-                float w = uOn * (1.0 - m.r) * smoothstep(0.0, 0.35, m.a);
-                gl_FragColor = mix(sharp, texture2D(uBlur, b), w);
+                vec4 c = sharp;
+                if (uOn > 0.5) {
+                    vec4 m = texture2D(uMask, mix(b, vec2(1.0) - b, uFlip));
+                    float w = (1.0 - m.r) * smoothstep(0.0, 0.35, m.a);
+                    c = mix(sharp, texture2D(uBlur, b), w);
+                }
+                gl_FragColor = vec4(applyStyle(c.rgb), 1.0);
             }"""
     }
 }

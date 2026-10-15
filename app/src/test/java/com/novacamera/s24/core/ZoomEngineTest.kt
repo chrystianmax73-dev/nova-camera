@@ -84,3 +84,12 @@ class ZoomTelemetryTest {
         assertTrue(t.report().contains("lente física 2 → 4"))
     }
 }
+
+class ZoomFollowSmoothingTest {
+    @org.junit.Test fun smoothingGrowsWithZoom() {
+        org.junit.Assert.assertEquals(110L, ZoomCurve.followSmoothingMs(110, 1f))
+        org.junit.Assert.assertEquals(110L, ZoomCurve.followSmoothingMs(110, 0.6f))
+        val at10 = ZoomCurve.followSmoothingMs(110, 10f)
+        org.junit.Assert.assertTrue("$at10", at10 in 195..215)
+    }
+}

@@ -48,7 +48,13 @@ class ZoomCurve(private val photo: Boolean) {
 
     fun finished(nowMs: Long) = durationMs <= 0 || nowMs - startMs >= durationMs
 
-    private companion object { val LN2 = ln(2.0).toFloat() }
+    companion object {
+        private val LN2 = ln(2.0).toFloat()
+
+        /** Suavização do zoom que segue o dedo, maior em ampliações altas (vídeo). */
+        fun followSmoothingMs(base: Long, equivalentZoom: Float): Long =
+            (base * (1.0 + 0.27 * (ln(equivalentZoom.coerceAtLeast(1f).toDouble()) / ln(2.0)))).toLong()
+    }
 }
 
 /**

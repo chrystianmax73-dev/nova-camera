@@ -3,6 +3,7 @@ package com.novacamera.s24.settings
 import android.content.Context
 import android.content.SharedPreferences
 import com.novacamera.s24.core.CaptureMode
+import kotlin.math.roundToInt
 
 enum class AspectRatioOption(val label: String) { RATIO_4_3("4:3"), RATIO_16_9("16:9"), RATIO_1_1("1:1"), FULL("Tela") }
 /** HDR da FOTO: desligado, fusão própria de exposições (Nova) ou extensão do fabricante. */
@@ -67,6 +68,11 @@ class NovaSettings(context: Context) {
     var raw get() = bool("raw", false); set(v) = put("raw", v)
     /** Retrato: intensidade do desfoque escolhida antes da foto (0..1). */
     var portraitBlur get() = int("portrait_blur", 60) / 100f; set(v) = put("portrait_blur", (v * 100).toInt())
+    /** Controles criativos ao vivo (tom, temperatura) na prévia e nas fotos dos modos Nova. */
+    var liveControls get() = bool("live_controls", true); set(v) = put("live_controls", v)
+    /** −1..1 em passos de 0,2 (régua −5…+5). */
+    var styleTone get() = int("style_tone", 0) / 100f; set(v) = put("style_tone", (v * 100).roundToInt())
+    var styleWarmth get() = int("style_warmth", 0) / 100f; set(v) = put("style_warmth", (v * 100).roundToInt())
     /** Retrato: desfoque aplicado na pré-visualização. */
     var portraitLivePreview get() = bool("portrait_live_preview", true); set(v) = put("portrait_live_preview", v)
     /** Disparo sem atraso (ZSL) quando a câmera anuncia suporte. */

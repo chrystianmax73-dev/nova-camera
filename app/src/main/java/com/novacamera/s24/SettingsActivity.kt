@@ -102,6 +102,9 @@ class SettingsActivity : NovaScreen() {
             "Pictures › Nova Camera › Originais. Desligado: a comparação usa uma cópia privada temporária, " +
             "limitada às quatro últimas fotos processadas.", { settings.keepOriginals }, { settings.keepOriginals = it })
 
+        switch("Controles criativos ao vivo", "Tom e temperatura de cor na faixa acima dos modos, aplicados na tela " +
+            "e na foto com a mesma conta. Valem nos modos Foto, Retrato, Noturno e Food do motor Nova, em qualquer lente.",
+            { settings.liveControls }, { settings.liveControls = it })
         switch("Prévia do desfoque no Retrato", "O desfoque aparece na tela antes da foto, com a intensidade da régua. " +
             "É uma prévia em resolução reduzida; a foto passa pelo processamento completo. Desligue se o aparelho esquentar.",
             { settings.portraitLivePreview }, { settings.portraitLivePreview = it })
@@ -192,12 +195,10 @@ class SettingsActivity : NovaScreen() {
             startActivity(Intent(this, DiagnosticsActivity::class.java))
         }
         info("Privacidade", "Sem internet, conta, anúncios ou telemetria. Fotos e vídeos ficam no aparelho (Pictures/Movies › Nova Camera).")
-        info("Processamento local", "Todo processamento (fusão, tons, retrato) roda no aparelho. A segmentação do Retrato usa um " +
-            "modelo embutido no app (MediaPipe, Apache-2.0); o app não tem permissão de internet, então nada é enviado.")
-        info("Licenças de terceiros", "CameraX/AndroidX e MediaPipe (Apache-2.0), modelo de segmentação MediaPipe " +
-            "(Apache-2.0), ncnn (BSD-3-Clause), NAFNet (MIT). Nenhum código GPL.")
-        info("Em desenvolvimento", "Panorâmica, Vídeo Retrato, processamento de vídeo e super-resolução para 20×/30×. " +
-            "Quando um modo depende deles, ele aparece como indisponível.")
+        info("Processamento local", "Fusão, tons, retrato, profundidade e redução de ruído rodam no aparelho, com modelos " +
+            "embutidos no app. Sem permissão de internet: nada é baixado nem enviado.")
+        info("Licenças de terceiros", "CameraX/AndroidX, MediaPipe e seu modelo de segmentação, Depth Anything V2 Small " +
+            "(Apache-2.0); ncnn (BSD-3-Clause); NAFNet (MIT); libjpeg-turbo (IJG/BSD). Nenhum código GPL.")
         info("Versão", BuildConfigInfo.version(this))
     }
 
