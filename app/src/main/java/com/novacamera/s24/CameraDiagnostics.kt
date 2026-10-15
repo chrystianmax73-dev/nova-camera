@@ -31,6 +31,8 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.core.ShutterLog.report())
             appendLine(com.novacamera.s24.core.CostLog.report())
             appendLine(com.novacamera.s24.core.EnergyLog.report())
+            appendLine(com.novacamera.s24.core.StallLog.report(context))
+            appendLine(exitReport(context))
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)
             appendLine(com.novacamera.s24.processing.UltraHdr.deviceReport)
             if (extra.isNotBlank()) { appendLine(); append(extra.trimEnd()); appendLine() }
@@ -173,6 +175,38 @@ object CameraDiagnostics {
 
     private fun Size.pixels(): String =
         "$width×$height (${String.format(Locale.US, "%.1f", width.toDouble() * height / 1e6)} MP)"
+}
+
+/**
+ * Como o app terminou nas últimas vezes (API 30+): travamento (ANR), falha nativa, fechado pelo
+ * usuário… No ANR, as primeiras linhas da pilha da thread principal mostram onde travou.
+ */
+fun exitReport(context: Context): String = buildString {
+    append("Últimos encerramentos do app")
+    if (Build.VERSION.SDK_INT < 30) { append(": indisponível nesta versão do Android"); return@buildString }
+    val am = context.getSystemService(android.app.ActivityManager::class.java)
+    val list = runCatching { am.getHistoricalProcessExitReasons(context.packageName, 0, 5) }.getOrNull().orEmpty()
+    if (list.isEmpty()) { append(": nenhum registro"); return@buildString }
+    val fmt = java.text.SimpleDateFormat("dd/MM HH:mm:ss", java.util.Locale.US)
+    for (e in list) {
+        val reason = when (e.reason) {
+            android.app.ApplicationExitInfo.REASON_ANR -> "travou (ANR)"
+            android.app.ApplicationExitInfo.REASON_CRASH -> "falha (Java)"
+            android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "falha nativa"
+            android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "fechado pelo usuário"
+            android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "pouca memória"
+            android.app.ApplicationExitInfo.REASON_EXIT_SELF -> "saiu normalmente"
+            android.app.ApplicationExitInfo.REASON_SIGNALED -> "encerrado pelo sistema"
+            else -> "motivo ${e.reason}"
+        }
+        append("\n  ${fmt.format(java.util.Date(e.timestamp))} · $reason")
+        e.description?.takeIf { it.isNotBlank() }?.let { append(" · ${it.take(120)}") }
+        if (e.reason == android.app.ApplicationExitInfo.REASON_ANR) {
+            val trace = runCatching { e.traceInputStream?.bufferedReader()?.use { r -> r.readLines() } }.getOrNull().orEmpty()
+            val start = trace.indexOfFirst { it.startsWith("\"main\"") }
+            if (start >= 0) trace.drop(start).take(25).forEach { append("\n      $it") }
+        }
+    }
 }
 
 object BuildConfigInfo {

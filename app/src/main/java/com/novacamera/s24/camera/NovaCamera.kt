@@ -153,6 +153,59 @@ class NovaCamera(
         override fun onResume(owner: androidx.lifecycle.LifecycleOwner) { if (motionWanted) motion.start() }
         override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { motion.stop() }
     }.also { activity.lifecycle.addObserver(it) }
+    /**
+     * Vigia da prévia (thread própria): se a câmera está aberta e os resultados de captura param por
+     * [STALL_PREVIEW_MS], registra o contexto ([com.novacamera.s24.core.StallLog]) e reabre a câmera;
+     * no Retrato, a reabertura vem sem a análise do desfoque ao vivo nesta sessão (a foto segue com
+     * desfoque).
+     */
+    private val watchdogThread by lazy { android.os.HandlerThread("nova-watchdog").also { it.start() } }
+    private val watchdog by lazy { Handler(watchdogThread.looper) }
+    private var watchFrames = -1
+    private var watchSince = 0L
+    @Volatile private var watchCamera: Camera? = null
+    private var liveBlurBlocked = false
+    private val watchTick = object : Runnable {
+        override fun run() {
+            val cam = watchCamera
+            val frames = synchronized(telemetry) { telemetry.frames }
+            val now = SystemClock.uptimeMillis()
+            if (cam == null || cam !== camera || paused || released || frames <= 0) {
+                watchFrames = frames; watchSince = now
+            } else if (frames != watchFrames) {
+                watchFrames = frames; watchSince = now
+            } else if (now - watchSince >= stallLimitMs()) {
+                watchSince = now
+                handler.post { onPreviewStalled(cam) }
+            }
+            if (!released) watchdog.postDelayed(this, 1000L)
+        }
+    }
+
+    /** Exposições longas (Pro, Noturno apoiado) entregam poucos quadros por segundo legitimamente. */
+    private fun stallLimitMs(): Long {
+        val expNs = maxOf(latestStats?.exposureNs ?: 0L, if (mode.isPro) manual.exposureNs ?: 0L else 0L,
+            nightOverride?.exposureNs ?: 0L)
+        return maxOf(STALL_PREVIEW_MS, expNs / 1_000_000L * 3 + 1000L)
+    }
+
+    private fun onPreviewStalled(cam: Camera) {
+        if (cam !== camera || released || paused) return
+        val line = String.format(Locale.US, "%s · %s · lente %s · zoom %.2f× · efeito=%s · análise=%s · versão %s",
+            SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()), mode.label, currentLens?.routeKey ?: "?",
+            equivalent(zoomOnLens), portraitEffect != null, portraitAnalysis != null,
+            runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?")
+        Log.w(TAG, "prévia parada: $line")
+        synchronized(telemetry) { telemetry.log(SystemClock.uptimeMillis(), "prévia parada; reabrindo") }
+        com.novacamera.s24.core.StallLog.add(activity, line)
+        if (portraitAnalysis != null) {
+            liveBlurBlocked = true
+            listener.onMessage("Prévia do desfoque pausada para não travar; a foto continua com desfoque")
+        } else listener.onMessage("A imagem parou; reabrindo a câmera")
+        pendingZoomOnLens = zoomOnLens
+        bind()
+    }
+
     /** Exposição manual do Noturno durante a rajada (null fora dela). */
     private var nightOverride: com.novacamera.s24.core.NightExposure.Plan? = null
     private var lastStatsPost = 0L
@@ -214,6 +267,8 @@ class NovaCamera(
 
     fun release() {
         released = true
+        watchCamera = null
+        runCatching { watchdog.removeCallbacks(watchTick); watchdogThread.quitSafely() }
         motion.stop(); motionWanted = false
         activity.lifecycle.removeObserver(motionLifecycle)
         nativeRun?.cancel()
@@ -343,6 +398,7 @@ class NovaCamera(
         zoomGate.reset()
         if (freshSessionRequested) {
             freshSessionRequested = false
+            liveBlurBlocked = false
             referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
             failedPhysicalRoutes.clear()
@@ -588,6 +644,8 @@ class NovaCamera(
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
             if (pinned != null) watchPinnedStart(camera, currentLens)
+            watchCamera = camera
+            watchdog.removeCallbacks(watchTick); watchdog.postDelayed(watchTick, 1000L)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
             camera = null
@@ -1606,7 +1664,7 @@ class NovaCamera(
             style = if (styleMode) com.novacamera.s24.core.imaging.PhotoStyle(settings.styleTone, settings.styleWarmth)
                     else com.novacamera.s24.core.imaging.PhotoStyle()
         }
-        if (!portrait) return effect to null
+        if (!portrait || liveBlurBlocked) return effect to null
         // Mesma proporção da prévia: os dois buffers cobrem o mesmo campo do sensor.
         val ab = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
@@ -1866,6 +1924,7 @@ class NovaCamera(
     companion object {
         private const val NIGHT_FOCUS_WAIT_MS = 1200L
         private const val PINNED_STALL_MS = 3000L
+        private const val STALL_PREVIEW_MS = 3000L
         private const val TAG = "NovaCamera"
         private const val AUTO_RETURN_MS = 20_000L
         private const val STALL_TIMEOUT_MS = 1_500L

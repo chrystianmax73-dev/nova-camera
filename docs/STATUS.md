@@ -6,6 +6,16 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.14.2 — Retrato em 3× ainda travava: vigia da prévia e registro
+
+- A 0.14.1 (câmera lógica no Retrato) não resolveu: a causa não é a lente física fixa.
+- Vigia em thread própria: câmera aberta sem resultados de captura por 3 s (ou 3× a exposição,
+  em exposições longas) → registra modo, lente, zoom, efeito e análise ativos
+  (`StallLog`, guardado entre aberturas) e reabre a câmera no mesmo zoom. No Retrato, reabre sem a
+  análise do desfoque ao vivo nesta sessão (a foto continua com desfoque).
+- Diagnóstico: "Prévia parada" e "Últimos encerramentos do app" (API 30+; em travamento/ANR, as
+  primeiras linhas da pilha da thread principal).
+
 ## 0.14.1 — Retrato em 3× congelava
 
 - Relato: no Retrato, ao tocar em 3×, a prévia trava. Causa provável: com luz suficiente a Nova
