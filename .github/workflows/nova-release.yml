@@ -26,6 +26,29 @@ jobs:
           gradle-version: '8.13'
       - name: Testes e lint antes de gerar a prévia
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Preparar motor JVM para A/B local sem enviar fotografias
+        run: |
+          python3 - <<'PYCORE'
+          import pathlib, shutil, xml.etree.ElementTree as ET
+          out = pathlib.Path('local-ab-engine'); out.mkdir()
+          for variant in ('debug', 'debugUnitTest'):
+              src = pathlib.Path('app/build/tmp/kotlin-classes') / variant / 'com/novacamera/s24/core/imaging'
+              assert src.is_dir(), src
+              dst = out / variant / 'com/novacamera/s24/core/imaging'
+              shutil.copytree(src, dst)
+          for pattern in ('kotlin-stdlib-*.jar', 'junit-4*.jar', 'hamcrest-core-*.jar'):
+              files = list((pathlib.Path.home()/'.gradle/caches/modules-2/files-2.1').rglob(pattern))
+              assert files, pattern
+              for file in files: shutil.copy(file, out / file.name)
+          for file in pathlib.Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root = ET.parse(file).getroot()
+              print(root.attrib['name'], {k:root.attrib.get(k) for k in ('tests','failures','errors','skipped')})
+          PYCORE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nova-local-ab-engine
+          path: local-ab-engine
+          retention-days: 7
       - name: Preparar chave persistente (somente de GitHub Secrets)
         shell: bash
         env:

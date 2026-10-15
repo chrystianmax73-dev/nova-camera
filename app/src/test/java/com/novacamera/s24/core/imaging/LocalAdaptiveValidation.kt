@@ -11,8 +11,7 @@ class LocalAdaptiveValidation {
     @Test fun abOnLocalReferences() {
         val dir = System.getenv("NOVA_AB_RAW")?.let(::File)
         assumeTrue(dir != null && dir.isDirectory)
-        val report = StringBuilder("arquivo;zoom;protecao;difRGB;nsLegado;nsAdaptive;limitesAB
-")
+        val report = StringBuilder("arquivo;zoom;protecao;difRGB;nsLegado;nsAdaptive;limitesAB\n")
         dir!!.listFiles { f -> f.extension == "rgb" }!!.sortedBy { it.name }.forEach { file ->
             DataInputStream(file.inputStream().buffered()).use { input ->
                 val w = input.readInt(); val h = input.readInt()
