@@ -204,11 +204,14 @@ class SettingsActivity : NovaScreen() {
         action("Relatório técnico da câmera", "Lentes, extensões do fabricante e limites reais deste aparelho. Compartilhamento só manual.") {
             startActivity(Intent(this, DiagnosticsActivity::class.java))
         }
+        switch("Guardar quadros das rajadas (testes)", "Cada rajada (tele, Noturno, HDR) também salva os quadros " +
+            "originais em Pictures › Nova Camera › Rajadas; no Pro com RAW, o disparo vira uma rajada de 6 RAW. Ocupa muito espaço: " +
+            "use só para testes de qualidade e desligue depois.", { settings.collectBursts }, { settings.collectBursts = it })
         info("Privacidade", "Sem internet, conta, anúncios ou telemetria. Fotos e vídeos ficam no aparelho (Pictures/Movies › Nova Camera).")
         info("Processamento local", "Fusão, tons, retrato, profundidade e redução de ruído rodam no aparelho, com modelos " +
             "embutidos no app. Sem permissão de internet: nada é baixado nem enviado.")
         info("Licenças de terceiros", "CameraX/AndroidX, MediaPipe e seu modelo de segmentação, Depth Anything V2 Small " +
-            "(Apache-2.0); ncnn (BSD-3-Clause); NAFNet (MIT); libjpeg-turbo (IJG/BSD). Nenhum código GPL.")
+            "(Apache-2.0); ncnn (BSD-3-Clause); NAFNet (MIT); libjpeg-turbo (IJG/BSD). O Nova Camera é software livre (GPL-3.0).")
         info("Versão", BuildConfigInfo.version(this))
     }
 

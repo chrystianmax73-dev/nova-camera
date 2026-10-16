@@ -1343,7 +1343,9 @@ class NovaCamera(
         val shot = ShotTimer(ic)
         processingKind()?.let { return captureForProcessing(ic, it, shot) }
         if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values, shot)
-        if (state?.rawActive == true) return captureRawPlusJpeg(ic, values)
+        if (state?.rawActive == true) {
+            return if (settings.collectBursts) captureRawBurst(ic, RAW_BURST_FRAMES) else captureRawPlusJpeg(ic, values)
+        }
         val metadata = ImageCapture.Metadata()
         val output = ImageCapture.OutputFileOptions.Builder(
             activity.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
@@ -1439,6 +1441,55 @@ class NovaCamera(
         })
     }
 
+    /**
+     * Testes de super-resolução: os quadros da rajada exatamente como chegaram da câmera (JPEG com
+     * EXIF), numa pasta por disparo. Só com a opção de testes ligada.
+     */
+    private fun saveBurstFrames(tag: String, frames: List<CapturedFrame>) = io.execute {
+        val folder = "${com.novacamera.s24.processing.MediaWriter.GALLERY}/Rajadas/${tag}_${timestamp()}"
+        frames.forEachIndexed { i, f ->
+            com.novacamera.s24.processing.MediaWriter.insertBytes(activity.contentResolver, f.jpeg, "q${i + 1}_ev${f.evIndex}.jpg", folder)
+        }
+    }
+
+    /**
+     * Pro com RAW e a opção de testes: [count] pares RAW (DNG) + JPEG seguidos, sem mexer em nada
+     * entre eles. O pequeno tremido da mão entre os quadros é justamente o que a super-resolução usa.
+     */
+    private fun captureRawBurst(ic: ImageCapture, count: Int) {
+        val folder = "${com.novacamera.s24.processing.MediaWriter.GALLERY}/Rajadas/raw_${timestamp()}"
+        val resolver = activity.contentResolver
+        fun values(name: String, mime: String) = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
+        }
+        var lastJpeg: android.net.Uri? = null
+        fun take(i: Int) {
+            if (i == count || released || paused) { listener.onPhotoSaved(lastJpeg); return }
+            val raw = ImageCapture.OutputFileOptions.Builder(resolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values("q${i + 1}.dng", "image/x-adobe-dng")).build()
+            val jpeg = ImageCapture.OutputFileOptions.Builder(resolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values("q${i + 1}.jpg", "image/jpeg")).build()
+            var pending = 2
+            ic.takePicture(raw, jpeg, main, object : ImageCapture.OnImageSavedCallback {
+                override fun onCaptureStarted() { if (i == 0) listener.onCaptureStarted() }
+                override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                    val uri = result.savedUri
+                    if (uri != null && runCatching { resolver.getType(uri) }.getOrNull()?.contains("jpeg") == true) lastJpeg = uri
+                    if (--pending == 0) { listener.onBurstProgress(i + 1, count); take(i + 1) }
+                }
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "Falha no quadro RAW ${i + 1}", exception)
+                    pending = -1
+                    listener.onMessage("Rajada RAW parou no quadro ${i + 1} de $count (erro ${exception.imageCaptureError})")
+                    listener.onPhotoSaved(lastJpeg)
+                }
+            })
+        }
+        take(0)
+    }
+
     /** Selfie como visualizada: captura em memória e espelha os pixels em segundo plano. */
     private fun captureMirrored(ic: ImageCapture, values: ContentValues, shot: ShotTimer) {
         ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
@@ -1526,6 +1577,7 @@ class NovaCamera(
             releaseNightFocus()
             if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
+            if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
@@ -1555,13 +1607,16 @@ class NovaCamera(
                             if(i==0 && initialKind==JobKind.PHOTO) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
-                                when(com.novacamera.s24.core.AutoPhotoPolicy.choose(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,clip,deep,
+                                // Testes de super-resolução: rajada da tele também com luz boa, e mais longa.
+                                val collectTele = settings.collectBursts && equivalent(zoomOnLens) >= com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FROM
+                                when(if (collectTele) com.novacamera.s24.core.AutoPhotoPolicy.Path.ZOOM else com.novacamera.s24.core.AutoPhotoPolicy.choose(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,clip,deep,
                                     h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE), equivalent(zoomOnLens),
                                     allowFusion = settings.hdr != HdrOption.OFF)) {
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.ZOOM -> {
                                         kind=JobKind.ZOOM
-                                        steps=List(com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES){0}
-                                        captureNote="Tele com pouca luz: ${com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES} quadros alinhados"
+                                        val n = if (collectTele) COLLECT_TELE_FRAMES else com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES
+                                        steps=List(n){0}
+                                        captureNote=if (collectTele) "Tele (coleta de testes): $n quadros alinhados" else "Tele com pouca luz: $n quadros alinhados"
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
@@ -1997,6 +2052,10 @@ class NovaCamera(
     private fun timestamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
 
     companion object {
+        /** Rajada RAW de testes no Pro (super-resolução precisa de vários quadros com leve deslocamento). */
+        private const val RAW_BURST_FRAMES = 6
+        /** Rajada da tele na coleta de testes (a super-resolução usa de 6 a 8 quadros). */
+        private const val COLLECT_TELE_FRAMES = 8
         private const val NIGHT_FOCUS_WAIT_MS = 1200L
         private const val PINNED_STALL_MS = 3000L
         private const val STALL_PREVIEW_MS = 3000L

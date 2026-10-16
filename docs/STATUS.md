@@ -6,6 +6,16 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.16.2 — Coleta de rajadas para a super-resolução da tele
+
+Opção **Ajustes › Diagnóstico e privacidade › Guardar quadros das rajadas (testes)**, desligada por padrão:
+- Cada rajada (tele, Noturno, HDR) salva também os quadros originais em `Pictures/Nova Camera/Rajadas/<tipo>_<data>/`.
+- Com a opção ligada, a tele (3× ou mais) sempre faz rajada de **8 quadros**, mesmo com luz boa.
+- No **Pro com RAW**, cada disparo vira uma rajada de **6 pares DNG + JPEG**.
+
+Objetivo: medir fora do aparelho quanto a super-resolução ganha sobre JPEG e sobre RAW antes de levar ao app.
+Nada sai do aparelho: os arquivos ficam na galeria e só são compartilhados manualmente.
+
 ## 0.16.1 — Causa dos fechamentos no Diagnóstico; vídeo sai do ciclo de "prévia parada"
 
 | Item | O que faz | Validação |
