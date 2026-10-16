@@ -4,7 +4,7 @@
 **Repositório:** https://github.com/chrystianmax73-dev/nova-camera  
 **Situação em 14/10/2026:** protótipo experimental, NÃO validado em dispositivos; nenhuma promessa de ganho de qualidade sobre a câmera Samsung.  
 **Dispositivos de referência:** Galaxy S24 Ultra e Galaxy S25 Ultra, Android atual de cada aparelho.  
-**Visibilidade:** manter PRIVADO durante desenvolvimento; publicação futura somente após auditoria, testes e licenciamento.  
+**Visibilidade:** código aberto sob **GPL-3.0-or-later** (arquivo `LICENSE`). Quem distribuir versões modificadas precisa abrir o código delas também.  
 **Nome comercial:** **Nova Camera**. Identidade visual independente, sem se passar por Samsung, Apple, Google ou Vivo.
 
 ## 1. Visão do produto
@@ -163,3 +163,13 @@ Comparação justa com câmera Samsung: mesma cena, luz, enquadramento, lente/fa
 ## 10. Restrições e princípios de desenvolvimento
 
 Não modificar projetos não relacionados (especialmente NEXO). Não usar credenciais no código. Não criar pagamentos, backend ou serviços pagos. Não usar servidor para tratar fotos/vídeos. Não prometer 200 MP/RAW/HDR10/4K60 em lentes inacessíveis via Android, nem cópia exata da câmera OEM. Evitar refatorações de alto risco sem testes. Garantir original sempre disponível quando houver processamento. Solicitar autorização antes de tornar público, gerar cobrança, apagar releases fora da rotina prevista ou mudar assinatura.
+
+## Licença
+
+Copyright (C) 2026 os autores do Nova Camera.
+
+Este programa é software livre: pode ser redistribuído e/ou modificado sob os termos da GNU General
+Public License, versão 3 ou (a seu critério) qualquer versão posterior, publicada pela Free Software
+Foundation. É distribuído na esperança de ser útil, mas SEM QUALQUER GARANTIA. Veja o arquivo
+`LICENSE`. Componentes de terceiros mantêm as próprias licenças (ver `docs/OPEN_SOURCE.md` e
+`app/src/main/assets/licenses/`); todos são compatíveis com a GPL-3.0 (Apache-2.0, MIT, BSD, IJG).
