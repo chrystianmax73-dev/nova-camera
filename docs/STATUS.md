@@ -6,6 +6,18 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.16.0 — Vídeo da tele no escuro, Noturno apoiado e auxílios de câmera profissional
+
+| Item | O que faz | Validação |
+|---|---|---|
+| Quadros automáticos com pouca luz (vídeo) | A 30 fps, o vídeo usa a faixa 15–30 fps quando a câmera oferece: no escuro o quadro fica mais longo em vez de escurecer (tele 5× e 10× escura). Com luz boa continua a 30 fps. Ajuste em Vídeo; se a câmera recusar, volta a 30 fps fixos e avisa | Testes (escolha da faixa); resultado: Aparelho |
+| Noturno apoiado | Com o giroscópio quase parado: quadros de até 1 s (antes 0,5 s) e até 4 s no total (antes 2 s). Na mão, nada muda | Testes |
+| Nível do horizonte | Linha no centro; verde quando reto, em retrato ou paisagem. Desligado por padrão (Ajustes) | Testes (cálculo); desenho: Aparelho |
+| Histograma e alerta de estouro no Pro/Vídeo Pro | Medidos na prévia exibida, 2 vezes por segundo, sem fluxo extra da câmera | Testes (análise); desempenho: Aparelho |
+| Realce de foco | Contorno verde do que está nítido, só com foco manual no Pro | Testes (análise) |
+
+**Não feito nesta versão:** RAW (aguardando exemplo: o DNG ou o JPEG que fica granulado); RAW em vídeo não existe no app.
+
 ## 0.15.1 — Correções a partir das fotos reais (planta 3× HDR, frasco 3×/5×, AirPods)
 
 | Item | Antes | Agora | Validação |

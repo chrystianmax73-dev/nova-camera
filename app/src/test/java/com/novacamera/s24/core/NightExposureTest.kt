@@ -25,8 +25,15 @@ class NightExposureTest {
     @Test fun apoiado_aceitaQuadroMaisLongo() {
         val still = NightExposure.maxFrameNs(0.002f, 1f, ois = true)
         assertTrue(still > handheld)
-        assertTrue(still <= NightExposure.MAX_FRAME_NS)
+        assertTrue(still > NightExposure.MAX_FRAME_NS)
+        assertTrue(still <= NightExposure.STEADY_MAX_FRAME_NS)
         assertTrue(NightExposure.steady(0.002f))
+        // Na mão, o teto continua 0,5 s.
+        assertTrue(NightExposure.maxFrameNs(0.013f, 1f, ois = true) <= NightExposure.MAX_FRAME_NS)
+        // Apoiado: mesma luz em quadros mais longos e tempo total maior (mais luz somada, menos ruído).
+        val p = NightExposure.plan(6539, 41_666_666L, 50, 12800, 30_000_000_000L, still, 8, steady = true)!!
+        assertTrue(p.exposureNs > NightExposure.MAX_FRAME_NS)
+        assertTrue(p.frames.toLong() * p.exposureNs <= 4_000_000_000L + p.exposureNs)
     }
 
     @Test fun teleESemOis_encurtamOLimite() {

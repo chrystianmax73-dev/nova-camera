@@ -199,6 +199,76 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         handler.postDelayed(idleCheck, IDLE_CHECK_MS)
         handler.removeCallbacks(energyTick)
         handler.postDelayed(energyTick, ENERGY_EVERY_MS)
+        handler.removeCallbacks(aidTick)
+        handler.postDelayed(aidTick, AID_EVERY_MS)
+    }
+
+    // ------------------------------------------------------------------ auxílios do visor
+
+    private var aidBusy = false
+    private var aidSlow = false
+
+    /** Nova medição (histograma, estouro, realce de foco) da prévia exibida, poucas vezes por segundo. */
+    private val aidTick = object : Runnable {
+        override fun run() {
+            val delay = if (aidSlow) AID_SLOW_MS else AID_EVERY_MS
+            handler.postDelayed(this, delay)
+            if (!::camera.isInitialized) return
+            val pro = camera.mode.isPro
+            val peaking = pro && settings.focusPeaking && camera.manual.focusDiopters != null
+            val hist = pro && settings.proHistogram
+            val clip = pro && settings.proClipping
+            overlay.showHistogram = hist; overlay.showClipping = clip; overlay.showPeaking = peaking
+            if (!hist && !clip && !peaking) { if (overlay.aid != null) overlay.aid = null; return }
+            if (aidBusy || preview.previewStreamState.value != PreviewView.StreamState.STREAMING) return
+            val t0 = SystemClock.elapsedRealtime()
+            // A própria prévia exibida (já com o efeito de tom): sem fluxo extra da câmera.
+            val bmp = runCatching { preview.bitmap }.getOrNull() ?: return
+            aidSlow = SystemClock.elapsedRealtime() - t0 > AID_SLOW_COPY_MS
+            aidBusy = true
+            io.execute {
+                val result = runCatching {
+                    val w = AID_WIDTH; val h = (AID_WIDTH * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
+                    val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
+                    val px = IntArray(w * h).also { small.getPixels(it, 0, w, 0, 0, w, h) }
+                    if (small !== bmp) small.recycle()
+                    com.novacamera.s24.core.imaging.ViewfinderAid.analyze(px, w, h, peaking)
+                }.getOrNull()
+                bmp.recycle()
+                handler.post { aidBusy = false; if (result != null) overlay.aid = result }
+            }
+        }
+    }
+
+    private val sensors by lazy { getSystemService(android.hardware.SensorManager::class.java) }
+    private var levelSmoothed: Float? = null
+    private val levelListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            val a = com.novacamera.s24.core.imaging.ViewfinderAid.horizon(e.values[0], e.values[1], e.values[2])
+            if (a == null) { levelSmoothed = null; overlay.horizon = null; return }
+            // Suaviza sem atravessar ±180° pelo caminho longo.
+            val prev = levelSmoothed
+            val next = if (prev == null) a else {
+                var d = a - prev; if (d > 180f) d -= 360f; if (d < -180f) d += 360f
+                prev + d * 0.25f
+            }
+            levelSmoothed = next
+            overlay.horizon = next
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+    }
+
+    private fun startLevel() {
+        stopLevel()
+        if (!settings.levelIndicator) return
+        val s = sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY) ?: return
+        sensors?.registerListener(levelListener, s, android.hardware.SensorManager.SENSOR_DELAY_UI)
+    }
+
+    private fun stopLevel() {
+        sensors?.unregisterListener(levelListener)
+        levelSmoothed = null
+        overlay.horizon = null
     }
 
     /** Amostra de energia/temperatura por atividade (diagnóstico de sessões longas). */
@@ -221,6 +291,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         super.onResume()
         Haptics.enabled = settings.haptics
         overlay.showGrid = settings.grid
+        startLevel()
         ProcessingQueue.keepOriginals = settings.keepOriginals
         ProcessingQueue.aiDenoise = settings.aiDenoise
         val sig = signature()
@@ -244,6 +315,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         orientationListener.disable()
         handler.removeCallbacks(idleCheck)
         handler.removeCallbacks(energyTick)
+        handler.removeCallbacks(aidTick)
+        stopLevel()
         super.onStop()
     }
 
@@ -1167,6 +1240,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private val EXTRA_MODES = CaptureMode.entries.filterNot { it.primary }
         private const val IDLE_CHECK_MS = 10_000L
         private const val ENERGY_EVERY_MS = 10_000L
+        /** Auxílios do visor: 2 medições por segundo; 1 por segundo se copiar a prévia ficar caro. */
+        private const val AID_EVERY_MS = 500L
+        private const val AID_SLOW_MS = 1_000L
+        private const val AID_SLOW_COPY_MS = 30L
+        /** Largura da análise (pontos); o estouro e o realce são desenhados nessa grade. */
+        private const val AID_WIDTH = 240
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f
     }

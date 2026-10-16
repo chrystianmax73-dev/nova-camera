@@ -29,6 +29,10 @@ class NovaSettings(context: Context) {
     var shutterSound get() = bool("shutter_sound", true); set(v) = put("shutter_sound", v)
     var volumeKeyShutter get() = bool("volume_shutter", true); set(v) = put("volume_shutter", v)
     var grid get() = bool("grid", false); set(v) = put("grid", v)
+    var levelIndicator get() = bool("level_indicator", false); set(v) = put("level_indicator", v)
+    var proHistogram get() = bool("pro_histogram", true); set(v) = put("pro_histogram", v)
+    var proClipping get() = bool("pro_clipping", true); set(v) = put("pro_clipping", v)
+    var focusPeaking get() = bool("focus_peaking", true); set(v) = put("focus_peaking", v)
     var aspect get() = enum("aspect", AspectRatioOption.RATIO_4_3); set(v) = put("aspect", v.name)
     var flash get() = enum("flash", FlashOption.OFF); set(v) = put("flash", v.name)
     var timerSeconds get() = int("timer", 0); set(v) = put("timer", v)
@@ -84,6 +88,7 @@ class NovaSettings(context: Context) {
     var videoFps get() = int("video_fps", 30); set(v) = put("video_fps", v)
     var slowMotionFps get() = int("slow_motion_fps", 120); set(v) = put("slow_motion_fps", v)
     var videoStabilization get() = bool("video_stabilization", true); set(v) = put("video_stabilization", v)
+    var videoAutoFps get() = bool("video_auto_fps", true); set(v) = put("video_auto_fps", v)
     var recordAudio get() = bool("record_audio", true); set(v) = put("record_audio", v)
     /** Vídeo sem ponto escolhido mede a exposição pelo centro (menos saltos ao aproximar). */
     var videoCenterMetering get() = bool("video_center_metering", true); set(v) = put("video_center_metering", v)

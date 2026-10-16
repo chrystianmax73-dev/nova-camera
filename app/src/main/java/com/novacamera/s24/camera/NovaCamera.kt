@@ -228,6 +228,9 @@ class NovaCamera(
     private var lastStatsPost = 0L
 
     // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
+    /** Faixa 15–30 fps aplicada nesta ligação do vídeo; bloqueada na sessão se a câmera recusar. */
+    private var autoFpsApplied = false
+    private var autoFpsBlocked = false
     private var zoomOnLens = 1f          // valor exibido/pretendido agora (na câmera atual)
     private var zoomTarget = 1f
     private var pendingZoomOnLens: Float? = null
@@ -471,6 +474,7 @@ class NovaCamera(
         var qualityLabel: String? = null
         var qualityOptions = emptyList<VideoQualityOption>()
         var fpsOptions = emptyList<Int>()
+        autoFpsApplied = false
         var rawAvailable = false
         var rawActive = false
         val highSpeed = mode == CaptureMode.CAMERA_LENTA && support.canCapture
@@ -567,6 +571,10 @@ class NovaCamera(
             fpsOptions = VIDEO_FPS.filter { f -> info.supportedFrameRateRanges.any { it.lower == f && it.upper == f } }
             val wantedFps = settings.videoFps.takeIf { it in fpsOptions && !(limitVideo && it > 30) } ?: 30
             if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
+            else if (settings.videoAutoFps && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
+                ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
+                    ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
+            }
             videoCapture = vb.build()
         } else if (support.canCapture) {
             // Resoluções reais desta câmera (por lente); o processamento Nova usa a padrão (memória/tempo).
@@ -677,6 +685,10 @@ class NovaCamera(
                     videoEffect?.close(); videoEffect = null
                     videoEffectFailed = true
                     listener.onMessage("Assinatura no vídeo indisponível nesta configuração; gravando sem ela")
+                }
+                autoFpsApplied -> {
+                    autoFpsBlocked = true
+                    listener.onMessage("Quadros automáticos indisponíveis nesta combinação; gravando a 30 fps fixos")
                 }
                 fps > 30 && !highSpeed -> {
                     settings.videoFps = 30

@@ -90,6 +90,14 @@ class SettingsActivity : NovaScreen() {
         switch("Disparo instantâneo", "Dispara com latência mínima (sem esperar o ajuste de foco/exposição da foto). " +
             "O diagnóstico mostra o atraso medido com e sem, para comparar.", { settings.instantShutter }, { settings.instantShutter = it })
         switch("Grade de composição", null, { settings.grid }, { settings.grid = it })
+        switch("Nível do horizonte", "Linha no centro do visor; fica verde quando a foto está reta (retrato ou paisagem).",
+            { settings.levelIndicator }, { settings.levelIndicator = it })
+        switch("Histograma no Pro", "Distribuição de claros e escuros da prévia, no Pro e no Vídeo Pro.",
+            { settings.proHistogram }, { settings.proHistogram = it })
+        switch("Alerta de estouro no Pro", "Marca em vermelho as áreas já sem detalhe no claro (céu, lâmpada, janela).",
+            { settings.proClipping }, { settings.proClipping = it })
+        switch("Realce de foco no foco manual", "Contorna em verde o que está nítido enquanto o foco manual estiver em uso.",
+            { settings.focusPeaking }, { settings.focusPeaking = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
         switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
@@ -153,6 +161,8 @@ class SettingsActivity : NovaScreen() {
         }
         choice("Quadros por segundo", "60 fps só é usado quando a câmera aceita a combinação escolhida.",
             listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
+        switch("Quadros automáticos com pouca luz", "A 30 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 5× e 10×). Com luz boa continua em 30 fps.",
+            { settings.videoAutoFps }, { settings.videoAutoFps = it })
         switch("Estabilização", "Usa a estabilização anunciada pela câmera (pode recortar levemente as bordas).",
             { settings.videoStabilization }, { settings.videoStabilization = it })
         switch("Espelhar vídeo da câmera frontal", "Grava como na pré-visualização. Desative para gravar textos legíveis.",

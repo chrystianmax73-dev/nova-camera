@@ -34,6 +34,82 @@ class ViewfinderOverlay(context: Context) : View(context) {
         set(value) { field = value; invalidate() }
     var showGrid = false
         set(value) { field = value; invalidate() }
+
+    /** Auxílios do visor (ver [com.novacamera.s24.core.imaging.ViewfinderAid]); null = desligado. */
+    var aid: com.novacamera.s24.core.imaging.ViewfinderAid.Result? = null
+        set(value) { field = value; aidBitmapDirty = true; invalidate() }
+    var showHistogram = false
+    var showClipping = false
+    var showPeaking = false
+    /** Ângulo do horizonte na tela (graus); null = nível desligado ou sem horizonte. */
+    var horizon: Float? = null
+        set(value) { if (field != value) { field = value; invalidate() } }
+    private var aidBitmap: android.graphics.Bitmap? = null
+    private var aidBitmapDirty = false
+    private val aidPaint = Paint().apply { isFilterBitmap = false }
+    private val histPaint = Paint().apply { color = 0xD9FFFFFF.toInt(); style = Paint.Style.FILL }
+    private val histBg = Paint().apply { color = 0x66000000; style = Paint.Style.FILL }
+    private val histClipPaint = Paint().apply { color = 0xFFFF5252.toInt(); style = Paint.Style.FILL }
+    private val levelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
+
+    /** Máscara do estouro (vermelho) e do realce de foco (verde) na resolução da análise. */
+    private fun aidMask(r: com.novacamera.s24.core.imaging.ViewfinderAid.Result): android.graphics.Bitmap? {
+        if (!showClipping && !showPeaking) return null
+        if (!aidBitmapDirty && aidBitmap?.let { it.width == r.w && it.height == r.h } == true) return aidBitmap
+        val px = IntArray(r.w * r.h)
+        for (i in px.indices) px[i] = when {
+            showPeaking && r.edges[i] -> 0xE600E676.toInt()
+            showClipping && r.clipped[i] -> 0x99FF1744.toInt()
+            else -> 0
+        }
+        val b = aidBitmap?.takeIf { it.width == r.w && it.height == r.h }
+            ?: android.graphics.Bitmap.createBitmap(r.w, r.h, android.graphics.Bitmap.Config.ARGB_8888).also { aidBitmap?.recycle(); aidBitmap = it }
+        b.setPixels(px, 0, r.w, 0, 0, r.w, r.h)
+        aidBitmapDirty = false
+        return b
+    }
+
+    private fun drawAids(canvas: Canvas) {
+        val r = aid
+        if (r != null) {
+            aidMask(r)?.let { canvas.drawBitmap(it, null, android.graphics.RectF(0f, 0f, width.toFloat(), height.toFloat()), aidPaint) }
+            if (showHistogram) {
+                // Canto superior esquerdo, abaixo da barra superior; barras em escala de raiz (sombras visíveis).
+                val bw = dp(120f); val bh = dp(52f)
+                val x0 = dp(12f); val y0 = dp(96f)
+                canvas.drawRoundRect(x0, y0, x0 + bw, y0 + bh, dp(6f), dp(6f), histBg)
+                val maxC = r.histogram.maxOrNull()?.coerceAtLeast(1) ?: 1
+                val step = bw / r.histogram.size
+                for ((k, c) in r.histogram.withIndex()) {
+                    val v = kotlin.math.sqrt(c.toFloat() / maxC) * (bh - dp(6f))
+                    val paint = if (k == r.histogram.size - 1 && c > 0) histClipPaint else histPaint
+                    canvas.drawRect(x0 + k * step, y0 + bh - dp(3f) - v, x0 + (k + 1) * step, y0 + bh - dp(3f), paint)
+                }
+            }
+        }
+        horizon?.let { a ->
+            val err = com.novacamera.s24.core.imaging.ViewfinderAid.levelError(a)
+            val ok = err < 1f
+            levelPaint.color = if (ok) 0xFF00E676.toInt() else 0xCCFFFFFF.toInt()
+            levelPaint.strokeWidth = dp(if (ok) 2f else 1.4f)
+            val cx = width / 2f; val cy = height / 2f
+            val half = dp(70f)
+            canvas.save()
+            canvas.rotate(a, cx, cy)
+            canvas.drawLine(cx - half, cy, cx - dp(14f), cy, levelPaint)
+            canvas.drawLine(cx + dp(14f), cy, cx + half, cy, levelPaint)
+            canvas.restore()
+            // Referência fixa (nível do aparelho) curta, para ver a diferença.
+            if (!ok) {
+                levelPaint.color = 0x80FFFFFF.toInt(); levelPaint.strokeWidth = dp(1f)
+                val ref = Math.round(a / 90f) * 90f
+                canvas.save(); canvas.rotate(ref, cx, cy)
+                canvas.drawLine(cx - dp(10f), cy, cx + dp(10f), cy, levelPaint)
+                canvas.restore()
+            }
+        }
+    }
+
     /** Desliga gestos de foco/exposição (ex.: modo indisponível ou câmera pausada). */
     var focusEnabled = true
 
@@ -206,6 +282,7 @@ class ViewfinderOverlay(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
+        drawAids(canvas)
         if (showGrid) {
             for (i in 1..2) {
                 val x = width * i / 3f

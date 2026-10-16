@@ -78,6 +78,14 @@ object ModeResolver {
     fun extendedExposureMinFps(ranges: List<Pair<Int, Int>>): Int? =
         ranges.filter { (lo, hi) -> hi in 15..30 && lo in 1 until 15 }.minOfOrNull { it.first }
 
+    /**
+     * Vídeo a 30 fps com pouca luz: faixa variável (ex.: 15–30) para o automático alongar a exposição
+     * em vez de escurecer. Com luz boa a câmera continua em 30 fps; o quadro só fica mais longo
+     * quando falta luz (tele 5× e 10× escura). Mínimo de 15 fps — abaixo disso o movimento trava.
+     */
+    fun autoVideoFps(ranges: List<Pair<Int, Int>>): Pair<Int, Int>? =
+        ranges.filter { (lo, hi) -> hi == 30 && lo in 15..24 }.minByOrNull { it.first }
+
     /** Índices de compensação para o bracketing do HDR Nova (0, ≈−2 EV, ≈+1 EV), dentro da faixa. */
     fun hdrBracket(stepNum: Int, stepDen: Int, min: Int, max: Int): List<Int> {
         if (stepNum <= 0 || stepDen <= 0) return listOf(0)
