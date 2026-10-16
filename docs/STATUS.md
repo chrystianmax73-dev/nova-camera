@@ -22,6 +22,7 @@ Levantamento do pedido (o que já existia × o que faltava):
 - Não feito: classificação de cena (pessoa/planta/comida/paisagem) com parâmetros por categoria — o
   tom já é decidido por foto pelos números da própria cena; categorias mudariam o "gosto" sem
   referência pareada para calibrar.
+- Detalhe da tele também no HDR e no Retrato (cacto 5× real saiu pelo HDR, sem o realce).
 - Validação: planta com toque no centro (igual à 0.14) e no canto (parede/piso nítidos, planta
   desfocada). Testes: `DepthTapTest`, `DetailTest` (pele).
 
