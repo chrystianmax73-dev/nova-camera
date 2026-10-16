@@ -100,8 +100,12 @@ object Portrait {
         val gamma = 2.2f
         val chans = Array(3) { Plane(w, h) }
         val weight = Plane(w, h)
+        // Máscara alargada ~3 px (da imagem reduzida) só para o que entra no desfoque: a borda do
+        // assunto, onde a máscara fica abaixo de 1, não espalha luz no fundo escuro (brilho em volta
+        // dos AirPods brancos no Retrato). A composição continua com a máscara original.
+        val grown = DepthPortrait.maxFilter(matte, max(1, (3f * matte.w / w + 0.5f).toInt()))
         for (i in 0 until w * h) {
-            val a = 1f - matte.sample(i % w * matte.w.toFloat() / w, i / w * matte.h.toFloat() / h)
+            val a = 1f - grown.sample(i % w * matte.w.toFloat() / w, i / w * matte.h.toFloat() / h)
             val c = small[i]
             chans[0].data[i] = (Px.r(c) / 255f).pow(gamma) * a
             chans[1].data[i] = (Px.g(c) / 255f).pow(gamma) * a

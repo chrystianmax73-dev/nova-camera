@@ -177,6 +177,21 @@ class FusionTest {
 
 class PortraitTest {
     @Test
+    fun brightObjectSoftEdgeDoesNotGlowIntoDarkBackground() {
+        // Objeto branco no fundo escuro; a máscara cobre o centro e só metade da borda de 2 px.
+        val w = 120; val h = 90
+        val img = IntArray(w * h) { i -> if (i % w in 40..79 && i / w in 25..64) Px.argb(250, 250, 250) else Px.argb(20, 20, 20) }
+        val matte = Plane(w, h, FloatArray(w * h) { i ->
+            val x = i % w; val y = i / w
+            if (x in 42..77 && y in 27..62) 1f else if (x in 40..79 && y in 25..64) 0.5f else 0f
+        })
+        val blurred = Portrait.blurBackground(img, w, h, matte, 12)
+        // 6 px fora do objeto: continua escuro (antes a borda branca de α = 0,5 entrava no desfoque).
+        val v = Px.g(blurred[45 * w + 86])
+        assertTrue("brilho em volta do objeto: $v", v < 30)
+    }
+
+    @Test
     fun subjectStaysUntouchedAndBackgroundIsBlurred() {
         val w = 120; val h = 90
         val t = Synth.texture(w, h, 7)
@@ -304,6 +319,20 @@ class ColorConsistencyRegressionTest {
         val mov = Px.argb(80, 60, 40)
         val lut = ExposureLut(FloatArray(257) { (it / 128f).coerceAtMost(1f) })
         org.junit.Assert.assertEquals(1f, Consistency.agreement(ref, mov, lut, 0.002f), 0.01f)
+    }
+
+    @org.junit.Test
+    fun clippedReferenceTrustsDarkFrameThatIsAlsoBright() {
+        // Grade branca estourada na referência; o quadro 1 EV mais escuro mostra o detalhe real.
+        val lut = ExposureLut(FloatArray(257) { (it / 128f).coerceAtMost(1f) })
+        val ref = Px.argb(255, 255, 255)
+        org.junit.Assert.assertEquals(1f, Consistency.clippedAgreement(ref, Px.argb(150, 150, 150), lut, 0.002f)!!, 0.01f)
+        // Algo escuro passou no quadro escuro (fantasma): não concorda.
+        org.junit.Assert.assertEquals(0f, Consistency.clippedAgreement(ref, Px.argb(40, 40, 40), lut, 0.002f)!!, 0f)
+        // Referência medida normalmente: decide a concordância comum.
+        org.junit.Assert.assertNull(Consistency.clippedAgreement(Px.argb(160, 120, 80), Px.argb(80, 60, 40), lut, 0.002f))
+        // Quadro também estourado (ou referência copiada fora do sensor): não informa.
+        org.junit.Assert.assertNull(Consistency.clippedAgreement(ref, ref, lut, 0.002f))
     }
 
     @org.junit.Test

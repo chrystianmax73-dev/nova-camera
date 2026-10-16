@@ -394,7 +394,9 @@ object Engine {
                 val lut = a.luts[k]
                 val t = tilesK[j]
                 for (i in 0 until n) {
-                    val p = if (r[i] > 0f) r[i] * Consistency.agreement(ref0[i], t[i], lut, noise) else 0f
+                    // Referência estourada: decide o próprio pixel do quadro, não a vizinhança em meia resolução.
+                    val p = Consistency.clippedAgreement(ref0[i], t[i], lut, noise)
+                        ?: if (r[i] > 0f) r[i] * Consistency.agreement(ref0[i], t[i], lut, noise) else 0f
                     if (p >= 0.999f) continue
                     val sub = Consistency.predicted(ref0[i], lut)
                     t[i] = if (p <= 0.001f) sub else Px.argb(

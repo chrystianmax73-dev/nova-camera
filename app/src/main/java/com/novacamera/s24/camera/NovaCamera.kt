@@ -815,6 +815,9 @@ class NovaCamera(
         mode == CaptureMode.FOOD -> JobKind.FOOD
         mode == CaptureMode.FOTO && settings.hdr == HdrOption.AUTO && settings.autoProcess && (chosenSize?.megapixels ?: 12.0)<=16.5 -> JobKind.PHOTO
         mode == CaptureMode.FOTO && settings.hdr == HdrOption.NOVA && (chosenSize?.megapixels ?: 12.0)<=16.5 -> JobKind.HDR
+        // HDR desligado: a tele com pouca luz ainda junta quadros de mesma exposição (ruído, não HDR).
+        mode == CaptureMode.FOTO && settings.hdr == HdrOption.OFF && settings.autoProcess && !isFront &&
+            equivalent(zoomOnLens) >= com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FROM && (chosenSize?.megapixels ?: 12.0)<=16.5 -> JobKind.PHOTO
         else -> null
     }
 
@@ -1525,7 +1528,8 @@ class NovaCamera(
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 when(com.novacamera.s24.core.AutoPhotoPolicy.choose(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,clip,deep,
-                                    h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE), equivalent(zoomOnLens))) {
+                                    h!=null && (h.powerSave || h.thermalStatus>=ThermalPolicy.MODERATE), equivalent(zoomOnLens),
+                                    allowFusion = settings.hdr != HdrOption.OFF)) {
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.ZOOM -> {
                                         kind=JobKind.ZOOM
                                         steps=List(com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FRAMES){0}

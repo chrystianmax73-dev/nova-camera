@@ -172,6 +172,27 @@ object Consistency {
         return Px.argb((Px.r(refPx) * g + 0.5f).toInt(), (Px.g(refPx) * g + 0.5f).toInt(), (Px.b(refPx) * g + 0.5f).toInt())
     }
 
+    /**
+     * Referência estourada (ou preta): ela só diz que a cena está acima do branco (ou abaixo do
+     * preto) ali. O quadro de outra exposição é a única medida real — concorda se o que ele prevê na
+     * exposição da referência também está no limite (com tolerância de ruído). Null quando a
+     * referência está medida normalmente (vale [agreement]).
+     *
+     * Sem isso, grades e fios brancos estourados (mais finos que o mapa de confiança em meia
+     * resolução) recebiam a previsão a partir da própria referência estourada: branco chapado com
+     * degraus no formato da grade do mapa (planta 3× HDR, 0.14.5).
+     */
+    fun clippedAgreement(refPx: Int, movPx: Int, lut: ExposureLut, noise: Float): Float? {
+        val r = Px.luma(refPx); val m = Px.luma(movPx)
+        if (r in 0.02f..0.97f) return null
+        // O quadro também saturou/zerou (ou é a própria referência copiada fora do sensor): não informa.
+        if (m !in 0.01f..0.985f) return null
+        val pred = lut.map(m)
+        val tol = tolerance(min(r, 0.97f), noise) * max(1f, lut.slope(m) * 0.5f) * 1.5f
+        val miss = if (r > 0.97f) 0.97f - pred else pred - 0.02f
+        return ((2f * tol - miss) / tol).coerceIn(0f, 1f)
+    }
+
     /** Concordância por pixel em resolução cheia (0..1), para o que a meia resolução não vê. */
     fun agreement(refPx: Int, movPx: Int, lut: ExposureLut, noise: Float): Float {
         val r = Px.luma(refPx); val m = Px.luma(movPx)

@@ -6,6 +6,16 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.15.1 — Correções a partir das fotos reais (planta 3× HDR, frasco 3×/5×, AirPods)
+
+| Item | Antes | Agora | Validação |
+|---|---|---|---|
+| HDR: grade/fios brancos estourados | Pixels com a referência estourada eram decididos pelo mapa de confiança em meia resolução; onde ele zerava, entrava a previsão a partir da própria referência estourada → branco chapado com degraus | Referência estourada (ou preta): decide o próprio pixel do quadro de outra exposição — aceito se ele também está no limite; fantasma (algo escuro que passou) continua rejeitado | Testes (`clippedReferenceTrustsDarkFrameThatIsAlsoBright`); efeito visual: Aparelho |
+| Tele multiquadro | Só a partir de 4,5× (frasco 3× com ISO 2218 saiu num quadro) | A partir de 2,5× (3×, 5×, 10×), ISO ≥ 250 | Testes |
+| Tele com HDR desligado | Foto comum num quadro (frasco 5× ISO 2056) | Com ajuste automático ligado, a tele junta 3 quadros de mesma exposição; nunca HDR nem Noturno com HDR desligado | Testes |
+| Retrato: brilho em volta de objeto claro em fundo escuro | A borda suave da máscara (α < 1) entrava no desfoque do fundo | O desfoque do fundo usa a máscara alargada ~3 px; a composição continua com a original | Testes (`brightObjectSoftEdgeDoesNotGlowIntoDarkBackground`); só na foto, a prévia ao vivo não muda |
+| HDR com ISO alto e movimento (pano, ISO 3008) | Recua para o quadro de referência, sem fusão | **Sem mudança**: os quadros do bracket têm exposições diferentes; somá-los com movimento é o que gera fantasma | — |
+
 ## 0.15.0 — Retrato: o toque escolhe o assunto; detalhe na tele 3× com pele protegida
 
 Levantamento do pedido (o que já existia × o que faltava):
