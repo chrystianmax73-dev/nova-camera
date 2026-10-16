@@ -6,6 +6,13 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.17.3 — Retrato sem "retângulo" nas mudanças de desfoque
+
+Causa: o mapa de desfoque era alargado com janela **quadrada**; as regiões com níveis diferentes de
+desfoque ganhavam cantos retos e bordas bruscas (retângulo quase nítido em volta da fita do frasco
+5×). Agora a janela é um **disco** e a transição entre níveis é suavizada duas vezes. Validação:
+teste do disco (sem canto reto); efeito na foto: Aparelho.
+
 ## 0.17.2 — Contraluz automática
 
 Relato: apontando para qualquer coisa em contraluz, a prévia e a foto ficavam escuras. O fotômetro
@@ -24,7 +31,7 @@ f/2,4), sombras roxas e "aquarela" no fundo desfocado; Pro e prévia também esc
 |---|---|---|
 | Exposição mais longa na prévia/foto (Foto, Retrato, Pro) | Faixa de 15–30 fps em vez de 30 fixos: no escuro o automático pode ir a 1/15 s (até +1 EV de luz real, ou o mesmo brilho com ISO menor). Com luz boa continua a 30 fps. O Noturno, que neste aparelho ficava sem faixa estendida (não há faixa abaixo de 15 fps), também passa a usar 15–30 | Compilação; Aparelho |
 | Sombras sem cor falsa | ISO ≥ 800: a saturação das sombras profundas cai em proporção ao ISO (máx. 80% a partir de ISO 3200); luminância intacta. Roda antes do desfoque do retrato (que transformava as manchas em "aquarela") | Testes; simulado na foto real: roxo some do escuro |
-| Retângulo nítido em volta de objeto próximo no Retrato (fita, mesma foto) | **Não corrigido ainda** — em investigação | — |
+| Retângulo nítido em volta de objeto próximo no Retrato (fita, mesma foto) | Corrigido na 0.17.3 | ver 0.17.3 |
 
 ## 0.17.0 — Vários quadros com luz média (estilo HDR+) e perfil Contraste
 

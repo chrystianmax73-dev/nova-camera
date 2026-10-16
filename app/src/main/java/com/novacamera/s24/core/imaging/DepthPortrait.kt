@@ -102,10 +102,11 @@ object DepthPortrait {
                 max(BACKGROUND_FLOOR, (dist / SPAN).coerceIn(0f, 1f))
             }
         })
-        // Máximo afasta o assunto do fundo colado no contorno; a média em seguida tira o degrau
-        // quadrado do filtro de máximo (transições de desfoque suaves).
+        // Máximo afasta o assunto do fundo colado no contorno. Janela em disco (a quadrada fazia
+        // regiões de desfoque com cantos retos: retângulo nítido em volta da fita no frasco 5×, 0.17.0)
+        // e média larga em seguida (transição gradual entre níveis de desfoque).
         val r = max(2, min(w, h) / 120)
-        return Plan(Planes.boxBlur(subject, 1), Planes.boxBlur(maxFilter(blur, 2 * r), r), near, far, fromPerson)
+        return Plan(Planes.boxBlur(subject, 1), Planes.boxBlur(Planes.boxBlur(maxFilterDisk(blur, 2 * r), r), r), near, far, fromPerson)
     }
 
     /** O objeto sem pessoa não pode ocupar quase o quadro inteiro (seria chão/parede junto). */
@@ -187,6 +188,37 @@ object DepthPortrait {
             if (between > best) { best = between; thr = i }
         }
         return (thr + 0.5f) / 255f
+    }
+
+    /** Máximo em disco de raio [r] (sem cantos retos). Roda na resolução do mapa de profundidade. */
+    fun maxFilterDisk(p: Plane, r: Int): Plane {
+        if (r <= 0) return p
+        val w = p.w; val h = p.h
+        // Meia-largura de cada linha do disco.
+        val half = IntArray(2 * r + 1) { k -> val dy = k - r; kotlin.math.sqrt((r * r - dy * dy).toFloat()).toInt() }
+        // Máximo por linha em janelas de cada meia-largura usada, reaproveitado entre linhas do disco.
+        val widths = half.distinct()
+        val rowMax = HashMap<Int, FloatArray>()
+        for (hw in widths) {
+            val m = FloatArray(w * h)
+            for (y in 0 until h) for (x in 0 until w) {
+                var v = 0f
+                for (k in max(0, x - hw)..min(w - 1, x + hw)) v = max(v, p.data[y * w + k])
+                m[y * w + x] = v
+            }
+            rowMax[hw] = m
+        }
+        val out = Plane(w, h)
+        for (y in 0 until h) for (x in 0 until w) {
+            var v = 0f
+            for (k in 0..2 * r) {
+                val yy = y + k - r
+                if (yy < 0 || yy >= h) continue
+                v = max(v, rowMax[half[k]]!![yy * w + x])
+            }
+            out.data[y * w + x] = v
+        }
+        return out
     }
 
     /** Máximo em janela quadrada (2r+1)², separável. */

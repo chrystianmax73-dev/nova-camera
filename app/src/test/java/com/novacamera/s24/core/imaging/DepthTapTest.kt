@@ -38,3 +38,15 @@ class DepthTapTest {
         assertTrue(p.fromPerson); assertTrue(sharp(p, 40, 30))
     }
 }
+
+class DepthDiskFilterTest {
+    @org.junit.Test fun discoNaoFazCantoReto() {
+        val p = Plane(41, 41)
+        p[20, 20] = 1f
+        val q = DepthPortrait.maxFilterDisk(p, 10)
+        org.junit.Assert.assertEquals(1f, q[20, 30], 0f)   // borda do disco no eixo
+        org.junit.Assert.assertEquals(1f, q[27, 27], 0f)   // dentro (distância ≈ 9,9)
+        org.junit.Assert.assertEquals(0f, q[29, 29], 0f)   // canto do quadrado: fora do disco
+        org.junit.Assert.assertEquals(1f, DepthPortrait.maxFilter(p, 10)[29, 29], 0f) // o quadrado preenchia
+    }
+}
