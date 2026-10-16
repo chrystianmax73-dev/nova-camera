@@ -10,7 +10,7 @@ class DetailTest {
 
     @Test fun intensidadePorZoom() {
         assertEquals(0f, Detail.amountFor(1f), 0f)
-        assertEquals(0f, Detail.amountFor(3f), 0f)
+        assertTrue(Detail.amountFor(3f) in 0.01f..Detail.amountFor(5f))
         assertTrue(Detail.amountFor(5f) > 0f)
         assertTrue(Detail.amountFor(10f) > Detail.amountFor(5f))
     }
@@ -28,6 +28,20 @@ class DetailTest {
         assertTrue("inclinação $slopeBefore → $slopeAfter", slopeAfter > slopeBefore)
         // Sem halo: nada abaixo do preto nem acima do branco do degrau.
         for (i in px.indices) assertTrue(Px.r(px[i]) in 60..180)
+    }
+
+    @Test fun pele_recebeMenosRealce() {
+        // Mesmo degrau em tom de pele e em cinza: a pele muda menos.
+        fun run(lo: Int, hi: Int, skin: Boolean): Int {
+            val w = 40; val h = 12
+            fun c(v: Int) = if (skin) Px.argb((v * 1.25f).toInt().coerceAtMost(255), v, (v * 0.85f).toInt()) else gray(v)
+            val ramp = intArrayOf(0, 15, 40, 75, 100, 115, 120)
+            val px = IntArray(w * h) { i -> val x = i % w; c(lo + when { x < 17 -> 0; x > 23 -> 120; else -> ramp[x - 17] }) }
+            val before = px.copyOf()
+            Detail.applyBand(px, w, h, 0.6f, 1f)
+            return px.indices.sumOf { kotlin.math.abs(Px.g(px[it]) - Px.g(before[it])) }
+        }
+        assertTrue(run(110, 230, skin = true) < run(110, 230, skin = false))
     }
 
     @Test fun ruidoFraco_naoEhRealcado() {

@@ -476,12 +476,16 @@ object Engine {
      * Decide o assunto do retrato a partir da segmentação de pessoa (pode faltar) e da profundidade
      * estimada (pode faltar). Mesma lógica no app e na validação local. Null = sem assunto.
      */
-    fun portraitSubject(bmp: Bitmap, person: Plane?, hair: Plane?, depthRaw: Plane?): PortraitSubject? {
+    fun portraitSubject(bmp: Bitmap, person: Plane?, hair: Plane?, depthRaw: Plane?, tap: Pair<Float, Float>? = null): PortraitSubject? {
         val depth = depthRaw?.let { DepthPortraitNorm.normalized(it, max(1, bmp.width / 8), max(1, bmp.height / 8)) }
         if (depth == null) return person?.let { PortraitSubject(portraitMatte(bmp, it, hair), null, null) }
-        val plan = com.novacamera.s24.core.imaging.DepthPortrait.plan(depth, person)
-        if (person == null && plan.subject.data.count { it >= 0.5f } < plan.subject.data.size * 0.01f) return null
-        val note = if (plan.fromPerson) null else "Sem pessoa: assunto pela profundidade estimada (o que está mais perto no centro)"
+        val plan = com.novacamera.s24.core.imaging.DepthPortrait.plan(depth, person, tap)
+        if (!plan.fromPerson && plan.subject.data.count { it >= 0.5f } < plan.subject.data.size * 0.01f) return null
+        val note = when {
+            plan.fromPerson -> null
+            tap != null -> "Assunto escolhido pelo toque (profundidade estimada)"
+            else -> "Sem pessoa: assunto pela profundidade estimada (o que está mais perto no centro)"
+        }
         return PortraitSubject(portraitMatte(bmp, plan.subject, if (plan.fromPerson) hair else null), plan.blur, note)
     }
 

@@ -1012,10 +1012,25 @@ class NovaCamera(
      * (acompanha aproximação/afastamento), mantendo a medição de exposição no ponto para não "saltar".
      * [lock] = toque prolongado: AF fica travado e AE/AWB são bloqueados via Camera2.
      */
+    /** Último toque na prévia (0..1 da área visível), para o Retrato escolher o assunto do desfoque. */
+    private var tapOnView: Pair<Float, Float>? = null
+
+    /**
+     * Ponto tocado nas coordenadas da foto final. A prévia mostra exatamente a área salva (ViewPort);
+     * só com o aparelho em pé (a foto sai na mesma orientação da tela). Frontal sem espelho: x invertido.
+     */
+    private fun subjectPointForPhoto(mirror: Boolean): Pair<Float, Float>? {
+        val t = tapOnView?.takeIf { userPointActive } ?: return null
+        if (targetRotation != Surface.ROTATION_0) return null
+        return (if (isFront && !mirror) 1f - t.first else t.first) to t.second
+    }
+
     fun focusAt(x: Float, y: Float, lock: Boolean) {
         val cam = camera ?: return
         val token = ++focusToken
         userPointActive = true
+        if (previewView.width > 0 && previewView.height > 0)
+            tapOnView = (x / previewView.width).coerceIn(0f, 1f) to (y / previewView.height).coerceIn(0f, 1f)
         aeLocked = false
         applyInterop()
         val point = previewView.meteringPointFactory.createPoint(x, y)
@@ -1483,7 +1498,8 @@ class NovaCamera(
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
-                portraitBlur = settings.portraitBlur, style = currentStyle()))
+                portraitBlur = settings.portraitBlur, style = currentStyle(),
+                subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null))
             listener.onProcessingQueued(kind)
         }
 

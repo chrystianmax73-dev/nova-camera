@@ -5,7 +5,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Recuperação de detalhe na tele (5× e 10×): devolve parte da nitidez que a lente longa e a
+ * Recuperação de detalhe na tele (3×, 5× e 10×): devolve parte da nitidez que a lente longa e a
  * interpolação de cor perdem, sem criar o que não foi capturado.
  *
  * - Só a luminância (cor não ganha borda colorida).
@@ -14,11 +14,25 @@ import kotlin.math.min
  * - Sem halo: o resultado fica preso entre o mínimo e o máximo da vizinhança 3×3 original.
  */
 object Detail {
-    /** Intensidade por ampliação; abaixo de 4,5× nada (a principal já é nítida). */
+    /** Intensidade por ampliação: tele 3×, 5× e 10× (mais perda de nitidez óptica); nada na principal. */
     fun amountFor(zoom: Float): Float = when {
         zoom >= 9f -> 0.6f
         zoom >= 4.5f -> 0.4f
+        zoom >= 2.5f -> 0.3f
+        // Principal: testado na 0.15 (selfie e planta, 12 MP) — 1,7% dos pixels mudam, diferença quase
+        // invisível por ~1 s de processamento. Não compensa.
         else -> 0f
+    }
+
+    /**
+     * Pele (faixa YCbCr clássica de tons de pele): o realce cai para 30% — poros e marcas não viram
+     * "textura de lixa"; barba, cabelo, olhos e sobrancelhas (fora da faixa) recebem o realce inteiro.
+     */
+    private fun skinWeight(c: Int): Float {
+        val r = Px.r(c); val g = Px.g(c); val b = Px.b(c)
+        val cb = 128 - 0.168736f * r - 0.331264f * g + 0.5f * b
+        val cr = 128 + 0.5f * r - 0.418688f * g - 0.081312f * b
+        return if (cb in 77f..127f && cr in 133f..173f) 0.3f else 1f
     }
 
     private fun luma(c: Int) = (Px.r(c) * 77 + Px.g(c) * 150 + Px.b(c) * 29) shr 8
@@ -78,7 +92,7 @@ object Detail {
             val gate = if (ad >= hi) 1f else { val t = (ad - lo) / (hi - lo); t * t * (3f - 2f * t) }
             var mn = 255; var mx = 0
             for (dy in -1..1) for (dx in -1..1) { val v = y[i + dy * w + dx]; if (v < mn) mn = v; if (v > mx) mx = v }
-            val target = (y[i] + amount * gate * d).coerceIn(mn.toFloat(), mx.toFloat())
+            val target = (y[i] + amount * gate * skinWeight(px[i]) * d).coerceIn(mn.toFloat(), mx.toFloat())
             val delta = (target - y[i]).toInt()
             if (delta == 0) continue
             val c = px[i]

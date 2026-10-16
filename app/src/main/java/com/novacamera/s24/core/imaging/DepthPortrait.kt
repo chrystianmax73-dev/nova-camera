@@ -2,6 +2,7 @@ package com.novacamera.s24.core.imaging
 
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Retrato com profundidade estimada: o desfoque cresce com a distância ao plano de foco, como numa
@@ -57,11 +58,19 @@ object DepthPortrait {
      * Só entra o que está **conectado** à pessoa ou ao centro: manchas soltas na mesma distância não
      * viram assunto. O desfoque cresce com a distância até a faixa do assunto.
      */
-    fun plan(depth: Plane, person: Plane?): Plan {
+    fun plan(depth: Plane, person: Plane?, tap: Pair<Float, Float>? = null): Plan {
         val w = depth.w; val h = depth.h; val n = w * h
-        val p = person?.let { if (it.w == w && it.h == h) it else Planes.resize(it, w, h) }
+        val p0 = person?.let { if (it.w == w && it.h == h) it else Planes.resize(it, w, h) }
+        // Toque do usuário (0..1 na foto): fora da pessoa, o assunto passa a ser o objeto tocado.
+        val tapIndex = tap?.let { (tx, ty) ->
+            (ty.coerceIn(0f, 1f) * (h - 1)).roundToInt() * w + (tx.coerceIn(0f, 1f) * (w - 1)).roundToInt()
+        }
+        val tapOnPerson = tapIndex != null && p0 != null && p0.data[tapIndex] >= 0.5f
+        val p = if (tapIndex != null && !tapOnPerson) null else p0
         val inPerson = p?.let { pp -> depth.data.indices.filter { pp.data[it] >= 0.8f } }.orEmpty()
         val fromPerson = inPerson.size >= n * MIN_PERSON
+        val seed: (Int) -> Boolean = if (tapIndex != null && !tapOnPerson) { i -> near(i, tapIndex, w, max(1, min(w, h) / 40)) }
+            else { i -> central(i, w, h) }
         var near: Float; var far: Float
         var connected: BooleanArray
         if (fromPerson) {
@@ -72,14 +81,14 @@ object DepthPortrait {
         } else {
             // Perto × longe; se o "perto" conectado ao centro tomar quase o quadro (chão e parede junto
             // com o objeto), separa em três faixas e fica com a do centro.
-            val f = focus(depth, null)
+            val f = if (tapIndex != null && !tapOnPerson) tapDepth(depth, tapIndex) else focus(depth, null)
             val t = otsu(depth)
             var range = if (f >= t) t to 1f else 0f to t
-            connected = grow(depth, range.first, range.second) { i -> central(i, w, h) }
+            connected = grow(depth, range.first, range.second, seed)
             if (connected.count { it } > n * MAX_OBJECT) {
                 val (t1, t2) = otsu3(depth)
                 range = when { f >= t2 -> t2 to 1f; f >= t1 -> t1 to t2; else -> 0f to t1 }
-                val refined = grow(depth, range.first, range.second) { i -> central(i, w, h) }
+                val refined = grow(depth, range.first, range.second, seed)
                 if (refined.count { it } >= n * MIN_PERSON) connected = refined
                 else range = if (f >= t) t to 1f else 0f to t
             }
@@ -101,6 +110,22 @@ object DepthPortrait {
 
     /** O objeto sem pessoa não pode ocupar quase o quadro inteiro (seria chão/parede junto). */
     private const val MAX_OBJECT = 0.45f
+
+    private fun near(i: Int, c: Int, w: Int, r: Int): Boolean {
+        val dx = i % w - c % w; val dy = i / w - c / w
+        return dx * dx + dy * dy <= r * r
+    }
+
+    /** Profundidade no ponto tocado: mediana 5×5 (um pixel ruidoso não decide o assunto). */
+    private fun tapDepth(depth: Plane, c: Int): Float {
+        val w = depth.w; val h = depth.h; val cx = c % w; val cy = c / w
+        val v = ArrayList<Float>(25)
+        for (dy in -2..2) for (dx in -2..2) {
+            val x = cx + dx; val y = cy + dy
+            if (x in 0 until w && y in 0 until h) v += depth[x, y]
+        }
+        v.sort(); return v[v.size / 2]
+    }
 
     private fun central(i: Int, w: Int, h: Int): Boolean {
         val x = i % w; val y = i / w

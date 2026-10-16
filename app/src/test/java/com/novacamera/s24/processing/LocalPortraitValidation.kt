@@ -45,14 +45,15 @@ class LocalPortraitValidation {
         val subject = if (old != null) null else Engine.portraitSubject(bmp,
             File(dir, "person.bin").takeIf { it.exists() }?.let(::plane),
             File(dir, "hair.bin").takeIf { it.exists() }?.let(::plane),
-            File(dir, "depth.bin").takeIf { it.exists() }?.let(::plane))
+            File(dir, "depth.bin").takeIf { it.exists() }?.let(::plane),
+            System.getenv("PORTRAIT_TAP")?.split(",")?.let { it[0].toFloat() to it[1].toFloat() })
         val matte = old ?: subject?.matte ?: error("sem assunto")
         val blurMap = subject?.blur
         blurMap?.let { b ->
             val bp = IntArray(b.w * b.h) { val v = (b.data[it] * 255).toInt().coerceIn(0, 255); (0xFF shl 24) or (v shl 16) or (v shl 8) or v }
             File(dir, "blur.png").outputStream().use { Bitmap.createBitmap(bp, b.w, b.h, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        val tag = if (old != null) "_old" else ""
+        val tag = if (old != null) "_old" else System.getenv("PORTRAIT_TAG") ?: ""
         val px = IntArray(matte.w * matte.h) { val v = (matte.data[it] * 255).toInt().coerceIn(0, 255); (0xFF shl 24) or (v shl 16) or (v shl 8) or v }
         File(dir, "matte$tag.png").outputStream().use { Bitmap.createBitmap(px, matte.w, matte.h, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }
         val strength = System.getenv("PORTRAIT_BLUR")?.toFloatOrNull() ?: 0.6f

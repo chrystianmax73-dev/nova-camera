@@ -60,6 +60,8 @@ class Job(
     val portraitBlur: Float = 0.6f,
     /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
     val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
+    /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
+    val subjectPoint: Pair<Float, Float>? = null,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -314,7 +316,7 @@ object ProcessingQueue {
                 progress(0.69f, "Estimando profundidade")
                 val depth = runCatching { DepthEstimator.estimate(context, base) }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
-                val subject = runCatching { Engine.portraitSubject(base, person?.person, person?.hair, depth) }
+                val subject = runCatching { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint) }
                     .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
                 if (subject != null) {
                     session.saveMatte(subject.matte)

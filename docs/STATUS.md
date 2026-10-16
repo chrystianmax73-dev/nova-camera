@@ -6,6 +6,25 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.15.0 — Retrato: o toque escolhe o assunto; detalhe na tele 3× com pele protegida
+
+Levantamento do pedido (o que já existia × o que faltava):
+- Já existiam: toque = foco + medição no ponto; tom adaptativo com proteção contra piora (por
+  foto, com metadados); HDR/Noturno/tele multiquadro automáticos; Retrato com pessoa + profundidade;
+  desfoque ao vivo; processamento pesado depois do disparo; modelos no APK; controle térmico/bateria.
+- Faltava e entrou: (1) no Retrato, o toque também define o **assunto do desfoque** — fora da pessoa,
+  vale o objeto tocado (faixa de profundidade na mediana 5×5 do ponto, conectada a ele); na
+  pessoa, a pessoa. Só com o aparelho em pé (mesma orientação da prévia); frontal sem espelho
+  inverte x. (2) Detalhe fino também na 3× (0,3) e realce reduzido a 30% em tons de pele (poros não
+  viram lixa; barba/cabelo/olhos recebem o realce inteiro).
+- Testado e **não ativado**: detalhe na principal (1×) — selfie e planta 12 MP: 1,7% dos pixels
+  mudam, diferença quase invisível por ~1 s de processamento.
+- Não feito: classificação de cena (pessoa/planta/comida/paisagem) com parâmetros por categoria — o
+  tom já é decidido por foto pelos números da própria cena; categorias mudariam o "gosto" sem
+  referência pareada para calibrar.
+- Validação: planta com toque no centro (igual à 0.14) e no canto (parede/piso nítidos, planta
+  desfocada). Testes: `DepthTapTest`, `DetailTest` (pele).
+
 ## 0.14.5 — ZSL desligado; vigia sem ciclo
 
 - Diagnóstico 0.14.3 (S24 Ultra, Android 17): 10 paradas da prévia na Foto — frontal ("lente 1")
