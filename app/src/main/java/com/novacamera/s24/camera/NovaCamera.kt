@@ -1618,6 +1618,11 @@ class NovaCamera(
                                         steps=List(n){0}
                                         captureNote=if (collectTele) "Tele (coleta de testes): $n quadros alinhados" else "Tele com pouca luz: $n quadros alinhados"
                                     }
+                                    com.novacamera.s24.core.AutoPhotoPolicy.Path.MERGE -> {
+                                        val n = com.novacamera.s24.core.AutoPhotoPolicy.MERGE_FRAMES
+                                        steps=List(n){0}
+                                        captureNote="Luz média: $n quadros alinhados (menos ruído)"
+                                    }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
                                         val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,3)

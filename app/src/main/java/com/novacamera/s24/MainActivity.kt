@@ -302,6 +302,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         startLevel()
         ProcessingQueue.keepOriginals = settings.keepOriginals
         ProcessingQueue.aiDenoise = settings.aiDenoise
+        ProcessingQueue.contrastProfile = settings.contrastProfile
         val sig = signature()
         val settingsChanged = sig != settingsSignature
         settingsSignature = sig

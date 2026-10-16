@@ -117,6 +117,9 @@ class SettingsActivity : NovaScreen() {
             "É uma prévia em resolução reduzida; a foto passa pelo processamento completo. Desligue se o aparelho esquentar.",
             { settings.portraitLivePreview }, { settings.portraitLivePreview = it })
 
+        switch("Perfil Contraste (teste)", "Preto mais firme e mais contraste local, na direção do vivo, iPhone e Pixel. " +
+            "Não muda o Noturno. Desligado: tom natural de sempre.", { settings.contrastProfile }, { settings.contrastProfile = it })
+
         section("Assinatura")
         switch("Assinatura Nova Camera", "\"NOVA CAMERA · Shot on ${Signature.deviceName()}\" no canto da foto final. " +
             "Nunca é aplicada ao original.",

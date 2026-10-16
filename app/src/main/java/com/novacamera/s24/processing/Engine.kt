@@ -452,6 +452,16 @@ object Engine {
         }
     }
 
+    /** Perfil "Contraste": preto firme e contraste local sobre a foto já com o tom automático. */
+    fun profileInPlace(bmp: Bitmap, cancel: CancelToken) {
+        val (px, w, h) = preview(bmp)
+        val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
+        val params = ToneParams.contrastProfile(com.novacamera.s24.core.imaging.Adaptive.darkChannel(px),
+            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f))
+        val plan = com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), ToneMap.midFrom(luma), "perfil contraste")
+        toneInPlace(bmp, plan, 1f, false, cancel) {}
+    }
+
     /** Resolução da máscara refinada do retrato para uma foto w×h. */
     fun matteFactor(w: Int, h: Int) = max(1, max(w, h) / 1536)
 

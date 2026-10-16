@@ -45,11 +45,13 @@ class EfficiencyTest {
     @Test fun tele_comGanhoAlto_usaMultiquadro() {
         assertEquals(AutoPhotoPolicy.Path.ZOOM, AutoPhotoPolicy.choose(400, 10_000_000L, 0f, 0f, hot = false, zoom = 10f))
         assertEquals(AutoPhotoPolicy.Path.SINGLE, AutoPhotoPolicy.choose(100, 2_000_000L, 0f, 0f, hot = false, zoom = 10f))
-        assertEquals(AutoPhotoPolicy.Path.SINGLE, AutoPhotoPolicy.choose(400, 10_000_000L, 0f, 0f, hot = false, zoom = 1f))
+        // Principal com luz média: vários quadros iguais (como o HDR+); luz boa continua um quadro.
+        assertEquals(AutoPhotoPolicy.Path.MERGE, AutoPhotoPolicy.choose(400, 10_000_000L, 0f, 0f, hot = false, zoom = 1f))
+        assertEquals(AutoPhotoPolicy.Path.SINGLE, AutoPhotoPolicy.choose(100, 10_000_000L, 0f, 0f, hot = false, zoom = 1f))
         // 3× também (frasco ISO 2218); com HDR desligado só a tele multiquadro, nunca HDR/Noturno.
         assertEquals(AutoPhotoPolicy.Path.ZOOM, AutoPhotoPolicy.choose(2218, 30_000_000L, 0f, 0f, hot = false, zoom = 3f))
         assertEquals(AutoPhotoPolicy.Path.ZOOM, AutoPhotoPolicy.choose(2056, 40_000_000L, 0.03f, 0.2f, hot = false, zoom = 5f, allowFusion = false))
-        assertEquals(AutoPhotoPolicy.Path.SINGLE, AutoPhotoPolicy.choose(1600, 66_000_000L, 0.03f, 0.2f, hot = false, zoom = 1f, allowFusion = false))
+        assertEquals(AutoPhotoPolicy.Path.MERGE, AutoPhotoPolicy.choose(1600, 66_000_000L, 0.03f, 0.2f, hot = false, zoom = 1f, allowFusion = false))
         // Aquecido: um quadro só, como antes.
         assertEquals(AutoPhotoPolicy.Path.SINGLE, AutoPhotoPolicy.choose(800, 10_000_000L, 0f, 0f, hot = true, zoom = 10f))
     }

@@ -72,6 +72,29 @@ data class ToneParams(
         midLiftEv < 0.02f && lumaBlack < 0.005f
 
     companion object {
+        /** Contraste local do perfil "Contraste" (o automático usa só na tele com véu). */
+        const val PROFILE_CLARITY = 0.3f
+        /** Onde o perfil deixa o canal escuro (p0,5): ~1,5% — preto de verdade, sem engolir sombras. */
+        private const val PROFILE_BLACK_TARGET = 0.015f
+        private const val PROFILE_MAX_BLACK = 0.06f
+
+        /**
+         * Perfil "Contraste" (opcional): preto firme e contraste local, a direção medida nas
+         * referências vivo X300 Pro, iPhone 18 Pro e Pixel 10 Pro (preto p2 0,7–3,9 e contraste local
+         * 6–14, contra 6–19 e 4–7 no Nova). Aplicado depois do tom automático; não clareia nada.
+         */
+        fun contrastProfile(darkChannel: Float, medianLuma: Float = 0.5f): ToneParams {
+            // Cena escura (mediana baixa): o preto firme escureceria o ambiente inteiro (quarto a 1×
+            // descia de 26 para 21 na mediana); entra aos poucos entre 0,15 e 0,35.
+            val t = ((medianLuma - 0.15f) / 0.20f).coerceIn(0f, 1f)
+            val fade = t * t * (3f - 2f * t)
+            return ToneParams(
+                shadowLiftEv = 0f, highlightCompression = 0f, blackLevel = 0f,
+                clarity = PROFILE_CLARITY,
+                lumaBlack = (darkChannel - PROFILE_BLACK_TARGET).coerceIn(0f, PROFILE_MAX_BLACK) * fade,
+            )
+        }
+
         /**
          * Decide os parâmetros a partir da cena. Conservador: cenas bem expostas recebem quase nada;
          * a noite é clareada até um alvo próximo do Noturno da Samsung (mediana ~0,42), com preto firme.

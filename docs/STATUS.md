@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.17.0 — Vários quadros com luz média (estilo HDR+) e perfil Contraste
+
+| Item | O que faz | Validação |
+|---|---|---|
+| Foto 1× com luz média (ISO ≥ 200: interior, fim de tarde, selfie dentro de casa) | 4 quadros iguais alinhados e somados, como o HDR+ do Pixel: menos ruído (≈ √4) sem suavizar textura. Movimento: rejeição por pixel ou volta ao quadro de referência. Luz boa (ISO < 200) continua com um quadro | Testes (escolha do caminho); ganho real: Aparelho |
+| Perfil **Contraste** (Ajustes › Foto Nova, desligado) | Preto firme e contraste local depois do tom automático, na direção medida em vivo X300 Pro, iPhone 18 Pro e Pixel 10 Pro. Em cena escura o preto firme não entra. Não vale para Noturno nem Food | Testes; medido em 3 fotos reais do dossiê: preto p2 7,4→4,3 (quarto), 19,1→12,4 (perna), 16,8→10,3 (planta), sem aumento de estouro. Contraste local subiu pouco (+0,4 a +0,9) |
+
+**Ainda não feito:** tratamento separado de céu e pele (item 3) e super-resolução da tele (item 4: aguardando as rajadas coletadas na 0.16.2).
+
 ## 0.16.2 — Coleta de rajadas para a super-resolução da tele
 
 Opção **Ajustes › Diagnóstico e privacidade › Guardar quadros das rajadas (testes)**, desligada por padrão:

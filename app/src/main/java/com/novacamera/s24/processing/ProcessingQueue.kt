@@ -36,8 +36,8 @@ enum class JobKind(val label: String, val tone: ToneIntent) {
     /** FOTO na tele (≥ 4,5×) com pouca luz: quadros alinhados e somados, tom da Foto (não clareia). */
     ZOOM("Zoom", ToneIntent.LIGHT),
     ;
-    /** Fusão de quadros iguais (redução de ruído sem suavizar): Noturno e tele. */
-    val merges get() = this == NIGHT || this == ZOOM
+    /** Fusão de quadros iguais (redução de ruído sem suavizar): Noturno, tele e Foto com luz média. */
+    val merges get() = this == NIGHT || this == ZOOM || this == PHOTO
 }
 
 class Job(
@@ -173,6 +173,8 @@ object ProcessingQueue {
     @Volatile var keepOriginals = false
     /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
     @Volatile var aiDenoise = false
+    /** Perfil de tom "Contraste" (preto firme e contraste local); fica gravado em cada sessão. */
+    @Volatile var contrastProfile = false
 
     val pending: Int get() = synchronized(queued) { queued.size } + (if (current != null) 1 else 0)
     fun canAccept() = pending < MAX_PENDING
@@ -221,6 +223,7 @@ object ProcessingQueue {
         session.dir.mkdirs()
         session.kind = job.kind
         session.style = job.style
+        if (contrastProfile) session.meta.setProperty("profile", "contrast")
         if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
@@ -297,7 +300,8 @@ object ProcessingQueue {
                 hdrScene?.let { runCatching { session.saveHdr(it.oriented(frame0.rotationDegrees, job.mirror)) } }
             } else {
                 base = orig
-                if (job.kind.merges || job.kind == JobKind.HDR)
+                // Foto de um quadro (luz boa) é o caminho normal, não uma falha do multiquadro.
+                if ((job.kind.merges || job.kind == JobKind.HDR) && !(job.kind == JobKind.PHOTO && job.frames.size < 2))
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
@@ -559,6 +563,9 @@ object ProcessingQueue {
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
             Engine.detailInPlace(bmp, session.zoom, cancel)
         Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
+        // Perfil "Contraste": não no Noturno (tom do Noturno mantido por decisão do usuário) nem no Food.
+        if (session.meta.getProperty("profile") == "contrast" && kind != JobKind.NIGHT && kind != JobKind.FOOD)
+            Engine.profileInPlace(bmp, cancel)
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
             if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) }
