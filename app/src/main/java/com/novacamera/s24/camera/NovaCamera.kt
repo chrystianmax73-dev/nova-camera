@@ -144,6 +144,11 @@ class NovaCamera(
     private var aeLocked = false
     private var focusToken = 0
     private var evIndex = 0
+    /** Compensação automática de contraluz (passos de EV), somada ao EV do usuário só quando ele está em 0. */
+    private var backlightBoost = 0
+    private fun appliedEv() = evIndex + backlightBoost
+    /** Captura em andamento (rajada/bracketing): a contraluz automática não mexe no EV no meio. */
+    private var capturing = false
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
     /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */
@@ -329,7 +334,7 @@ class NovaCamera(
         mode = m
         settings.lastMode = m
         resetFocusState()
-        evIndex = 0
+        evIndex = 0; backlightBoost = 0
         if (!m.isPro) manual = ManualControls()
         if (rebind) bind()
     }
@@ -338,7 +343,7 @@ class NovaCamera(
         if (isRecording || nativeRun != null) return
         isFront = !isFront
         resetFocusState()
-        evIndex = 0
+        evIndex = 0; backlightBoost = 0
         refreshLenses()
         if (rebind) bind()
     }
@@ -776,7 +781,9 @@ class NovaCamera(
 
         val exposure = cam.cameraInfo.exposureState
         evIndex = evIndex.coerceIn(exposure.exposureCompensationRange.lower, exposure.exposureCompensationRange.upper)
-        if (exposure.isExposureCompensationSupported) cam.cameraControl.setExposureCompensationIndex(evIndex)
+        capturing = false
+        backlightBoost = backlightBoost.coerceIn(0, maxOf(0, exposure.exposureCompensationRange.upper - evIndex))
+        if (exposure.isExposureCompensationSupported) cam.cameraControl.setExposureCompensationIndex(appliedEv())
         applyInterop()
         applyVideoMetering()
 
@@ -1155,10 +1162,30 @@ class NovaCamera(
         val ex = cam.cameraInfo.exposureState
         if (!ex.isExposureCompensationSupported) return
         val clamped = index.coerceIn(ex.exposureCompensationRange.lower, ex.exposureCompensationRange.upper)
-        if (clamped == evIndex) return
-        evIndex = clamped
+        if (clamped == evIndex && backlightBoost == 0) return
+        // EV escolhido pelo usuário manda: a contraluz automática sai.
+        evIndex = clamped; backlightBoost = 0
         cam.cameraControl.setExposureCompensationIndex(clamped)
         listener.onExposureIndex(clamped)
+    }
+
+    /**
+     * Contraluz automática ([com.novacamera.s24.core.BacklightMeter]): [ev] ≥ 0 sobre o EV 0. Só na
+     * Foto, Retrato e Vídeo parado, sem EV/AE travado/toque do usuário. Devolve o EV aplicado.
+     */
+    fun setBacklightEv(ev: Float): Float {
+        val cam = camera ?: return 0f
+        val ex = cam.cameraInfo.exposureState
+        val allowed = ex.isExposureCompensationSupported && !mode.isPro && mode != CaptureMode.NOITE &&
+            mode != CaptureMode.TIMELAPSE && mode != CaptureMode.CAMERA_LENTA && activeExtension == ExtensionMode.NONE &&
+            !aeLocked && evIndex == 0 && !userPointActive && !isRecording && nightOverride == null && !capturing
+        val stepEv = ex.exposureCompensationStep.toFloat().takeIf { it > 0f } ?: return 0f
+        val wanted = if (allowed) Math.round(ev / stepEv).coerceIn(0, ex.exposureCompensationRange.upper) else 0
+        if (wanted != backlightBoost && (allowed || !capturing)) {
+            backlightBoost = wanted
+            cam.cameraControl.setExposureCompensationIndex(appliedEv())
+        }
+        return backlightBoost * stepEv
     }
 
     val exposureIndex get() = evIndex
@@ -1383,7 +1410,7 @@ class NovaCamera(
         val c=activity.getSystemService(android.hardware.camera2.CameraManager::class.java).getCameraCharacteristics(id)
         val sensor=c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         val display=when(targetRotation){Surface.ROTATION_90->90;Surface.ROTATION_180->180;Surface.ROTATION_270->270;else->0}
-        val r=NativePhotoCapture.Request(id,currentLens?.physicalCameraId,target,cameraZoom(zoomOnLens),(sensor-display+360)%360,evIndex,
+        val r=NativePhotoCapture.Request(id,currentLens?.physicalCameraId,target,cameraZoom(zoomOnLens),(sensor-display+360)%360,appliedEv(),
             point=if(userPointActive)nativeMeterPoint else null,flashMode=imageCapture?.flashMode ?: ImageCapture.FLASH_MODE_OFF,
             locked=if(aeLocked)latestStats else null)
         val runner=NativePhotoCapture(activity);nativeRun=runner
@@ -1571,19 +1598,21 @@ class NovaCamera(
             }
             JobKind.HDR -> if (exposure.isExposureCompensationSupported && aeAdjustable())
                 ModeResolver.hdrBracket(exposure.exposureCompensationStep.numerator, exposure.exposureCompensationStep.denominator,
-                    exposure.exposureCompensationRange.lower - evIndex, exposure.exposureCompensationRange.upper - evIndex)
+                    exposure.exposureCompensationRange.lower - appliedEv(), exposure.exposureCompensationRange.upper - appliedEv())
                 else listOf(0)
             else -> listOf(0)
         }
         val mirror = isFront && settings.mirrorFrontPhoto
         val frames = ArrayList<CapturedFrame>()
-        val baseEv = evIndex
+        val baseEv = appliedEv()
+        capturing = true
         ic.targetRotation = targetRotation
 
         fun submit() {
+            capturing = false
             if (nightOverride != null) { nightOverride = null; applyInterop() }
             releaseNightFocus()
-            if (baseEv != evIndex || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
+            if (baseEv != appliedEv() || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.

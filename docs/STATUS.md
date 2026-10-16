@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.17.2 — Contraluz automática
+
+Relato: apontando para qualquer coisa em contraluz, a prévia e a foto ficavam escuras. O fotômetro
+da câmera mede a média do quadro; janela/céu/lâmpada estourados puxam tudo para baixo.
+
+| Item | O que faz | Validação |
+|---|---|---|
+| Contraluz automática (Ajustes › Foco e exposição, ligada) | A prévia exibida é medida ~1,5×/s (64 px de largura, sem fluxo extra da câmera). Com ≥ 2% do quadro estourado, o centro (60% × 60%, sem os estourados) é levado à mediana 0,30 com compensação de exposição, até +1,5 EV, em passos de 1/3 EV. Sai sozinha sem área estourada, ao mexer na exposição, tocar para medir, travar AE, no Pro, no Noturno, gravando vídeo e durante rajadas | Testes (medição, alvo, passos, estabilidade); comportamento real: Aparelho |
+
 ## 0.17.1 — Foto escura no escuro (tele) e manchas roxas nas sombras
 
 Caso real: frasco a 5× no Retrato, quarto escuro, 0.17.0: ISO 3069, 1/30 s, lente 3× com recorte (69 mm,

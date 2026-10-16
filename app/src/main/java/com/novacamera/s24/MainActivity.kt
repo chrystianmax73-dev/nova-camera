@@ -202,6 +202,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         handler.postDelayed(energyTick, ENERGY_EVERY_MS)
         handler.removeCallbacks(aidTick)
         handler.postDelayed(aidTick, AID_EVERY_MS)
+        handler.removeCallbacks(backlightTick)
+        handler.postDelayed(backlightTick, BACKLIGHT_EVERY_MS)
     }
 
     // ------------------------------------------------------------------ auxílios do visor
@@ -244,6 +246,43 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 }.getOrNull()
                 bmp.recycle()
                 handler.post { aidBusy = false; if (result != null) overlay.aid = result }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ contraluz automática
+
+    private var backlightEv = 0f
+    private var backlightBusy = false
+
+    /** Mede a prévia exibida (~1,5×/s) e pede à câmera a compensação de contraluz. */
+    private val backlightTick = object : Runnable {
+        override fun run() {
+            handler.postDelayed(this, BACKLIGHT_EVERY_MS)
+            if (!::camera.isInitialized || !settings.autoBacklight || camera.mode.isPro || backlightBusy) {
+                if (::camera.isInitialized && backlightEv > 0f && (!settings.autoBacklight || camera.mode.isPro))
+                    backlightEv = camera.setBacklightEv(0f)
+                return
+            }
+            if (preview.previewStreamState.value != PreviewView.StreamState.STREAMING) return
+            val bmp = runCatching { preview.bitmap }.getOrNull() ?: return
+            backlightBusy = true
+            io.execute {
+                val reading = runCatching {
+                    val w = 64; val h = (64 * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
+                    val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
+                    val px = IntArray(w * h).also { small.getPixels(it, 0, w, 0, 0, w, h) }
+                    if (small !== bmp) small.recycle()
+                    com.novacamera.s24.core.BacklightMeter.measure(px, w, h)
+                }.getOrNull()
+                bmp.recycle()
+                handler.post {
+                    backlightBusy = false
+                    if (reading == null || !::camera.isInitialized) return@post
+                    val m = com.novacamera.s24.core.BacklightMeter
+                    val next = m.step(backlightEv, m.target(backlightEv, reading))
+                    if (next != backlightEv) backlightEv = camera.setBacklightEv(next)
+                }
             }
         }
     }
@@ -325,6 +364,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         handler.removeCallbacks(idleCheck)
         handler.removeCallbacks(energyTick)
         handler.removeCallbacks(aidTick)
+        handler.removeCallbacks(backlightTick)
+        backlightEv = 0f
         stopLevel()
         super.onStop()
     }
@@ -1251,6 +1292,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private const val ENERGY_EVERY_MS = 10_000L
         /** Auxílios do visor: 2 medições por segundo; 1 por segundo se copiar a prévia ficar caro. */
         private const val AID_EVERY_MS = 500L
+        /** Contraluz automática: medição a cada 0,65 s (passos de até 1/3 EV, sem saltos). */
+        private const val BACKLIGHT_EVERY_MS = 650L
         private const val AID_SLOW_MS = 1_000L
         private const val AID_SLOW_COPY_MS = 30L
         /** Largura da análise (pontos); o estouro e o realce são desenhados nessa grade. */

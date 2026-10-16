@@ -182,6 +182,9 @@ class SettingsActivity : NovaScreen() {
             { settings.videoCenterMetering }, { settings.videoCenterMetering = it })
 
         section("Foco e exposição")
+        switch("Contraluz automática", "Com janela, céu ou lâmpada no quadro, o centro é clareado (até +1,5 EV) em vez de " +
+            "a câmera escurecer tudo. Sai sozinha ao ajustar a exposição, tocar para medir ou travar AE.",
+            { settings.autoBacklight }, { settings.autoBacklight = it })
         switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
             { settings.facePriority }, { settings.facePriority = it })
         val holds = listOf(4, 8, 0)
