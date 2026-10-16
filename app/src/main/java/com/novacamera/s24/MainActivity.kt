@@ -165,6 +165,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.novacamera.s24.core.CrashLog.install(this)
         com.novacamera.s24.processing.MediaWriter.identify(this)
         enableEdgeToEdge()
         settings = NovaSettings(this)
@@ -213,6 +214,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         override fun run() {
             val delay = if (aidSlow) AID_SLOW_MS else AID_EVERY_MS
             handler.postDelayed(this, delay)
+            try { measure() } catch (e: RuntimeException) {
+                aidBusy = false; overlay.aid = null
+                com.novacamera.s24.core.CrashLog.record(this@MainActivity, "auxílios (não fatal)", e)
+            }
+        }
+
+        private fun measure() {
             if (!::camera.isInitialized) return
             val pro = camera.mode.isPro
             val peaking = pro && settings.focusPeaking && camera.manual.focusDiopters != null

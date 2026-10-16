@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.16.1 — Causa dos fechamentos no Diagnóstico; vídeo sai do ciclo de "prévia parada"
+
+| Item | O que faz | Validação |
+|---|---|---|
+| Erros que fecharam o app | O Android só registra "crash", sem a causa. Agora a pilha do erro fica guardada no aparelho e aparece no Diagnóstico ("Erros que fecharam o app") | Testes (formato) |
+| Vídeo com prévia parada | Segunda parada em 1 min: 60 fps sai nesta sessão (30 fps); se ainda parar, a estabilização sai. Antes reabria em ciclo a cada 3 s | Compilação; Aparelho |
+| Auxílios do visor | Falha no histograma/estouro/realce/nível não fecha o app: o auxílio some e o erro vai para o Diagnóstico | Compilação |
+| Vídeo Pro fechando o app | **Causa ainda não identificada** (sem pilha na 0.16.0). A 0.16.1 registra o erro na próxima ocorrência | — |
+
 ## 0.16.0 — Vídeo da tele no escuro, Noturno apoiado e auxílios de câmera profissional
 
 | Item | O que faz | Validação |

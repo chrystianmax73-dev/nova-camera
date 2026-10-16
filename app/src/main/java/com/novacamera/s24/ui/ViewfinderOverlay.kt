@@ -282,7 +282,11 @@ class ViewfinderOverlay(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        drawAids(canvas)
+        // Auxílio com defeito não pode fechar o app: desliga e registra para o Diagnóstico.
+        try { drawAids(canvas) } catch (e: RuntimeException) {
+            aid = null; horizon = null
+            com.novacamera.s24.core.CrashLog.record(context, "visor (não fatal)", e)
+        }
         if (showGrid) {
             for (i in 1..2) {
                 val x = width * i / 3f

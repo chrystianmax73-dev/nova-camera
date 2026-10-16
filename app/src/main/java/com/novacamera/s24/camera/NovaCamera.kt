@@ -213,6 +213,15 @@ class NovaCamera(
                 portraitPreviewFailed = true
                 listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
             }
+            // Vídeo: a combinação pedida (60 fps; depois estabilização) é o suspeito; sai dela nesta sessão.
+            mode.isVideo && recentStalls.size >= 2 && boundVideoFps > 30 && !highFpsBlocked -> {
+                highFpsBlocked = true; recentStalls.clear()
+                listener.onMessage("A imagem parou a $boundVideoFps fps; usando 30 fps nesta sessão")
+            }
+            mode.isVideo && recentStalls.size >= 2 && boundVideoStabilization && !videoStabilizationBlocked -> {
+                videoStabilizationBlocked = true; recentStalls.clear()
+                listener.onMessage("A imagem parou com a estabilização; gravando sem ela nesta sessão")
+            }
             recentStalls.size >= 3 -> {
                 listener.onMessage("A imagem parou várias vezes; feche e abra a câmera")
                 return
@@ -227,10 +236,16 @@ class NovaCamera(
     private var nightOverride: com.novacamera.s24.core.NightExposure.Plan? = null
     private var lastStatsPost = 0L
 
-    // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
     /** Faixa 15–30 fps aplicada nesta ligação do vídeo; bloqueada na sessão se a câmera recusar. */
     private var autoFpsApplied = false
     private var autoFpsBlocked = false
+    /** Vídeo: fps e estabilização da ligação atual; desligados na sessão se a prévia parar com eles. */
+    private var boundVideoFps = 30
+    private var boundVideoStabilization = false
+    private var highFpsBlocked = false
+    private var videoStabilizationBlocked = false
+
+    // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
     private var zoomOnLens = 1f          // valor exibido/pretendido agora (na câmera atual)
     private var zoomTarget = 1f
     private var pendingZoomOnLens: Float? = null
@@ -560,7 +575,7 @@ class NovaCamera(
             val vb = VideoCapture.Builder(recorder)
                 .setTargetRotation(targetRotation)
                 .setMirrorMode(if (settings.mirrorFrontVideo) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
-            if (settings.videoStabilization) {
+            if (settings.videoStabilization && !videoStabilizationBlocked) {
                 when {
                     Preview.getPreviewCapabilities(info).isStabilizationSupported -> {
                         previewBuilder.setPreviewStabilizationEnabled(true); stabilization = true
@@ -569,12 +584,13 @@ class NovaCamera(
                 }
             }
             fpsOptions = VIDEO_FPS.filter { f -> info.supportedFrameRateRanges.any { it.lower == f && it.upper == f } }
-            val wantedFps = settings.videoFps.takeIf { it in fpsOptions && !(limitVideo && it > 30) } ?: 30
+            val wantedFps = settings.videoFps.takeIf { it in fpsOptions && !((limitVideo || highFpsBlocked) && it > 30) } ?: 30
             if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
             else if (settings.videoAutoFps && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
                 ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
                     ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
             }
+            boundVideoFps = fps; boundVideoStabilization = stabilization
             videoCapture = vb.build()
         } else if (support.canCapture) {
             // Resoluções reais desta câmera (por lente); o processamento Nova usa a padrão (memória/tempo).
