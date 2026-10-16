@@ -452,6 +452,18 @@ object Engine {
         }
     }
 
+    /** Sombras sem cor falsa de ruído (ver [com.novacamera.s24.core.imaging.ShadowChroma]). */
+    fun shadowChromaInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken) {
+        val k = com.novacamera.s24.core.imaging.ShadowChroma.strengthFor(iso)
+        if (k <= 0f) return
+        tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
+            if (cancel.cancelled) throw CancelledException()
+            val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
+            com.novacamera.s24.core.imaging.ShadowChroma.applyTile(buf, k)
+            bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
+        }
+    }
+
     /** Perfil "Contraste": preto firme e contraste local sobre a foto já com o tom automático. */
     fun profileInPlace(bmp: Bitmap, cancel: CancelToken) {
         val (px, w, h) = preview(bmp)

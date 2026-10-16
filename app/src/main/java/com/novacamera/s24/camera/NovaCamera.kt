@@ -500,10 +500,18 @@ class NovaCamera(
         motionWanted = mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA
         if (motionWanted && activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) motion.start()
         else if (!motionWanted) motion.stop()
+        val ranges = info.supportedFrameRateRanges.map { it.lower to it.upper }
         if (mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA) {
-            val minFps = ModeResolver.extendedExposureMinFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
+            val minFps = ModeResolver.extendedExposureMinFps(ranges)
+            // Sem faixa abaixo de 15 fps (S24 Ultra: [15, 30] é a mais longa), usa a de 15–30.
             val range = info.supportedFrameRateRanges.firstOrNull { it.lower == minFps && it.upper <= 30 }
+                ?: ModeResolver.autoVideoFps(ranges)?.let { Range(it.first, it.second) }
             if (range != null) previewBuilder.setTargetFrameRate(range)
+        } else if (!mode.isVideo && !highSpeed && wantedExtension == ExtensionMode.NONE && mode != CaptureMode.TIMELAPSE) {
+            // Foto, Retrato e Pro no escuro: com 30 fps fixos o automático para em 1/30 s e ISO 3200 e a
+            // foto sai escura (tele 5× à noite). Com 15–30 fps ele pode ir a 1/15 s: até +1 EV de luz
+            // real, ou o mesmo brilho com ISO menor. Com luz boa continua a 30 fps.
+            ModeResolver.autoVideoFps(ranges)?.let { (lo, hi) -> previewBuilder.setTargetFrameRate(Range(lo, hi)) }
         }
 
         val useCases = mutableListOf<UseCase>()
