@@ -1,10 +1,14 @@
 # 0.21.5 — prévia após sessão recusada pelo CameraX (17/10/2026)
 
+- **APK disponível: 0.21.5, build 61 (1061).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337/artifacts/12110872722), até 16/11/2026. Mesmo certificado Android e modelos offline existentes; pode atualizar a instalação anterior.
+- [Build assinado 61 aprovado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337): 206 testes aprovados, 5 locais dispensados, 0 falhas; lint, JPEG sintético 200 MP, modelos NAFNet/Depth Anything, assembleRelease, inclusão dos pesos e continuidade de certificado/versionCode conferidos. Upload do APK concluído; publicação de release pulada.
+- Fonte do APK `195add2ceb22c3fd2733f5f5614434f4627c1c50`, código do app `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`. Gatilhos originais restaurados em `9942432d542cfc3f0cf9abd112779d6f8398e962`; nenhum release criado.
+
 - Estende a prévia isolada da 0.21.4 à recusa de bind: mantém a escolha de qualidade, impede gravação em outra resolução e permite escolher uma combinação alternativa. Se até a prévia falhar, não reinicia em ciclo.
 - Nova regressão verifica que recusa de bind encerra recuperações automáticas até uma escolha explícita do usuário.
 - Base das correções 0.21.3 com sincronização do teste aprovada em compilação debug, testes completos e lint: [39058541277](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277). A primeira execução teve 1 falha de sincronização do teste, corrigida antes desta aprovação; não foi escondida.
 - Compilação debug, testes completos e lint aprovados na 0.21.5: [39058891633](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058891633), código `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`. Inclui todas as correções das etapas anteriores. 0.21.4 também aprovada em [39058739596](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596).
-- APK assinado em preparação pelo workflow existente, com publicação automática pulada nesta branch. 5×/4K60, marca nos pixels do MP4 e estabilidade física continuam dependentes de teste no S24 Ultra.
+- **Validação física pendente:** 5×/4K60, marca nos pixels do MP4, áudio/reprodução, estabilidade e temperatura devem ser testados no S24 Ultra com o APK novo. Desenho na textura e capacidades anunciadas não substituem essa prova. Pós-processamento, rastreamento e profundidade continuam pendentes.
 
 # 0.21.4 — prévia segura após esgotar a recuperação (17/10/2026)
 

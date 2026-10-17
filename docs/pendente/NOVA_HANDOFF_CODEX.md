@@ -1,53 +1,68 @@
-## 0.21.5 aprovada no CI — geração de APK
+# Nova Camera — handoff após APK 0.21.5 (build 61)
 
-- Branch `codex/video-estabilidade-0-20`; código final do app: `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`.
-- CI final aprovado (assembleDebug, testDebugUnitTest, lintDebug): https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058891633. 0.21.4 também aprovada: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596. 0.21.3 corrigida aprovada: 39058541277. Não declarar a execução isolada inicial 39056971458 aprovada: estava em execução prolongada no último acompanhamento; a suíte final cobre seu código.
-- Próxima ação: uma execução do nova-release nesta branch para gerar APK assinado, com a etapa de publicação condicionada para não executar em push desta branch. Após identificar o run, restaurar a lista de gatilhos original. Manter ação manual e configuração da main; não criar release automático.
-- Conferir testes/lint, NAFNet e Depth Anything, assembleRelease, certificado/versionCode e upload-artifact. Só após upload efetivo fornecer o link novo; não reutilizar o build 60 como novidade.
-- Sem aparelho/MP4 novo, 4K/60/5×, marca no arquivo, áudio, reprodução e desempenho continuam pendentes de validação física. Roteiro: `docs/pendente/VIDEO_S24_VALIDACAO.md`.
+## Estado atual e download
 
-## 0.21.5 — finalizar verificação e entregar APK
+- Repositório: `chrystianmax73-dev/nova-camera`; branch: `codex/video-estabilidade-0-20`. Não partir da main nem sobrescrever a branch original `ccr-7443eaac-tqygyg`.
+- **APK novo: 0.21.5, build 61, versionCode 1061.** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337/artifacts/12110872722). Artefato do Actions, disponível até 16/11/2026; acesso ao GitHub pode ser necessário.
+- [Execução assinada 39059245337](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337), código do app `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`; fonte do APK `195add2ceb22c3fd2733f5f5614434f4627c1c50` (apenas workflow/docs além do código aprovado).
+- SHA-256 **do ZIP do artefato**, não do APK isolado: `5d3a9a940942a793f5747db17d7feb28c081ba4b9387dc8f0dc5c982afb8e8f7`; 130980931 bytes.
+- Mesmo pacote e certificado Android. Não foi criada keystore, não houve mudança de signingConfig, permissões ou tom do Noturno. Configurações e histórico existentes preservados pelo mesmo pacote/assinatura.
+- **Nenhum release foi criado nesta entrega.** Publicação foi pulada no build 61 por condição do workflow; os gatilhos originais foram restaurados em `9942432d542cfc3f0cf9abd112779d6f8398e962`. A configuração de execução manual foi preservada. Sem geração automática nessa branch a cada commit.
+- O build 60/0.21.1, abaixo no histórico, é a versão anterior testada pelo usuário; não reenviar como novidade.
 
-- Branch `codex/video-estabilidade-0-20`; base `4a0c1ec6779f9421b41f4575f5446ca21faba364` (0.21.3) aprovada em compile, unidade e lint: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277. A falha anterior era o callback assíncrono do teste, agora aprovado.
-- 0.21.4 (`d699cc53d7a08c4b91bed4316aaf978bafec5e3d`) inclui prévia isolada no STOP; CI https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596 ainda acompanhando.
-- 0.21.5 acrescenta o mesmo recuo para bind recusado, com teste de orçamento. Não tentar gravar usando essa prévia. Aguardar CI completo desta versão e gerar artefato APK assinado via workflow existente, pulando publicação de release nesta branch. Restaurar gatilhos após uma única execução.
-- Sem teste físico novo, não afirmar que 4K/60/5× ou logo no MP4 estão validados. Pós-processamento, rastreamento e profundidade aguardam esse retorno. Próximo passo exato: acompanhar CI da 0.21.5; se verde, gerar APK com ambos os modelos e conferir certificado/versionCode, atualizar este handoff e fornecer o link ao usuário.
+## Evidências reais
 
-## 0.21.4 — último ajuste de recuperação
+- Baseline 0.21.1 antes de alterações do aplicativo: [39056484866](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056484866), assembleDebug + testDebugUnitTest + lintDebug aprovados.
+- 0.21.3 com sincronização do teste corrigida: [39058541277](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277), compile/testes/lint aprovados.
+- 0.21.4: [39058739596](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596), compile/testes/lint aprovados.
+- 0.21.5 final: [39058891633](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058891633), assembleDebug + testDebugUnitTest + lintDebug aprovados.
+- Build assinado 61 repetiu testes/lint: **206 aprovados, 5 locais dispensados, 0 falhas**. JPEG sintético 200 MP em host aprovado; conversões NAFNet/Depth Anything aprovadas; ambos os modelos conferidos no APK; assembleRelease e comparação de certificado/versionCode aprovados; upload real do APK aprovado; publicação de release pulada.
+- A primeira execução da 0.21.3 [39058243287](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058243287) teve 1 falha no teste de diálogo: a preferência era lida antes de o callback assíncrono executar. Foi corrigido o teste para drenar Looper após clique; nenhuma exigência foi removida.
+- A execução isolada inicial da 0.21.2 [39056971458](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056971458) estava em execução prolongada no último acompanhamento; não afirmar que ela passou. A suíte final da 0.21.5 inclui seu código e passou. Se ainda ativa, pode exigir cancelamento manual; conector desta sessão não expunha cancelamento.
+- Não houve compilação local: ambiente sem Gradle utilizável e com bloqueio de proxy no CLI. As provas acima são execuções reais do GitHub Actions.
 
-- Após STOP do orçamento, religar somente prévia, sem vídeo/efeito, com obturador bloqueado e alternativa explícita. Se havia gravação, aguardar Finalize antes disso. Esta prévia não reinicia o watchdog/ciclo; usuário precisa alterar configuração.
-- Política térmica lida: `limitVideo = status >= SEVERE || powerSave`, moderado isolado não explica o relato. Nenhuma alteração térmica/Noturno/assinatura Android.
-- Aguardar CI da 0.21.4 (compile, unidade, lint). A correção do callback do teste da 0.21.3 roda em https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277. APK deve sair somente após teste completo aprovado, como artefato assinado, sem criar release automático.
+## Correções entregues em código
 
-## Verificação da 0.21.3 — sincronização do teste
+1. Consulta FPS da **SessionConfig CameraX completa**, com prévia, gravação e efeitos, e verifica encoder. Duração genérica de saída MediaRecorder deixa de vetar isoladamente UHD/60. Consulta indisponível é diferente de sessão recusada. Faixa variável não promete FPS fixos.
+2. EIS da gravação substitui solicitação de estabilização da prévia (modo 2). CameraX coordena OIS/AE em Vídeo/Vídeo Pro; sem forçar cena de prioridade a rostos/OIS nesses dois modos. Fotos, Noturno, timelapse e câmera lenta mantêm o tratamento anterior.
+3. Recuo limitado sem EIS conserva resolução/FPS/assinatura. Falha de sensor não desliga marca indiscriminadamente. Arquivo ativo finaliza antes de religar câmera.
+4. Combinação recusada ou orçamento de recuperação esgotado liga **apenas prévia**, bloqueia o obturador e oferece alternativa na mesma resolução, quando anunciada, mediante escolha explícita. Se até a prévia falhar, não reinicia em ciclo. Seleção de FPS funciona mesmo quando resta apenas uma opção.
+5. Assinatura compensa recorte, rotação e espelho, inclusive na frontal espelhada. Falha é isolada no perfil afetado; erro antigo de outra geração não desliga efeito novo. Mantida liberação serial na fila GL antes de construir o próximo efeito.
+6. Textura estática da marca só redesenha quando muda geometria/buffer. Testes gráficos nativos Skia verificam pixels nas quatro rotações, com/sem espelho, e reutilização de textura. Testes de interface conferem recusa/aceite de 30 fps preservando UHD.
+7. Vigia descarta avisos de sessão antiga e tolera início lento. Diagnóstico local informa configuração, EIS, lente física observada, assinatura solicitada/ativa/desenho em textura e metadados reais do MP4 (dimensões/MIME/FPS pelos timestamps).
 
-- Código da etapa: `4bd28076420f1cfad1b1852e84380a14a50165ed`, branch `codex/video-estabilidade-0-20`.
-- CI https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058243287: assembleDebug aprovado; testes de pixels/espelho aprovados; 210 testes, 204 aprovados, 5 dispensados, 1 falha no teste do diálogo (preferência lida antes de o callback assíncrono executar). Correção somente no teste: drenar Looper após os botões. Reexecutar a suíte completa e lint antes do APK.
-- CI anterior 0.21.2 https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056971458 ainda em execução no último acompanhamento. Baseline aprovado 39056484866.
-- APK novo ainda não gerado. Preparar nova-release com publicação pulada nesta branch, ativar uma única execução e restaurar gatilhos. Não criar release automático. Mesmo signingConfig e Secrets existentes; conferir certificado e ambos os modelos offline.
+Commits pequenos principais:
+- `78d7e4ceaf17ddaecc5dd0365d1fc2c8d9c3a6f3` — 0.21.2, negociação/recuperação.
+- `4bd28076420f1cfad1b1852e84380a14a50165ed` — 0.21.3, assinatura.
+- `4a0c1ec6779f9421b41f4575f5446ca21faba364` — sincronização do teste de diálogo.
+- `d699cc53d7a08c4b91bed4316aaf978bafec5e3d` — 0.21.4, prévia após STOP.
+- `9d4257cfa3a1c587c979e503a295d3e8aceed7fb` — 0.21.5, prévia após bind recusado.
 
-## Etapa preparada — 0.21.3, assinatura
+## O que continua sem validação física
 
-- Renderização inclui frontal espelhada, rotação/recorte e cache de textura; preserva o efeito durante recuperação do sensor. Fallback de assinatura é por perfil, com diagnóstico claro; geração de handler ignora falha antiga.
-- Novos testes gráficos reais (Robolectric/Skia) e confirmação explícita de alternativa UHD/30. CI ainda pendente.
-- Ainda não declarar 4K/60/5× funcional ou marca presente no MP4 sem teste do aparelho/arquivo; logs de textura são diagnóstico parcial.
-- Depois de CI aprovado, gerar APK assinado com os mesmos modelos/chave via nova-release. A publicação de release falhou 403 nos builds anteriores: o upload-artifact anterior à publicação preserva o APK. Não criar chaves nem solicitar segredos.
+- **Não afirmar que 5×/4K60 funciona**: CameraX consulta a câmera lógica; a tele física pode ter outra restrição após o zoom. Não foi recebido MP4 novo nem há S24 conectado nesta sessão.
+- Não afirmar que a marca está nos pixels do MP4 só porque foi desenhada na textura. Conferir reprodução real, início/meio/fim, espelho, orientação e áudio.
+- FPS/dimensões do **novo** arquivo só serão confirmados após gravação no aparelho. Diagnóstico anterior 0.21.1 provou Full HD 1080×1920, AVC e 58,90 fps médios; não provou 4K.
+- Estabilidade da prévia, troca 1×/5×, frontal/traseira, Vídeo/Vídeo Pro, interrupções e temperatura exigem retorno físico. Moderado 2 isolado não aciona limitVideo; política térmica preservada.
+- Roteiro completo: [VIDEO_S24_VALIDACAO.md](VIDEO_S24_VALIDACAO.md).
 
-## Próximas etapas após retorno físico desta atualização
+## Pendências em ordem e próximo passo exato
 
-1. Primeiro obter diagnóstico/resultado do APK novo: 4K/60 em 1×/5×, alternativa 4K/30, Full HD/60, marca no MP4 (traseira/frontal espelhada), interrupções e temperatura. A seleção e a consulta CameraX não substituem metadados e reprodução do arquivo. Não enviar mídia pessoal ao repositório.
-2. Pós-processamento **opcional/local**, em commit/versão separados: preservar URI original; saída derivada e comparação; execução assíncrona com progresso/cancelamento e pausa térmica. Antes de adicionar filtros, verificar áudio/PTS/sincronismo, orientação, duração, resolução/FPS/codec; testar movimento e flicker com material sintético. A captura FHD/60 já elogiada pelo usuário deve permanecer como controle. Não prometer recuperar detalhe ausente nem ativar tratamento agressivo por padrão.
-3. Foco/rastreamento: ler os pontos de toque AE/AF, `FocusPolicy`, `DepthTap`, analisadores/máscaras atuais e câmera/lente ativa; implementar acompanhamento com confiança e retorno ao automático em perda/oclusão. Diferenciar visualmente AF, assunto acompanhado e bloqueio. Sem controle que apenas simule rastrear.
-4. Cinematográfico primeiro FHD/30: reaproveitar segmentação/profundidade/modelos offline existentes, análise adaptativa e estabilidade temporal; manter sujeito e bordas finas e aplicar o mesmo efeito na prévia e no encoder. Frente/trás, espelho e gravação rápida do Retrato precisam de testes. Não reduzir silenciosamente 4K/FHD60 nem iniciar profundidade pesada em vídeo comum.
-5. Cada etapa: baseline, regressões com evidências, nova seção no topo de STATUS e versionName; APK com a assinatura existente, sem release automático. Validação de desempenho, bordas e MP4 real depende do aparelho. Não declarar estas quatro etapas implementadas agora.
+1. Usuário instalar APK 0.21.5/build 61 e testar o roteiro. Obter resultado/diagnóstico desta versão antes de afirmar estabilidade ou avançar processamento pesado. Se continuar recusando UHD/60, usar os novos registros de sessão/EIS/efeito/MP4 para investigar a combinação concreta; manter alternativa UHD/30 explícita.
+2. Pós-processamento local **opcional**, em etapa/versão separada: preservar original e saída derivada/comparação; progresso/cancelamento, execução assíncrona e controle térmico; preservar áudio/PTS/sincronismo, orientação/duração/resolução/FPS. Material sintético para ruído/movimento/ghosting/flicker. Não substituir a captura Full HD/60 elogiada por filtro agressivo nem inventar detalhe.
+3. Rastreamento por toque: reutilizar AE/AF, FocusPolicy, DepthTap e máscaras/análise existentes; acompanhar com confiança, estabilidade e retorno ao automático em perda/oclusão. Distinguir AF, bloqueio e assunto acompanhado. **Ainda não implementado.**
+4. Profundidade cinematográfica inicialmente Full HD/30: reutilizar modelos offline/segmentação, análise adaptativa, estabilidade temporal e bordas finas; mesmo resultado na prévia e MP4, frente/trás/espelho e gravação rápida do Retrato. Manter FHD/60 e 4K comuns. Sem profundidade pesada desnecessária. **Ainda não implementada.**
+5. Refinamentos de qualidade/energia somente com medição. Cada etapa: ler handoff inteiro + topo STATUS + código, baseline real, commits pequenos em português, nova seção STATUS e versionName para mudanças de app; APK assinado existente, sem release automático.
 
-## Continuidade em andamento — 0.21.2
+## Texto para continuar em outra sessão
 
-- Branch: `codex/video-estabilidade-0-20`; base com feedback registrada em `d99bfd40932940ffc2ea3f37e212b4a739967817`.
-- Baseline real aprovado: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056484866 (assembleDebug, testDebugUnitTest, lintDebug).
-- Negociação agora consulta SessionConfig CameraX e encoder; EIS de vídeo, sem forçar OIS/cena de rosto no template de vídeo; recuo sem EIS conserva assinatura/qualidade/FPS. Prévia isolada quando seleção é recusada; alternativa exige escolha explícita. Vigia descarta sessão antiga e tolera início lento.
-- CI da alteração ainda pendente; não validado fisicamente. Próximo: aprovar CI, restaurar assinatura com tratamento correto de espelho e falha por configuração, testar novamente, produzir APK assinado pelo workflow existente.
-- Não implementar pós-processamento pesado nem profundidade antes dessas correções. Sem novos modelos/permissões/keystore. Sem mudança de Noturno.
+> Continue chrystianmax73-dev/nova-camera na branch codex/video-estabilidade-0-20, verificando o HEAD atualizado. A entrega atual é 0.21.5/build 61 (1061), APK assinado em https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337/artifacts/12110872722; fonte do app 9d4257cfa3a1c587c979e503a295d3e8aceed7fb e fonte do build 195add2ceb22c3fd2733f5f5614434f4627c1c50. Leia este handoff inteiro, topo de docs/STATUS.md e código citado. CI final 39058891633 e build assinado 39059245337 passaram; 206 testes aprovados, 5 locais dispensados. Primeiro analisar meu retorno físico desta versão para 5×/4K60, prévia e marca no MP4; só depois iniciar pós-processamento opcional, rastreamento e cinematográfico FHD/30 em etapas. Não trocar assinatura/keystore, pedir/expor segredos, adicionar INTERNET, enviar fotos pessoais ao repo, copiar código proprietário, mudar Noturno ou reescrever o que funciona. Preservar original/configurações/histórico. Sem publicar releases automaticamente. Não chamar de validado o que não foi medido no aparelho.
+
+---
+
+## Histórico anterior preservado
+
+O conteúdo abaixo registra o estado anterior à entrega atual; pendências e links antigos são contexto histórico. O estado vigente está acima.
 
 # Nova Camera — continuidade após estabilização de vídeo
 
@@ -165,4 +180,3 @@ Testar gesto em Foto/Retrato: toque simples, hold→soltar, hold→arrastar→so
 ## Texto para continuar em outra sessão
 
 Continue Nova Camera na branch `codex/video-estabilidade-0-20`, preservando a origem `ccr-7443eaac-tqygyg` e o release `nova-test-58`. Confira o HEAD, leia `docs/pendente/NOVA_HANDOFF_CODEX.md` inteiro e o topo de `docs/STATUS.md`. O código está em 0.21.1; o último commit do app é `33c02249d65838ed8283d335ff32ab1979d17c4f`. GitHub Actions foi explicitamente autorizado como validação porque o ambiente local não tem Gradle e o proxy falha. O workflow android-check.yml roda em push nesta branch; não dispare releases. Já há correções de ordem GL/fallback da assinatura, recuperação limitada, qualidade explícita sem fallback silencioso, leitura real do MP4 e gravação rápida por gesto. Consulte os resultados de CI no handoff e não confunda com validação física. Próximo incremento: foco com rastreamento visual real; depois profundidade na prévia e no MP4, frontal/traseira, resolvendo a composição com a assinatura. Preserve assinatura Android, offline, configurações e tom do Noturno. Commits pequenos em português, versionName/STATUS por versão e CI após cada etapa.
-
