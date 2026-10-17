@@ -33,7 +33,7 @@ class SubjectTrackingSession(
     var powerSave = false
     private var selection: Pair<Float, Float>? = null
     private var lastFrameAt = 0L
-    private var slowReads = 0
+    private val reader = PreviewFrameReader(preview)
     // Buffers e tracker usados apenas pela fila única de análise.
     private var tracker = SubjectTracker()
     private var small: Bitmap? = null
@@ -44,7 +44,7 @@ class SubjectTrackingSession(
 
     fun select(x: Float, y: Float) {
         if (closed) return
-        generation++; active = true; slowReads = 0
+        generation++; active = true
         selection = (x / preview.width.coerceAtLeast(1)).coerceIn(0f, 1f) to
             (y / preview.height.coerceAtLeast(1)).coerceIn(0f, 1f)
         lastFrameAt = SystemClock.elapsedRealtime()
@@ -68,21 +68,24 @@ class SubjectTrackingSession(
                 handler.postDelayed(this, 200); return
             }
             if (busy) { handler.postDelayed(this, 100); return }
-            val start = SystemClock.elapsedRealtimeNanos()
-            val source = try { preview.bitmap } catch (_: RuntimeException) { null }
-                catch (_: OutOfMemoryError) { return stop("Memória insuficiente para rastrear") }
-            val copyMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000.0
-            if (source == null) {
-                if (SystemClock.elapsedRealtime() - lastFrameAt > 1200) return stop("Leitura da prévia indisponível")
-                handler.postDelayed(this, 200); return
-            }
-            slowReads = if (copyMs > 60) slowReads + 1 else 0
-            if (slowReads >= 3) { source.recycle(); return stop("Rastreamento pausado: leitura lenta da prévia") }
             busy = true
             val token = generation
-            val pick = selection; selection = null
-            val frameAt = SystemClock.elapsedRealtime()
-            lastFrameAt = frameAt
+            val deadline = Runnable { if (active && generation == token && busy) stop("Leitura da prévia sem resposta") }
+            handler.postDelayed(deadline,1500)
+            val accepted = reader.read { source, copyMs ->
+                handler.removeCallbacks(deadline)
+                if (closed || !active || token != generation) {
+                    busy = false; source?.recycle(); return@read
+                }
+                if (source == null) {
+                    busy = false
+                    if (SystemClock.elapsedRealtime() - lastFrameAt > 1200) stop("Leitura da prévia indisponível")
+                    else handler.postDelayed(tick,200)
+                    return@read
+                }
+                val pick = selection; selection = null
+                val frameAt = SystemClock.elapsedRealtime() - copyMs.toLong()
+                lastFrameAt = SystemClock.elapsedRealtime()
             lazyWorker.value.execute {
                 val begin = SystemClock.elapsedRealtimeNanos()
                 val cpuBegin = Debug.threadCpuTimeNanos()
@@ -127,12 +130,19 @@ class SubjectTrackingSession(
                     }
                 }
             }
+            }
+            if (!accepted) {
+                handler.removeCallbacks(deadline)
+                busy = false
+                if (SystemClock.elapsedRealtime() - lastFrameAt > 1200) stop("Leitura da prévia indisponível")
+                else handler.postDelayed(tick,200)
+            }
         }
     }
 
     override fun close() {
         if (closed) return
-        stop(); closed = true
+        stop(); closed = true; reader.close()
         if (lazyWorker.isInitialized()) {
             lazyWorker.value.execute { small?.recycle(); small = null; pixels = IntArray(0); gray = ByteArray(0) }
             lazyWorker.value.shutdown()

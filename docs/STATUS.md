@@ -1,3 +1,11 @@
+# 0.22.1 — leitura assíncrona reduzida para rastreamento (17/10/2026)
+
+- Feedback físico 0.22.0: captura de tela mostra encerramento por leitura lenta da prévia, Vídeo/4K/faixa 15–30 alvo. A imagem não comprova FPS/dimensões do arquivo nem foco/consumo; mídia pessoal não enviada ao Git.
+- Causa no caminho de código: PreviewView.bitmap/SurfaceView copia buffer completo e aguarda PixelCopy com semáforo antes de reduzir. Substituído por PixelCopy assíncrono para destino de até 320 px, sem espera na UI, sem executor novo por quadro e sem stream extra de câmera.
+- Uma cópia em voo, rejeição de erro/bitmap indisponível, geração/fechamento e prazo de resposta limitados. Transformação de escala/recorte/display mantém o espaço do visor. Removido o encerramento por três latências >60 ms do caminho bloqueante; prazo de validade e erros continuam sendo tratados. Custo passa a ser latência da cópia assíncrona, não ocupação da UI/GPU.
+- Base HEAD 725195ae9ab74d845b9a4096387298837769e949 aprovada no Actions 39067748469 antes desta alteração. Compilação/testes/lint 0.22.1 pendentes; transformação frontal/paisagem e melhora real de latência ainda exigem S24.
+- Usuário autorizou avançar também em profundidade cinematográfica e pós-processamento. Etapas serão independentes; não anunciar efeito no MP4 ou melhoria de qualidade sem implementação e teste real.
+
 # 0.22.0 — rastreamento visual por toque, etapa experimental (17/10/2026)
 
 - **APK disponível: 0.22.0, build 62 (1062).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39067165320/artifacts/12113024414), válido até 16/11/2026. Atualização de teste; mesmo certificado Android permanente, modelos NAFNet e Depth Anything incluídos. Nenhum release publicado.

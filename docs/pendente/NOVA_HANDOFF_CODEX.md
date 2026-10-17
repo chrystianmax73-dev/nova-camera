@@ -1,3 +1,12 @@
+# Nova etapa autorizada — feedback de leitura lenta e pendências
+
+- HEAD inicial conferido 725195ae9ab74d845b9a4096387298837769e949 na branch codex/video-estabilidade-0-20; baseline Actions 39067748469 aprovado antes de editar.
+- Usuário anexou captura de tela com rastreamento encerrado por leitura lenta da prévia e autorizou fazer também cinematográfico/pós-processamento. Não pedir novamente autorização com base na antiga espera por validação; não confundir captura de tela com teste de MP4.
+- 0.22.1 troca PreviewView.bitmap síncrono/full-size por PreviewFrameReader: PixelCopy assíncrono para bitmap pequeno, transformação de display/Views, no máximo uma solicitação, geração e prazo de resposta; sem stream CameraX novo. Testes de fila única, redução antes da cópia, callback após fechar, erros e geometria. CI ainda pendente nesta entrada.
+- Próximo: validar regressões Actions, seguir implementação cinematográfica real e pós-processamento em etapas isoladas, preservando captura comum. Manter chave permanente, versões anteriores e mídia pessoal fora do Git; entregar APK de teste assinado sem release automático.
+
+---
+
 # Entrega confirmada — 0.22.0 build 62 (1062)
 
 - **APK assinado disponível:** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39067165320/artifacts/12113024414), expira em 2026-11-16T20:39:45Z. Artefato 12113024414, 131002791 bytes, sha256:4e5ed0f072cd4ff0b36cf268c19ae134b80ee7b9bb8584f3f1cd5687ddc5e7aa (digest do ZIP).
