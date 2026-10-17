@@ -1255,7 +1255,7 @@ class NovaCamera(
         if (paused || released || (mode != CaptureMode.VIDEO && mode != CaptureMode.VIDEO_PRO) ||
             videoBindingIssue != null || (mode.isPro && manual.focusDiopters != null)) return false
         val info = Camera2CameraInfo.from(cam.cameraInfo)
-        val afModes = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES).orEmpty()
+        val afModes = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
         val afRegions = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_MAX_REGIONS_AF) ?: 0
         val aeRegions = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
         val af = if (afRegions > 0) listOf(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,

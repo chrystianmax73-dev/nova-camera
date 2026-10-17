@@ -58,7 +58,7 @@ class SubjectTrackingSession(
         if (notify) { TrackingLog.stopped(reason.ifBlank { "automático" }); onStopped(reason) }
     }
 
-    private val tick = object : Runnable {
+    private val tick: Runnable = object : Runnable {
         override fun run() {
             if (!active || closed) return
             if (!valid()) return stop("Enquadramento ou controle de foco mudou")
