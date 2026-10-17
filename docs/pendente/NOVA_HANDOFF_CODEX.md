@@ -1,3 +1,10 @@
+# Revisão aprovada antes de gerar APK 0.24.1
+
+- Núcleo final c4d4e8a09df5d0a70d401e4f68223f65f63e4428 aprovado em assembleDebug/testDebugUnitTest/lintDebug no Actions39069941647. Ajuste adicional somente classifica grupos de energia/CPU/PSS com cinematográfico e acabamento; não é alegação de economia. Novo roteiro VIDEO_EVOLUCAO_S24_VALIDACAO.md.
+- Próximo passo: execução assinada existente deve repetir testes/lint antes do APK. Preservar guard que pula publicação de release para push em codex/video-estabilidade-0-20; restaurar gatilho original após disparo único. Conferir artefato/modelos/certificado de verdade antes de entregar.
+
+---
+
 # 0.24.1 — revisão final e próximo APK
 
 - Branch codex/video-estabilidade-0-20. 0.24.0 passou no CI39069611401, app97ce062cb37539b4975fd9bcae6806514f80f7c8; inclui as etapas 0.22.1/0.23.0 descritas abaixo. Nenhum APK novo gerado ainda nesta etapa.

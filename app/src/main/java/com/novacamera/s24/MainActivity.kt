@@ -372,6 +372,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     else -> camera.mode.label
                 } + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
                     (if (::tracking.isInitialized && tracking.active) " · rastreamento ativo" else " · sem rastreamento") +
+                    (if (camera.cinematicBound) " · cinematográfico ativo" else " · sem cinematográfico") +
+                    (if (com.novacamera.s24.processing.VideoFinishJob.state.running) " + acabamento de vídeo" else "") +
                     (if (ProcessingQueue.pending > 0) " + processando" else "")
                 if (!performanceBusy) {
                     performanceBusy = true

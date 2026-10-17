@@ -1,5 +1,7 @@
 # 0.24.1 — troca serial dos efeitos e proteção por memória (17/10/2026)
 
+- Revisão c4d4e8a09df5d0a70d401e4f68223f65f63e4428 aprovada em compilação/testes/lint no [Actions 39069941647](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069941647). Rótulos de diagnóstico agora distinguem cinematográfico/acabamento para comparações de consumo; nenhum ganho demonstrado. Roteiro: [VIDEO_EVOLUCAO_S24_VALIDACAO.md](pendente/VIDEO_EVOLUCAO_S24_VALIDACAO.md).
+
 - 0.24.0 aprovada em compilação, testes e lint no [Actions 39069611401](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069611401), app 97ce062cb37539b4975fd9bcae6806514f80f7c8.
 - Troca da assinatura comum para o cinematográfico aguarda também a limpeza GL que o close() do CameraX enfileirou. Barreira assíncrona na fila antiga antecede criação do contexto novo; sem bloquear UI ou sobrepor limpeza/criação. Teste ordena cleanup→callback→próximo contexto. Retorno ao comum já aguardava liberação do renderizador cinematográfico.
 - Pressão de memória encerra acabamento opcional preservando original, além das proteções de calor/captura existentes. Não altera qualidade da gravação para acomodar os recursos.
