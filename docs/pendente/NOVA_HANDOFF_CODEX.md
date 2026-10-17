@@ -1,3 +1,14 @@
+# Etapa 0.24.0 — acabamento opcional em validação
+
+- Branch codex/video-estabilidade-0-20; não tocar main/assinatura. 0.22.1 (PixelCopy reduzido assíncrono) aprovada no CI39068644575; 0.23.0 cinematográfico aprovada no CI39069180455, app677b94522383a05b5c41b192ead61d7958540c00.
+- 0.24.0 acrescenta VideoFinishJob/VideoFinishPolicy, Media3 transformer/effect1.8.0 e menu na pressão longa da miniatura de vídeo. Primeiro acabamento suave global de sombras, não denoise temporal. Original intocado, saída separada, progresso/cancelamento, comparação e par persistido. Elegível até FHD/60/SDR/2min; rejeita o restante sem reduzir qualidade.
+- Exportação confere metadados e todas as amostras reais: tamanho/orientação equivalente, codec, quadros/PTS, hash dos bytes de áudio/canais/taxa e sincronismo; só então publica cópia. Tarefas limitadas, térmica independente da Activity, cancela por calor severo/captura, profundidade suspensa durante o acabamento; depende de o processo continuar vivo.
+- 0.23.0 exige ativar cinematográfico e selecionar FHD/30/EISoff explicitamente. Desfoque ajustável e seleção por toque; caminho de prévia+vídeo implementado, sem prova física de pixels/qualidade. Modelos existentes reutilizados. Não prometer cabelos/folhas perfeitos, tracking semântico, energia melhor ou 4K cinemático.
+- **Próximo passo exato:** conferir CI desta etapa, corrigir falhas reais, gerar APK pelo fluxo assinado existente (push temporário com publicação skipped), restaurar gatilho após iniciar, confirmar modelos/certificado/upload. Entregar link e roteiro do novo APK; registrar cada resultado. Redução temporal de ruído/compensação de movimento permanecem próxima evolução e não devem ser rotuladas prontas.
+- Feedback atual é uma captura de tela de leitura lenta da prévia; nenhum MP4 pessoal recebido e nada pessoal enviado ao Git. Separar execução Actions de validação S24. Fontes novas: camera/PreviewFrameReader.kt; camera/PortraitPreview.kt/PortraitMaskAnalyzer.kt/NovaCamera.kt; core/CinematicPolicy.kt; processing/VideoFinishJob.kt; core/VideoFinishPolicy.kt; MainActivity/SettingsActivity/settings.
+
+---
+
 # Em implementação — 0.23.0 cinematográfico experimental
 
 - Rastreamento/PixelCopy 0.22.1: CI 39068644575 aprovado, app 451576d90d0de11f75fd208269558a11d6cac1bd. Corrige a cópia full-size bloqueante mostrada no feedback do S24; nova latência ainda não medida fisicamente.

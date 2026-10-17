@@ -1312,6 +1312,7 @@ class NovaCamera(
 
     fun endSubjectTracking() {
         if (!subjectTracking) return
+        cinematicTap=null
         resetFocusState()
         camera?.cameraControl?.cancelFocusAndMetering()
         applyInterop(); applyVideoMetering()
@@ -2202,6 +2203,7 @@ class NovaCamera(
             val effect=PortraitPreviewEffect.cinematic(signatureStyle()?.takeIf { settings.signatureVideo }) { e ->
                 if(generation==videoEffectGeneration && !released) {
                 Log.w(TAG,"Cinematográfico indisponível",e); cinematicFailed=true
+                com.novacamera.s24.core.VideoLog.add(activity,"Cinematográfico desligado: ${e.javaClass.simpleName}: ${e.message}")
                 listener.onMessage("Cinematográfico falhou; próximo vídeo comum. Original/gravação serão finalizados")
                 if(isRecording) { settingsChangedDuringRecording=true; stopRecording() }
                 else handler.post { bind() }

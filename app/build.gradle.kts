@@ -38,7 +38,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.23.0"
+        versionName = "0.24.0"
         // Alvo: Galaxy S24/S25 Ultra (arm64). Evita levar as bibliotecas nativas (MediaPipe) de 4 arquiteturas.
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
@@ -110,6 +110,9 @@ dependencies {
     // Assinatura no vídeo (OverlayEffect desenha sobre os quadros gravados).
     implementation("androidx.camera:camera-effects:$camerax")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    // Exportação local opcional; sem cliente de rede e sem alterar o arquivo de captura.
+    implementation("androidx.media3:media3-transformer:1.8.0")
+    implementation("androidx.media3:media3-effect:1.8.0")
     // Segmentação do Retrato (pessoa, cabelo, pele, roupa, acessórios): MediaPipe Tasks (Apache-2.0),
     // modelo selfie_multiclass_256x256 (Apache-2.0) embutido em assets; roda offline no aparelho.
     implementation("com.google.mediapipe:tasks-vision:0.10.14")

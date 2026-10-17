@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var evChip: TextView
     private lateinit var heatChip: TextView
     private lateinit var procChip: TextView
+    private lateinit var videoFinishChip: TextView
     private lateinit var hint: HintView
     private lateinit var infoCard: TextView
     private lateinit var bottom: LinearLayout
@@ -147,6 +148,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var audioStartPending = false
     /** Sessão de revisão da última foto processada (a miniatura abre a revisão em vez da galeria). */
     private var lastSession: Pair<String, Uri>? = null
+    private val onVideoFinish: (com.novacamera.s24.processing.VideoFinishJob.State)->Unit = { s ->
+        if(!isDestroyed && !isFinishing && ::videoFinishChip.isInitialized) {
+            videoFinishChip.visibility=if(s.running || s.result!=null)View.VISIBLE else View.GONE
+            videoFinishChip.text=if(s.running) "VÍDEO · ${s.progress}%  ✕" else "ACABAMENTO PRONTO"
+            videoFinishChip.contentDescription=if(s.running) "${s.message}, ${s.progress} por cento. Toque para cancelar" else "Abrir comparação do vídeo"
+            if(!s.running && s.message.isNotBlank())hint.show(s.message,3000)
+        }
+    }
     private val onProcessing: (JobProgress) -> Unit = { p -> onProcessingProgress(p) }
 
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -216,6 +225,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
         loadLatestMedia()
         ProcessingQueue.addListener(onProcessing)
+        com.novacamera.s24.processing.VideoFinishJob.restore(this)
+        com.novacamera.s24.processing.VideoFinishJob.addListener(onVideoFinish)
     }
 
     override fun onStart() {
@@ -434,6 +445,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onDestroy() {
         ProcessingQueue.removeListener(onProcessing)
+        com.novacamera.s24.processing.VideoFinishJob.removeListener(onVideoFinish)
         tracking.close()
         camera.release()
         sound.release()
@@ -533,7 +545,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 this@MainActivity.hint.show("Cancelando… o original fica salvo", 1600)
             }
         }
-        listOf(trackingChip, lockChip, evChip, heatChip, procChip).forEach {
+        videoFinishChip=statusChip(Nova.ACCENT_SOFT).apply {
+            setOnClickListener {
+                if(com.novacamera.s24.processing.VideoFinishJob.state.running)
+                    com.novacamera.s24.processing.VideoFinishJob.cancel()
+                else showVideoComparison()
+            }
+        }
+        listOf(trackingChip, lockChip, evChip, heatChip, procChip, videoFinishChip).forEach {
             it.visibility = View.GONE
             statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
         }
@@ -841,6 +860,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun onShutter() {
+        if(com.novacamera.s24.processing.VideoFinishJob.state.running)
+            com.novacamera.s24.processing.VideoFinishJob.cancel("Acabamento cancelado para priorizar captura; original preservado")
         val s = cameraState ?: return
         if (camera.isRecording) {
             quickRecording.interrupt()
@@ -1266,6 +1287,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onRecording(phase: RecordingPhase, seconds: Long) {
+        com.novacamera.s24.processing.VideoFinishJob.recording=phase!=RecordingPhase.IDLE
+        if(phase!=RecordingPhase.IDLE && com.novacamera.s24.processing.VideoFinishJob.state.running)
+            com.novacamera.s24.processing.VideoFinishJob.cancel("Acabamento cancelado para priorizar a gravação; original preservado")
         if (isDestroyed || isFinishing) return
         val active = phase != RecordingPhase.IDLE
         shutter.recording = active
@@ -1286,6 +1310,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onRecordingFinished(uri: Uri?, error: String?) {
+        com.novacamera.s24.processing.VideoFinishJob.recording=false
         if (isDestroyed || isFinishing) {
             quickRecording.finished()
             quickReturnMode = null
@@ -1452,10 +1477,35 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun openReview() {
+        val media=lastMedia
+        if(media?.second=="video/mp4") {
+            val job=com.novacamera.s24.processing.VideoFinishJob.state
+            val source=if(media.first==job.result)job.original ?: media.first else media.first
+            if(job.running) { hint.show("Acabamento em andamento; toque no indicador para cancelar",2500);return }
+            android.app.AlertDialog.Builder(this).setTitle("Acabamento local do vídeo")
+                .setMessage("Primeira etapa: ajuste suave e estável das sombras, até Full HD/60 e 2 minutos, sem reduzir resolução ou FPS. " +
+                    "O original fica intacto. Ainda não inclui redução temporal de ruído. Se não precisar de ajuste, não cria cópia. " +
+                    "Pode continuar usando a câmera; iniciar outra gravação cancela o acabamento. O processamento depende de o app continuar aberto.")
+                .setNegativeButton("Manter original",null)
+                .setPositiveButton("Criar versão Nova") { _,_ -> com.novacamera.s24.processing.VideoFinishJob.start(this,source) }
+                .show()
+            return
+        }
         val (id, uri) = lastSession ?: return hint.show("Sem comparação para esta foto (ela não foi ajustada)", 1800)
         if (lastMedia?.first != uri) return hint.show("Sem comparação para esta foto", 1400)
         Haptics.heavy(thumbnail)
         startActivity(Intent(this, ReviewActivity::class.java).putExtra(ReviewActivity.EXTRA_SESSION, id))
+    }
+
+    private fun showVideoComparison() {
+        val state=com.novacamera.s24.processing.VideoFinishJob.state
+        val original=state.original ?: return
+        val result=state.result ?: return
+        android.app.AlertDialog.Builder(this).setTitle("Original e acabamento Nova")
+            .setItems(arrayOf("Reproduzir original","Reproduzir versão Nova")) { _,which ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(if(which==0)original else result,"video/mp4")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }.onFailure { hint.show("Nenhum reprodutor disponível") }
+            }.setNegativeButton("Fechar",null).show()
     }
 
     private fun openLastMedia() {

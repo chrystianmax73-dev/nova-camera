@@ -56,6 +56,11 @@ class PortraitMaskAnalyzer(
     override fun analyze(image: ImageProxy) {
         try {
             if (closed) return
+            if(cinematic && com.novacamera.s24.processing.VideoFinishJob.state.running) {
+                if(lastState!="Desfoque pausado durante acabamento local")effect.clearMask()
+                depth?.close();depth=null;depthN=null;prevSubject=null;prevAmount=null
+                state("Desfoque pausado durante acabamento local");return
+            }
             val now = SystemClock.uptimeMillis()
             val status = heat()?.thermalStatus ?: 0
             if (status >= ThermalPolicy.SEVERE) {
