@@ -1,3 +1,19 @@
+# Acompanhamento da entrega 0.22.0 — build 62 em execução
+
+- HEAD de trabalho após restaurar gatilho: `e869bdb182f478f41bc47a9ee15b130ccaffcc4e` (esta documentação pode avançá-lo). Código do app `b4a97588ed4bff162b6a093e0d7d6aa40bffbbf0` aprovado em assembleDebug/testDebugUnitTest/lintDebug no [39066797447](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39066797447).
+- APK fonte `ae2257698a67e4272234df23f758527026893bbd`; build assinado 62 (versionCode esperado 1062) em execução [39067165320](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39067165320), job 117497114240. Ainda sem artefato confirmado. Publicação de release bloqueada para push nesta branch. Gatilho adicionado só para esta execução e já restaurado; não disparar outro build sem necessidade.
+- Próximo passo imediato: aguardar build 62 e conferir testes/lint, modelos NAFNet/Depth Anything, assembleRelease, assinatura/versionCode e upload real; verificar publicação skipped. Registrar link real do artefato e entregar ao dono. Se falhar, ler erro concreto, corrigir e repetir; nunca anunciar APK indisponível.
+- Duas primeiras execuções de rastreamento falharam: 39066321775 por tipos Kotlin (corrigidos); 39066492614 por 2 asserções inteiras de geometria. Testes finais usam backend gráfico nativo e tolerância explícita do roundOut (1 pixel centro/2 extensão); transformação de produção preservada. Execução final acima passou.
+
+## Próxima etapa técnica, após teste físico do rastreamento
+
+- Examinar `camera/PortraitPreview.kt`, `camera/PortraitMaskAnalyzer.kt`, `processing/DepthEstimator.kt`, `core/imaging/DepthPortrait` e negociação SessionConfig/efeitos/assinatura em NovaCamera. PortraitPreviewEffect atualmente declara somente PREVIEW: não afirmar bokeh no MP4.
+- Reutilizar processamento existente num perfil cinematográfico explicitamente escolhido, inicialmente FHD/30. Validar superfície de saída de vídeo, EGL recordable, timestamps/apresentação, transformações e composição da marca antes de expor controle. Uma mesma composição deve chegar à prévia e ao arquivo; não basta máscara na tela.
+- Conectar escolha por toque à seleção na profundidade; tratar máscara temporal com movimento e idade/confiança, não aplicar mapa antigo indefinidamente. Pessoa frontal e objetos traseiros têm limitações distintas; testar bordas/oclusão/transições no aparelho.
+- Qualquer stream adicional/análise precisa passar pela capacidade real da sessão completa. Fallback preserva vídeo comum e qualidade escolhida, com aviso; não converter 4K60 silenciosamente para FHD30. Pós-processamento só depois, com original preservado e conferência de áudio/sincronia/metadados.
+
+---
+
 # Continuidade — 0.22.0 em validação (17/10/2026)
 
 - Branch única de trabalho: `codex/video-estabilidade-0-20`; main e branch original preservadas. Novo pedido do dono autoriza rastreamento → profundidade → pós-processamento com medições e APK de teste após etapa estável.
