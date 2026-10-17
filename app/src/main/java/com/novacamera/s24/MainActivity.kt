@@ -1026,6 +1026,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
     }
 
+    override fun onFocusCleared() {
+        overlay.hideFocusRing()
+        lockChip.visibility = View.GONE
+    }
+
     override fun onExposureIndex(index: Int) {
         updateEvChip(index)
         proPanel.setEvIndex(index)

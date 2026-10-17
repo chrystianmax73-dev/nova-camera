@@ -6,6 +6,24 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.20.0 — Foco por toque confiável na tele e nas rajadas
+
+O toque já focava e media no ponto (anel, confirmação por cor, toque longo = AE/AF bloqueado), mas
+três falhas tiravam o foco do lugar na hora da foto:
+1. **Toque antigo:** 4 s depois do toque o AF volta ao contínuo; quem enquadra a tele e dispara
+   depois disso tinha a foto focada onde o AF contínuo quisesse. Agora, antes do disparo, o foco é
+   refeito no ponto tocado (até 0,7 s; no Noturno até 1,2 s).
+2. **Rajadas com AF contínuo:** Noturno já travava o foco no centro; super-resolução (10×) e alta
+   resolução/multiquadro da tele (≥ 2,5×) não — o AF podia "caçar" entre os quadros e borrar a fusão.
+   Agora travam antes (no recorte do 10×, antes de abrir a lente para a rajada). O retorno ao
+   contínuo nunca acontece no meio de uma rajada.
+3. **Zoom depois do toque:** a região medida fica fixa no sensor; ao mudar o zoom ≥ 15% ela não cobre
+   mais o mesmo objeto (no 10× pode até sair do quadro). Agora o ponto é descartado e o anel some,
+   como na câmera nativa. Toque longo (bloqueio) continua valendo.
+
+Regras em `core/FocusPolicy.kt` (testes `FocusPolicyTest`). Validação: **Testes** para as regras;
+**Aparelho** para o efeito real (tempo de foco na tele, AF durante a troca de zoom da SR).
+
 ## 0.19.1 — Alta resolução: 2× de fato e descrição correta no Retrato
 
 Caso real (0.19.0): planta no Retrato a 3× saiu com 4590×6120 (28 MP, 1,5×) — a guarda de memória

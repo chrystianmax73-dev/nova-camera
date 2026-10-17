@@ -143,6 +143,12 @@ class NovaCamera(
     private var userPointActive = false
     private var aeLocked = false
     private var focusToken = 0
+    /** Ponto tocado (para focar de novo nele antes de uma rajada) e o zoom no momento do toque. */
+    private var userPoint: MeteringPoint? = null
+    private var userPointFlags = 0
+    private var zoomAtTap = 0f
+    /** O AF ainda está parado no ponto tocado (falso depois que volta ao contínuo). */
+    private var afAtPoint = false
     private var evIndex = 0
     /** Compensação automática de contraluz (passos de EV), somada ao EV do usuário só quando ele está em 0. */
     private var backlightBoost = 0
@@ -922,6 +928,7 @@ class NovaCamera(
         }
         val intrinsic = lens?.intrinsic ?: 1f
         val target = clampZoom(equivalentZoom / intrinsic) ?: return
+        dropPointIfReframed(target)
         zoomTarget = target
         zoomCurve.animateTo(zoomOnLens, target, SystemClock.uptimeMillis())
         startZoomLoop()
@@ -940,6 +947,7 @@ class NovaCamera(
     }
 
     private fun followTarget(target: Float) {
+        dropPointIfReframed(target)
         zoomTarget = target
         // No vídeo, o mesmo tremor do dedo vira um salto de enquadramento maior quanto maior a
         // ampliação: a suavização cresce com ela (110 ms em 1x, ~200 ms em 10x).
@@ -1051,6 +1059,8 @@ class NovaCamera(
         userPointActive = false
         aeLocked = false
         nativeMeterPoint = null
+        userPoint = null
+        afAtPoint = false
     }
 
     /**
@@ -1106,6 +1116,10 @@ class NovaCamera(
             }
             exposureOnly
         }
+        userPoint = point
+        userPointFlags = if (chosen === action) flags else FocusMeteringAction.FLAG_AE
+        zoomAtTap = zoomTarget
+        afAtPoint = false
         val future = cam.cameraControl.startFocusAndMetering(chosen)
         future.addListener({
             if (token != focusToken || camera !== cam) return@addListener
@@ -1117,6 +1131,7 @@ class NovaCamera(
                 return@addListener
             }
             val ok = result.isFocusSuccessful
+            afAtPoint = userPointFlags and FocusMeteringAction.FLAG_AF != 0
             if (lock) {
                 aeLocked = true
                 applyInterop()
@@ -1132,11 +1147,15 @@ class NovaCamera(
         handler.postDelayed({
             val cam = camera ?: return@postDelayed
             if (token != focusToken || aeLocked) return@postDelayed
-            // Estágio 1: AF volta ao contínuo; AE segue medido no ponto escolhido.
+            // Rajada em andamento: o foco não pode mudar entre os quadros; tenta de novo depois.
+            if (capturing) { scheduleFocusRelease(token, point); return@postDelayed }
+            // Estágio 1: AF volta ao contínuo; AE segue medido no ponto escolhido. Ao disparar uma
+            // rajada, o foco é refeito no ponto (ver focusBeforeBurst).
+            afAtPoint = false
             cam.cameraControl.startFocusAndMetering(
                 FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AE).disableAutoCancel().build())
             handler.postDelayed({
-                if (token != focusToken || aeLocked || evIndex != 0) return@postDelayed
+                if (token != focusToken || aeLocked || evIndex != 0 || capturing) return@postDelayed
                 // Estágio 2: sem ajuste manual de EV, retorna ao automático completo (inclui prioridade a rostos).
                 userPointActive = false
                 camera?.cameraControl?.cancelFocusAndMetering()
@@ -1144,6 +1163,21 @@ class NovaCamera(
                 applyVideoMetering()
             }, AUTO_RETURN_MS)
         }, hold * 1000L)
+    }
+
+    /**
+     * Zoom mudou depois do toque: a região medida (fixa no sensor) já não cobre o mesmo objeto — na
+     * tele pode até sair do quadro, e o AF passa a focar o que estiver lá. Volta ao foco automático,
+     * como a câmera nativa. Toque prolongado (bloqueio) é escolha explícita e fica.
+     */
+    private fun dropPointIfReframed(target: Float) {
+        if (!userPointActive || aeLocked || capturing) return
+        if (!com.novacamera.s24.core.FocusPolicy.zoomInvalidatesPoint(zoomAtTap, target)) return
+        resetFocusState()
+        camera?.cameraControl?.cancelFocusAndMetering()
+        applyInterop()
+        applyVideoMetering()
+        listener.onFocusCleared()
     }
 
     /** Desfaz ponto manual, bloqueio e compensação: volta ao automático completo. */
@@ -1634,7 +1668,7 @@ class NovaCamera(
             capturing = false
             if (nightOverride != null) { nightOverride = null; applyInterop() }
             if (srFactor > 1f && camera === cam) cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
-            releaseNightFocus()
+            releaseBurstFocus()
             if (baseEv != appliedEv() || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
@@ -1748,36 +1782,57 @@ class NovaCamera(
                 if (applied != null) applied.addListener({ shoot(0) }, main) else { nightOverride = null; shoot(0) }
             } else shoot(0)
         }
-        // Noturno sem ponto escolhido: foco de verdade no centro antes da rajada (o AF contínuo
-        // "caça" no escuro). Todos os quadros saem com o mesmo foco; até 1,2 s de espera.
-        if (kind == JobKind.NIGHT && !userPointActive && !aeLocked && activeExtension == ExtensionMode.NONE) {
-            nightFocusThen(cam) { startBurst() }
-        } else if (srFactor > 1f) {
-            // Lente sem recorte durante a rajada; um instante para o quadro novo chegar ao sensor.
-            listener.onMessage("Segure firme · super-resolução")
-            cam.cameraControl.setZoomRatio(cameraZoom(1f)).addListener({ handler.postDelayed({ startBurst() }, SR_SETTLE_MS) }, main)
-        } else startBurst()
+        val zoomOut = {
+            if (srFactor > 1f) {
+                // Lente sem recorte durante a rajada; um instante para o quadro novo chegar ao sensor.
+                // O foco já foi feito no recorte (no modo AF de disparo a lente não se move com o zoom).
+                listener.onMessage("Segure firme · super-resolução")
+                cam.cameraControl.setZoomRatio(cameraZoom(1f)).addListener({ handler.postDelayed({ startBurst() }, SR_SETTLE_MS) }, main)
+            } else startBurst()
+        }
+        // Foco de verdade antes da rajada: todos os quadros saem com o mesmo foco, no ponto tocado (se o
+        // AF já tinha voltado ao contínuo) ou no centro (Noturno, super-resolução, tele multiquadro —
+        // o AF contínuo "caça" no escuro e na tele, e um quadro fora de foco borra a fusão).
+        val plan = com.novacamera.s24.core.FocusPolicy.beforeBurst(
+            night = kind == JobKind.NIGHT, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
+            userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
+            manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE)
+        focusBeforeBurst(cam, plan) { zoomOut() }
     }
 
-    private var nightFocusHeld = false
+    private var burstFocusHeld = false
 
-    private fun nightFocusThen(cam: Camera, then: () -> Unit) {
-        val action = FocusMeteringAction.Builder(
-            previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
-            FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
-        if (!cam.cameraInfo.isFocusMeteringSupported(action)) return then()
+    private fun focusBeforeBurst(cam: Camera, plan: com.novacamera.s24.core.FocusPolicy.BeforeBurst, then: () -> Unit) {
+        val action = when (plan.target) {
+            com.novacamera.s24.core.FocusPolicy.Target.NONE -> null
+            com.novacamera.s24.core.FocusPolicy.Target.POINT -> userPoint?.let {
+                FocusMeteringAction.Builder(it, userPointFlags or FocusMeteringAction.FLAG_AF).disableAutoCancel().build() }
+            com.novacamera.s24.core.FocusPolicy.Target.CENTER -> FocusMeteringAction.Builder(
+                previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
+                FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
+        }
+        if (action == null || !cam.cameraInfo.isFocusMeteringSupported(action)) return then()
         var done = false
         val go = { if (!done) { done = true; then() } }
-        nightFocusHeld = true
+        // Novo ciclo do ponto: os retornos ao automático agendados pelo toque antigo deixam de valer.
+        val token = if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT) ++focusToken else focusToken
+        burstFocusHeld = plan.target == com.novacamera.s24.core.FocusPolicy.Target.CENTER
         val future = cam.cameraControl.startFocusAndMetering(action)
-        future.addListener({ go() }, main)
-        handler.postDelayed({ go() }, NIGHT_FOCUS_WAIT_MS)
+        future.addListener({
+            if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
+                afAtPoint = true
+                // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
+                userPoint?.let { scheduleFocusRelease(token, it) }
+            }
+            go()
+        }, main)
+        handler.postDelayed({ go() }, plan.waitMs)
     }
 
-    /** Depois da rajada: AF volta ao contínuo. */
-    private fun releaseNightFocus() {
-        if (!nightFocusHeld) return
-        nightFocusHeld = false
+    /** Depois da rajada: sem ponto do usuário, AF volta ao contínuo. */
+    private fun releaseBurstFocus() {
+        if (!burstFocusHeld) return
+        burstFocusHeld = false
         if (!userPointActive) camera?.cameraControl?.cancelFocusAndMetering()
     }
 
@@ -2143,7 +2198,6 @@ class NovaCamera(
         private const val TELE_HIGH_RES_FROM = 2.5f
         /** Rajada da tele na coleta de testes (a super-resolução usa de 6 a 8 quadros). */
         private const val COLLECT_TELE_FRAMES = 8
-        private const val NIGHT_FOCUS_WAIT_MS = 1200L
         private const val PINNED_STALL_MS = 3000L
         private const val STALL_PREVIEW_MS = 3000L
         private const val TAG = "NovaCamera"

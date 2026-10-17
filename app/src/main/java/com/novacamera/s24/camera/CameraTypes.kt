@@ -70,6 +70,8 @@ interface CameraListener {
     fun onCameraState(state: CameraState)
     fun onZoom(equivalentZoom: Float)
     fun onFocusResult(success: Boolean, locked: Boolean)
+    /** O ponto tocado deixou de valer (ex.: o zoom mudou o enquadramento); foco voltou ao automático. */
+    fun onFocusCleared() {}
     fun onExposureIndex(index: Int)
     fun onAutoStats(stats: AutoStats)
     fun onCaptureStarted()
