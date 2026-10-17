@@ -1,5 +1,7 @@
 # 0.24.6 — marca orientada no compositor e passes de desfoque sob demanda (17/10/2026)
 
+- **Revisão final aprovada**: assembleDebug/testDebugUnitTest/lintDebug no [Actions39074393867](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074393867), fonte da1e33b42a65c71a41c91e7235cc8745bd42d15d. APK66/1066 em geração no [39074742550](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550), fonteafcf41f1667ccec3abbf4982c9c242acdb45bf26; artefato ainda não confirmado. Gatilho original já restaurado25c8445411a2c930ca63b201de5048d6a19947c1, sem release automático.
+
 - A captura real mostra marca vertical. Compositor desenhava logo nas dimensões cruas da saída compartilhada PREVIEW|VIDEO_CAPTURE, ignorando rotação posterior. Agora usa TransformationInfo pública (recorte/rotação/espelho/sensor→entrada) e SurfaceOutput.sensorToBufferTransform para orientar marca junto da imagem; atualiza textura só quando muda geometria. Vídeo comum/OverlayEffect preservado, sem efeito adicional ou API interna.
 - A espera de calibração mantinha cópia reduzida e quatro passes de blur mesmo com máscara suspensa pelo calor. Calibração agora copia apenas quando recebe amostra; blur só trabalha com máscara ou transição visível. Proteções térmicas e validade mantidas; não é medição de autonomia/GPU.
 - Primeira validação0.24.6 (39073994403) falhou em1 teste gráfico de249 (5 dispensados), comparação de pixels da marca; não aprovada. Revisão rasteriza texto/sombra de pé antes de transformar bitmap, em vez de transformar Canvas de texto; mantém a tolerância original e identifica a geometria nas falhas. Gradle passa a imprimir asserções completas. Nova validação pendente.
@@ -13,7 +15,7 @@
 
 - Sinal de atividade passa a contar todos os CaptureResults antes de ISO/exposição opcionais; callback por geração ignora resultados antigos. Aviso enfileirado só recupera se não chegou novo resultado nesse intervalo. Cadência diagnóstica também conta resultados sem campos opcionais; não mede apresentação na tela.
 - Vigia não usa ausência de callbacks em extensão OEM/alta velocidade como prova de travamento e não religa prévia isolada após combinação recusada. Fotos param o vigia antes de tratar a parada e verificam limite antes de retirar efeitos, evitando repetição sem fim; vídeo conserva espera por Finalize e orçamento existente. Log inclui assinatura do compositor e estado da máscara.
-- Regressões cobrem resultados sem campos opcionais, callback antigo, recuperação espontânea enquanto UI estava ocupada e perfis sem observação válida. CI pendente. Essas causas verificadas no código não provam explicar todos os congelamentos do HAL/GL no S24; teste físico continua necessário.
+- Regressões cobrem resultados sem campos opcionais, callback antigo, recuperação espontânea enquanto UI estava ocupada e perfis sem observação válida. Compilação/testes/lint aprovados no Actions39073924133. Essas causas verificadas no código não provam explicar todos os congelamentos do HAL/GL no S24; teste físico continua necessário.
 - Inclui escolha térmica0.24.4; nenhuma queda silenciosa de resolução/FPS, assinatura Android ou motor fotográfico alterados. Próximo: confirmar CI, examinar geometria da marca compartilhada, gerar APK com fluxo assinado sem release.
 
 ---

@@ -1,3 +1,30 @@
+# Continuidade — 0.24.6 aprovada, APK66 em geração (17/10/2026)
+
+- Branch `codex/video-estabilidade-0-20`; base conferida1f49b39bd9037f1a3a1a34e655dcf667fa50f680 e baseline39071730931 aprovado. Main, branch original e APK65/0.24.3 preservados. Buscar HEAD remoto atualizado antes de continuar.
+- Fonte final do aplicativo `da1e33b42a65c71a41c91e7235cc8745bd42d15d`, **assembleDebug/testDebugUnitTest/lintDebug aprovados no Actions39074393867**. Térmica0.24.4 aprovada39073650405; vigia0.24.5 aprovado39073924133. Primeiras0.24.6 (39073994403 e39074083309) falharam no mesmo teste gráfico; revisão final rasteriza marca de pé antes de transformar, mantém tolerância e passou. Não omitir falhas históricas.
+- **APK66/1066 ainda não confirmado:** execução assinada [39074742550](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550), fonte `afcf41f1667ccec3abbf4982c9c242acdb45bf26`. Repetirá testes/lint, JPEG sintético200MP, modelos NAFNet/Depth, assembleRelease e certificado/versionCode antes do upload. Gatilho original já restaurado em `25c8445411a2c930ca63b201de5048d6a19947c1` (blob a82bc113b2de207b7a3e9a9660cc19af520167ff). Publicação deve ficar skipped; não criar release nem iniciar outro build sem necessidade.
+- Próximo passo exato: consultar jobs do run39074742550, confirmar sucesso dos testes/lint/modelos/compilação/certificado/upload, publicação skipped e artefato real. Só então entregar link do ZIP contendo app-release.apk0.24.6, build66(1066), registrar ID/tamanho/digest/expiração em STATUS/handoff. Se falhar, ler erro real e corrigir; nunca anunciar APK antes do upload.
+
+## Feedback e correções desta revisão
+
+- S24/API37/0.24.3 esteve em calor severo3, carregando,42.7–43.6°C durante a sessão: tracking/profundidade pausados corretamente. Erro de fluxo era solicitar aguardar máscara que não poderia chegar; agora obturador oferece Aguardar/Usar vídeo comum explicitamente, conserva qualidade/FPS/EIS e preferência para próxima sessão. Não inicia arquivo após diálogo/rebind; novo toque necessário. QuickVideo não aguarda máscara impossível se já severo. Proteções mantidas.
+- Vigia não depende mais de ISO/exposição opcionais; resultados por geração, descarta aviso se câmera voltou antes do tratamento. Não vigia extensão OEM/alta velocidade sem callback nem prévia isolada por perfil recusado. Fotos também desligam vigia e respeitam limite antes das retiradas de efeito; vídeo mantém orçamento/Finalize. Isso corrige causas no código, não prova explicar todos os congelamentos do HAL/GL. Se captura avança mas tela congela, próximo diagnóstico deve separar entrega GL do sinal de CaptureResult.
+- Marca vertical do screenshot: compositor usa geometria pública sensor→entrada/saída, recorte/rotação/espelho e bitmap desenhado de pé, textura só na geometria. Comum/OverlayEffect e liberação serial preservados, sem API interna/novo efeito. Testes nativos gráficos passaram; MP4 físico ainda pendente.
+- Calibração antes sem máscara mantinha quatro passes de blur. Cinematográfico só copia para calibrar quando há amostra; blur apenas com máscara/transição visível. Não afirmar economia de GPU/bateria sem medição. Diagnóstico distingue máscara atual de compositor ligado/suspenso; callbacks antigos não sobrescrevem estado após troca para comum.
+- Sem mudanças na assinatura Android, keystore, INTERNET, dependências, Noturno ou motor de fotos/HDR/Retrato/zoom/SR; nenhuma mídia pessoal no Git. Só versionName/build test logging/fluxo de vídeo e fontes citadas nas seções abaixo.
+
+## Validação física e evoluções pendentes
+
+- Diagnóstico do dono confirma somente MP4 comum1080×1920/AVC/29.97fps médios nessa sessão; marca desenhada na textura não prova pixels do MP4. Não há novo MP4 recebido ou S24 conectado. CPU/PSS são amostras reais, potência indisponível carregando, sem A/B/autonomia/GPU medidos. 937ms de profundidade é caminho fotográfico, não medição completa de cinema.
+- Seguir `VIDEO_EVOLUCAO_S24_VALIDACAO.md`: frio/fora do carregador para referência, tocar novamente para tracking após pausa, cinemáticoFHD30/EISoff explícito, máscara/contornos, marca de pé/frontal/espelho, áudio/PTS, fallback por calor e troca de modos/qualidade. Não aquecer de propósito. Não chamar recursos de premium ou estabilidade física validada só pelo CI.
+- Rastreamento/segmentação/cinematográfico ainda experimentais. Pós atual é abertura leve de sombras opcional; **denoise temporal avançado/compensação de movimento continuam pendentes**, assim como refinamento de contornos/reidentificação/consumo com material sintético e testes reais. Não aumentar inferência pesada no aparelho já quente sem medições; preservar original e prioridade da captura.
+
+## Texto para continuar
+
+Continue Nova Camera em codex/video-estabilidade-0-20 pelo HEAD remoto atualizado. Leia este handoff inteiro e topo STATUS. App0.24.6 finalda1e33b42a65c71a41c91e7235cc8745bd42d15d aprovado no CI39074393867; APK66/1066 em geração no run39074742550, fonteafcf41f1667ccec3abbf4982c9c242acdb45bf26, gatilho já restaurado25c8445411a2c930ca63b201de5048d6a19947c1. Primeiro confirme artefato/certificado/modelos/testes e publicação skipped e entregue APK real, sem release. Mudanças: escolha explícita de comum no bloqueio térmico, vigia por sinal de sessão/geração e limitado, marca orientada por matriz e passes GL sob demanda. Validação física S24 permanece pendente; denoise temporal avançado ainda não implementado. Preserve chave permanente/main/fotos/Noturno/todas as qualidades e mídia pessoal fora do Git.
+
+---
+
 # 0.24.6 — marca orientada no compositor e passes de desfoque sob demanda (17/10/2026)
 
 - A captura real mostra marca vertical. Compositor desenhava logo nas dimensões cruas da saída compartilhada PREVIEW|VIDEO_CAPTURE, ignorando rotação posterior. Agora usa TransformationInfo pública (recorte/rotação/espelho/sensor→entrada) e SurfaceOutput.sensorToBufferTransform para orientar marca junto da imagem; atualiza textura só quando muda geometria. Vídeo comum/OverlayEffect preservado, sem efeito adicional ou API interna.
