@@ -1,3 +1,13 @@
+# Entrega em andamento — APK 0.24.1 build 63
+
+- Build assinado [39070326049](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070326049), job117506408597, iniciado; ainda sem artefato confirmado. Fonte `3b8dcbe8651b810beb2c137fcfec8fc46dfe2dec`, app `695e5d46d0a9b78e4eff74798265b947a2521295`, núcleo previamente aprovado `c4d4e8a09df5d0a70d401e4f68223f65f63e4428` no CI39069941647. Mudança posterior do app apenas rotula medições de energia/CPU/PSS por função.
+- Gatilho temporário de push restaurado em `e9487a1272b82885eb0e089119f704642ceab300`. Workflow original a82bc113b2de207b7a3e9a9660cc19af520167ff preservado, sem publicação para push desta branch. Não gerar build duplicado enquanto este estiver ativo.
+- Próximo passo: aguardar e verificar testes/lint, NAFNet e Depth Anything, assembleRelease, pesos no APK, continuidade do certificado/versionCode, upload real e publicação skipped. Então registrar link/bytes/digest/expiração e entregar APK. Se falhar, ler erro concreto e preservar original do usuário.
+- Contém correção da cópia reduzida assíncrona do rastreamento, caminho cinematográfico experimental na prévia/VIDEO_CAPTURE com composição de assinatura, perfil FHD/30/EISoff escolhido pelo usuário; e acabamento de sombras opcional via pressão longa da miniatura, atéFHD/60/SDR/2min, original preservado e conferência real de metadados/quadros/áudio antes de salvar. Denoise temporal avançado permanece pendente; não apresentá-lo pronto.
+- Nenhum S24 conectado ou MP4 real novo recebido; confirmar imagens/áudio/qualidade/foco/temperatura no aparelho conforme VIDEO_EVOLUCAO_S24_VALIDACAO.md. Captura de tela do dono não foi enviada ao Git. Fontes, tentativas e limitações detalhadas abaixo são histórico preservado.
+
+---
+
 # Revisão aprovada antes de gerar APK 0.24.1
 
 - Núcleo final c4d4e8a09df5d0a70d401e4f68223f65f63e4428 aprovado em assembleDebug/testDebugUnitTest/lintDebug no Actions39069941647. Ajuste adicional somente classifica grupos de energia/CPU/PSS com cinematográfico e acabamento; não é alegação de economia. Novo roteiro VIDEO_EVOLUCAO_S24_VALIDACAO.md.

@@ -1,5 +1,7 @@
 # 0.24.1 — troca serial dos efeitos e proteção por memória (17/10/2026)
 
+- APK assinado build 63 em execução [39070326049](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070326049), fonte `3b8dcbe8651b810beb2c137fcfec8fc46dfe2dec`, app `695e5d46d0a9b78e4eff74798265b947a2521295`. Ainda não declarar disponível. Gatilho original restaurado em `e9487a1272b82885eb0e089119f704642ceab300`; publicação de release será pulada nesta branch.
+
 - Revisão c4d4e8a09df5d0a70d401e4f68223f65f63e4428 aprovada em compilação/testes/lint no [Actions 39069941647](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069941647). Rótulos de diagnóstico agora distinguem cinematográfico/acabamento para comparações de consumo; nenhum ganho demonstrado. Roteiro: [VIDEO_EVOLUCAO_S24_VALIDACAO.md](pendente/VIDEO_EVOLUCAO_S24_VALIDACAO.md).
 
 - 0.24.0 aprovada em compilação, testes e lint no [Actions 39069611401](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069611401), app 97ce062cb37539b4975fd9bcae6806514f80f7c8.
