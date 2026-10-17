@@ -1,3 +1,35 @@
+# Entrega confirmada — Nova Camera 0.24.3 build65 (1065)
+
+- Branch `codex/video-estabilidade-0-20`, fonte do APK `aa580a42033fcf0cd2f8dad6469f6714bf389758`. Buscar HEAD atualizado antes de continuar; commits posteriores a esta fonte são apenas workflow/documentação. Main e branch original preservadas.
+- **APK assinado:** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070952578/artifacts/12114374400), artefato12114374400, 132570598 bytes, sha256:b7eeecf1131dac7f192dd7b13331b44e6c48d55f3917142c4bba97e62f96a038 (digest do ZIP, não do APK isolado); expira 2026-11-16T21:34:56Z.
+- [Actions39070952578](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070952578), job117508361596, concluído com sucesso: **235 testes aprovados, 5 locais dispensados, 0 falhas**, lint, JPEG real sintético200MP em host, NAFNet/DepthAnything, assembleRelease, pesos no APK/profundidade=True, continuidade do certificado Android/versionCode e upload reais aprovados. Publicação de release skipped. CI debug completo da fonte também aprovado39070952531; após restaurar gatilho39071002477 aprovado.
+- Gatilho original restaurado em `c3cb1da536e837931027760184e234f2cd80c0d3`; blob do workflow original a82bc113b2de207b7a3e9a9660cc19af520167ff. Nenhuma keystore criada ou assinatura alterada; nenhum release publicado. Builds63/39070326049 e64/39070544992 cancelados, não entregues; não reenviar.
+
+## O que foi implementado nesta etapa
+
+1. Feedback real era captura de tela da0.22.0 com leitura lenta da prévia. PreviewView.bitmap/SurfaceView aguardava cópia full-size; PreviewFrameReader usa PixelCopy assíncrono já reduzido (até320px), uma solicitação, sem thread novo por quadro/sem stream novo no rastreamento. TextureView alternativo copia direto em destino pequeno. Geração/fechamento/erro/prazo controlados. Não foi medida latência nova no S24.
+2. Cinematográfico **experimental** reutiliza PortraitPreview/MaskAnalyzer/DepthEstimator/PersonSegmenter, alvos PREVIEW|VIDEO_CAPTURE e marca no mesmo renderer. Ativação explícita com FHD/30/EISoff; demais perfis bloqueados sem reduzir escolha. Toque mapeia visor→sensor→análise; máscara vence e profundidade tem orçamento, calor/atraso/movimento retiram máscara inadequada. Não é profundidade métrica, semântica ou prova de bordas premium.
+3. Troca entre OverlayEffect comum e compositor aguarda cleanup real na fila GL, inclusive slot já vazio com liberação pendente. commonEffectPending só limpa depois da barreira. Falha GL durante gravação finaliza arquivo antes de religar; callbacks de geração antiga não alteram a nova.
+4. QuickVideoWarmup aguarda câmera/máscara antes de consumir START do gesto Foto/Retrato, até8s, cancela ao soltar/restaurar/sair/trocar sessão. Testes de Handler/Looper cobrem começo único, sem começo tardio, troca e timeout. MP4 físico do gesto ainda pendente.
+5. Primeiro acabamento local opcional: segurar miniatura, confirmar; atéFHD/60/SDR AVC/HEVC/2min. Amostra8quadros e aplica abertura muito suave de sombras constante no clipe, ou não gera cópia se não precisar. Media3 GPU/codecs sem fallback de resolução; original intocado e nova cópia na galeria, progresso/cancelamento e comparação de reprodução com par persistido. Nova captura, calor severo e pouca memória cancelam; depende de o processo continuar vivo.
+6. Exportador lê MP4 efetivo e confere dimensão/orientação visual, MIME, todos os PTS/quantidade de quadros, bytes SHA de áudio/canais/taxa e sincronismo; divergência descarta cópia. Isso é uma proteção em código, não evidência de um MP4 exportado no S24 nesta sessão. Não há denoise temporal/refinamento de texturas avançado nesta etapa.
+7. Diagnóstico separa grupos de CPU/PSS/energia por rastreamento/cinematográfico/acabamento. GPU não medida, potência do aparelho inteiro. Não há comparação física controlada nem ganho de autonomia demonstrado. Manifesto mesclado sem INTERNET verificado em teste; fotos/HDR/Noturno/zoom/SR e configurações anteriores preservados.
+
+## Próximo passo exato e limites
+
+- Instalar APK65 e seguir [VIDEO_EVOLUCAO_S24_VALIDACAO.md](VIDEO_EVOLUCAO_S24_VALIDACAO.md). Testar comum/rastreamento primeiro, depois cinematográfico e acabamento separadamente. Confirmar efeitos/marca/áudio/orientação em arquivos reais, lentes/frontal, 5x/4K comuns, gestos e interrupções; medir latência/cadência/temperatura em condições comparáveis. Não enviar mídia pessoal ao Git.
+- A sessão só recebeu screenshot; nenhum S24 conectado ou MP4 novo inspecionado. Não anunciar recursos fisicamente validados com base no CI. Afinar máscara temporal/bordas, integração de tracking em cenas difíceis e consumo com evidência. O relatório global DepthEstimator é do caminho fotográfico; não confundir com métricas completas de inferência do cinema.
+- Próxima evolução de pós: redução temporal de ruído com compensação de movimento e proteção de textura, depois outros perfis/exportação. Implementar/testar com material sintético primeiro, preservar original/áudio/PTS e validar visualmente no aparelho. Não criar controles de denoise sem processamento real.
+- Fontes principais: camera/PreviewFrameReader.kt, SubjectTrackingSession.kt, PortraitPreview.kt, PortraitMaskAnalyzer.kt, EffectQueueBarrier.kt, NovaCamera.kt; core/QuickVideoWarmup.kt, CinematicPolicy.kt, VideoFinishPolicy.kt; processing/VideoFinishJob.kt; MainActivity/SettingsActivity/NovaSettings. Dependências novas só Media3 transformer/effect1.8.0; AndroidManifest e assinatura não mudaram.
+
+## Texto para continuar
+
+Continue Nova Camera em codex/video-estabilidade-0-20 pelo HEAD remoto atualizado. Leia NOVA_HANDOFF_CODEX.md inteiro, topo de STATUS e código citado; confira Actions antes de editar. A entrega atual é0.24.3/build65(1065), APK no artefato12114374400 do run39070952578, fonteaa580a42033fcf0cd2f8dad6469f6714bf389758, 235 testes aprovados/5 dispensados/lint/compilação/modelos/certificado verificados. Feedback S24 ainda pendente para rastreamento, cinematográfico e acabamento. Preserve key permanente, fotos/HDR/Retrato/Noturno/zoom/SR, vídeo comum/qualidade/assinatura, main e originais. Use VIDEO_EVOLUCAO_S24_VALIDACAO.md e trate meu próximo feedback. Depois avance refinamento temporal de máscaras e denoise temporal real, sem prometer qualidade/energia sem prova, com commits pequenos em português, versionName/STATUS e APK de teste sem release automático.
+
+---
+
+## Histórico preservado — estados de preparação abaixo foram superados pela entrega acima
+
 # Revisão final 0.24.3 — aguardar máscara na gravação rápida
 
 - Corrige integração importante: bind do Vídeo pode terminar antes de existir máscara; o fluxo rápido antigo chamava START imediatamente, era recusado e voltava ao Retrato. QuickVideoWarmup aguarda prontidão sem consumir START, por até8s; guarda geração/gesto e cancela ao soltar/restaurar/sair. Testes Handler/Looper cobrem início único, liberação antes da máscara, troca de sessão e timeout.
