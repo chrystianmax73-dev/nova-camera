@@ -362,11 +362,11 @@ class NovaCamera(
      * Troca o modo. [rebind] = false quando a interface ainda vai mudar a proporção do visor:
      * o ViewPort precisa ser lido depois do novo layout para a foto corresponder ao enquadramento.
      */
-    fun setMode(m: CaptureMode, rebind: Boolean = true) {
+    fun setMode(m: CaptureMode, rebind: Boolean = true, remember: Boolean = true) {
         if (isRecording || nativeRun != null || m == mode) return
         videoRecovery.reset()
         mode = m
-        settings.lastMode = m
+        if (remember) settings.lastMode = m
         resetFocusState()
         evIndex = 0; backlightBoost = 0
         if (!m.isPro) manual = ManualControls()

@@ -139,6 +139,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var idlePaused = false
     private var announcedMode: CaptureMode? = null
     private var settingsSignature = ""
+    private val quickRecording = com.novacamera.s24.core.QuickRecording()
+    private var quickReturnMode: CaptureMode? = null
+    private var audioStartPending = false
     /** Sessão de revisão da última foto processada (a miniatura abre a revisão em vez da galeria). */
     private var lastSession: Pair<String, Uri>? = null
     private val onProcessing: (JobProgress) -> Unit = { p -> onProcessingProgress(p) }
@@ -147,8 +150,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (granted) startCamera() else showPermissionOverlay()
     }
     private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val start = audioStartPending
+        audioStartPending = false
         if (!granted) hint.show("Microfone negado: o vídeo será gravado sem áudio")
-        camera.startRecording()
+        if (start && camera.mode.isVideo && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+            camera.startRecording()
     }
 
     private val orientationListener by lazy {
@@ -356,6 +362,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         newSessionOnResume = true
+        audioStartPending = false
+        runQuickAction(quickRecording.interrupt())
         cancelCountdown()
         camera.stopRecording()
         if (torchOn) { torchOn = false; camera.setTorch(false) }
@@ -533,7 +541,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             // Comparação Original × Nova é opcional: toque e segure (o toque simples abre a galeria).
             setOnLongClickListener { openReview(); true }
         }
-        shutter = ShutterButton(this).apply { setOnClickListener { onShutter() } }
+        shutter = ShutterButton(this).apply {
+            setOnClickListener { onShutter() }
+            quickListener = object : ShutterButton.QuickListener {
+                override fun onHold() = beginQuickRecording()
+                override fun onLock() {
+                    quickRecording.lock()
+                    if (quickRecording.locked) {
+                        Haptics.confirm(shutter)
+                        hint.show("Gravação bloqueada · toque no botão para finalizar")
+                    }
+                }
+                override fun onRelease() = runQuickAction(quickRecording.release())
+                override fun onCancel() = runQuickAction(quickRecording.interrupt())
+            }
+        }
         flipButton = icon(Icon.FLIP) { onFlip() }.apply {
             background = Nova.pill(0x33FFFFFF, dp(24f))
         }
@@ -743,7 +765,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun selectMode(m: CaptureMode) {
-        if (camera.isRecording || countdown > 0) return
+        if (camera.isRecording || countdown > 0 || quickReturnMode != null) return
         refreshStrip(m)
         showTransition()
         overlay.hideFocusRing()
@@ -753,7 +775,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun onFlip() {
         if (camera.isRecording) { camera.pauseOrResumeRecording(); return }
-        if (countdown > 0) return
+        if (countdown > 0 || quickReturnMode != null) return
         showTransition()
         overlay.hideFocusRing()
         // Meia volta escondendo o visor, troca a câmera, e a outra meia volta revela a nova imagem.
@@ -766,6 +788,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun onShutter() {
         val s = cameraState ?: return
+        if (camera.isRecording) {
+            quickRecording.interrupt()
+            Haptics.confirm(shutter)
+            camera.stopRecording()
+            return
+        }
+        if (quickReturnMode != null) { runQuickAction(quickRecording.interrupt()); return }
         if (!camera.ready) return
         if (s.mode.isVideo) {
             if (camera.isRecording) {
@@ -789,12 +818,61 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         // Timelapse e câmera lenta não gravam som: não pede o microfone à toa.
         val silent = camera.mode == CaptureMode.TIMELAPSE || camera.mode == CaptureMode.CAMERA_LENTA
         if (!silent && settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            audioStartPending = true
             askAudio.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
         Haptics.confirm(shutter)
         if (settings.shutterSound) sound.play(MediaActionSound.START_VIDEO_RECORDING)
         camera.startRecording()
+    }
+
+    private fun beginQuickRecording(): Boolean {
+        if (!camera.ready || shutter.busy || countdown > 0 || quickReturnMode != null ||
+            camera.mode !in setOf(CaptureMode.FOTO, CaptureMode.RETRATO)) return false
+        if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            // A permissão interrompe o gesto. Nunca começar vídeo tardio quando o diálogo voltar.
+            audioStartPending = false
+            hint.show("Autorize o microfone e mantenha pressionado novamente para gravar")
+            askAudio.launch(Manifest.permission.RECORD_AUDIO)
+            return false
+        }
+        if (!quickRecording.hold()) return false
+        quickReturnMode = camera.mode
+        hint.show("Preparando vídeo · solte para parar · arraste para bloquear")
+        Haptics.confirm(shutter)
+        showTransition()
+        camera.setMode(CaptureMode.VIDEO, rebind = false, remember = false)
+        refreshStrip(CaptureMode.VIDEO)
+        relayoutThenBind {
+            if (quickReturnMode != null && quickRecording.active) {
+                camera.bind()
+                if (!camera.ready || camera.state?.videoCaptureProblem != null) {
+                    quickRecording.finished()
+                    restoreQuickMode()
+                }
+            }
+        }
+        return true
+    }
+
+    private fun runQuickAction(action: com.novacamera.s24.core.QuickRecording.Action) {
+        when (action) {
+            com.novacamera.s24.core.QuickRecording.Action.STOP -> camera.stopRecording()
+            com.novacamera.s24.core.QuickRecording.Action.RESTORE -> restoreQuickMode()
+            else -> Unit
+        }
+    }
+
+    private fun restoreQuickMode() {
+        val previous = quickReturnMode ?: return
+        quickReturnMode = null
+        quickRecording.finished()
+        if (isDestroyed || isFinishing) return
+        camera.setMode(previous, rebind = false)
+        refreshStrip(previous)
+        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+            relayoutThenBind { camera.bind() }
     }
 
     private fun startCountdown(seconds: Int) {
@@ -978,6 +1056,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onCameraState(state: CameraState) {
         cameraState = state
         refreshStrip(state.mode)
+        shutter.quickEnabled = state.support.canCapture && quickReturnMode == null &&
+            (state.mode == CaptureMode.FOTO || state.mode == CaptureMode.RETRATO)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
         shutter.isEnabled = state.support.canCapture && state.videoCaptureProblem == null
         shutter.alpha = if (shutter.isEnabled) 1f else 0.5f
@@ -1011,6 +1091,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateEvChip(state.evIndex)
         updateTopBar()
         layoutAll(state.mode)
+        if (quickReturnMode != null && state.mode == CaptureMode.VIDEO) handler.post {
+            if (quickReturnMode != null && camera.mode == CaptureMode.VIDEO &&
+                state.videoCaptureProblem == null &&
+                quickRecording.ready() == com.novacamera.s24.core.QuickRecording.Action.START) {
+                camera.startRecording()
+                if (!camera.isRecording) { quickRecording.finished(); restoreQuickMode() }
+            }
+        }
     }
 
     override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
@@ -1103,7 +1191,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val active = phase != RecordingPhase.IDLE
         shutter.recording = active
         recChip.visibility = if (active) View.VISIBLE else View.GONE
-        recChip.text = (if (phase == RecordingPhase.PAUSED) "❚❚  " else "●  ") + CameraMath.formatDuration(seconds)
+        recChip.text = (if (phase == RecordingPhase.PAUSED) "❚❚  " else if (quickRecording.locked) "🔒  " else "●  ") + CameraMath.formatDuration(seconds)
         recChip.background = Nova.pill(if (phase == RecordingPhase.PAUSED) Nova.SURFACE else Nova.REC, dp(14f))
         topBar.visibility = if (active) View.INVISIBLE else View.VISIBLE
         modeStrip.isEnabled = !active
@@ -1124,6 +1212,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (error != null) hint.show(error, 4000)
         if (uri != null) showMedia(uri, "video/mp4", animate = true)
         lastInteraction = SystemClock.elapsedRealtime()
+        if (quickReturnMode != null) {
+            quickRecording.finished()
+            // Evita outro bind dentro do callback Finalize do controlador.
+            handler.post { restoreQuickMode() }
+        }
     }
 
     override fun onMessage(text: String) = hint.show(text)

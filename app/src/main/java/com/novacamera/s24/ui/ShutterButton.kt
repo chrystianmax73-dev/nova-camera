@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import androidx.core.graphics.ColorUtils
 
 /**
@@ -15,6 +16,28 @@ import androidx.core.graphics.ColorUtils
  * quadrado arredondado ao gravar. Um arco gira enquanto a foto está sendo processada.
  */
 class ShutterButton(context: Context) : View(context) {
+    interface QuickListener {
+        fun onHold(): Boolean
+        fun onLock()
+        fun onRelease()
+        fun onCancel()
+    }
+    var quickListener: QuickListener? = null
+    var quickEnabled = false
+        set(value) { field = value; isLongClickable = value; updateDescription() }
+    private val quickHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var quickTouch = false
+    private var held = false
+    private var locked = false
+    private var moved = false
+    private var downX = 0f
+    private var downY = 0f
+    private val holdTask = Runnable {
+        if (quickTouch && !moved && isEnabled && !busy && countdown == 0) {
+            held = true // um toque longo recusado também não deve virar foto ao soltar
+            quickListener?.onHold()
+        }
+    }
     enum class Kind { PHOTO, VIDEO }
 
     var kind = Kind.PHOTO
@@ -72,14 +95,42 @@ class ShutterButton(context: Context) : View(context) {
 
     private fun updateDescription() {
         contentDescription = when {
-            kind == Kind.PHOTO -> "Capturar foto"
             recording -> "Parar gravação"
+            quickEnabled -> "Capturar foto; mantenha pressionado para gravar vídeo e arraste para bloquear"
+            kind == Kind.PHOTO -> "Capturar foto"
             else -> "Iniciar gravação"
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!isEnabled) return false
+        if (!isEnabled && !quickTouch) return false
+        if ((quickEnabled && event.actionMasked == MotionEvent.ACTION_DOWN) || quickTouch) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    quickTouch = true; held = false; locked = false; moved = false
+                    downX = event.x; downY = event.y
+                    animatePress(1f)
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    quickHandler.postDelayed(holdTask, ViewConfiguration.getLongPressTimeout().toLong())
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = kotlin.math.abs(event.x - downX)
+                    val dy = kotlin.math.abs(event.y - downY)
+                    if (!held && maxOf(dx, dy) > ViewConfiguration.get(context).scaledTouchSlop) {
+                        moved = true; quickHandler.removeCallbacks(holdTask)
+                    }
+                    if (held && !locked && dx >= dp(64f)) { locked = true; quickListener?.onLock() }
+                }
+                MotionEvent.ACTION_UP -> {
+                    quickHandler.removeCallbacks(holdTask)
+                    quickTouch = false; animatePress(0f)
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    if (held) quickListener?.onRelease() else if (!moved && isEnabled) performClick()
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> cancelQuickTouch()
+            }
+            return true
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> animatePress(1f)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> animatePress(0f)
@@ -88,6 +139,22 @@ class ShutterButton(context: Context) : View(context) {
     }
 
     override fun performClick(): Boolean = super.performClick()
+
+    override fun performLongClick(): Boolean {
+        if (quickEnabled && isEnabled && !busy && countdown == 0 && quickListener?.onHold() == true) {
+            quickListener?.onLock() // ação de acessibilidade não tem evento de soltar
+            return true
+        }
+        return super.performLongClick()
+    }
+
+    private fun cancelQuickTouch() {
+        quickHandler.removeCallbacks(holdTask)
+        if (held) quickListener?.onCancel()
+        quickTouch = false; held = false; locked = false
+        animatePress(0f)
+        parent?.requestDisallowInterceptTouchEvent(false)
+    }
 
     private fun animatePress(to: Float) {
         ValueAnimator.ofFloat(press, to).apply {
@@ -132,7 +199,9 @@ class ShutterButton(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        cancelQuickTouch()
         spinner.cancel()
         super.onDetachedFromWindow()
     }
 }
+

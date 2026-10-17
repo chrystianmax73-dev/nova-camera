@@ -6,6 +6,22 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.21.0 — Gravação rápida em Foto e Retrato
+
+- Toque continua fotografando. Pressão longa prepara vídeo usando o mesmo controlador e as mesmas
+  verificações de qualidade; soltura finaliza, arraste lateral de 64 dp bloqueia até tocar para parar.
+- Preparação e intenção do gesto são separadas: soltar antes de terminar o bind não inicia vídeo
+  depois. Home, cancelamento do toque e remoção da tela finalizam também a gravação bloqueada.
+- Após Finalize retorna ao modo Foto/Retrato anterior. Não vincula streams adicionais aos modos de foto.
+- Microfone ainda não autorizado: solicita permissão e exige um novo gesto, evitando gravação tardia
+  ao voltar do diálogo. O toque simples e a gravação normal continuam disponíveis.
+- O tempo de preparação depende da câmera; não há garantia de transição instantânea no S24.
+
+**Testes:** máquina de estados de preparo, soltura, bloqueio e interrupções adicionada; execução
+pendente no CI deste commit. **Compilação:** pendente no CI. **Aparelho:** não validado; testar
+Foto/Retrato, frontal/traseira, soltura rápida, bloqueio e interrupção antes de considerar pronto.
+**Próximas etapas:** acompanhamento visual do assunto e vídeo com profundidade ainda não implementados.
+
 ## 0.20.2 — Qualidade explícita sem redução silenciosa e medição do MP4
 
 - UHD/FHD/HD explícitos usam seletor sem fallback de resolução. Combinações recusadas ficam
@@ -23,8 +39,9 @@ Legenda da coluna **Validação**:
 - O visor indica FPS **alvo** (ou faixa automática), não FPS real ainda não medido.
 
 **Testes:** adicionados casos 4K selecionado × FHD gravado, orientação retrato, 60 × 30 fps,
-taxa variável, quadros B e arquivo curto sem taxa mensurável. Execução deste commit pendente no CI.
-**Compilação:** pendente no CI deste commit. **Aparelho:** não validado; não foi inspecionado um
+taxa variável, quadros B e arquivo curto sem taxa mensurável: aprovados junto com a suíte no Actions
+https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39052167400 .
+**Compilação:** assembleDebug e lintDebug aprovados nessa execução. **Aparelho:** não validado; não foi inspecionado um
 MP4 real do S24 nesta sessão. O efeito GL e a qualidade precisam de teste frontal/traseiro e
 Vídeo/Vídeo Pro no aparelho, em 1080p/4K e 30/60, com assinatura e estabilização ligadas/desligadas.
 
