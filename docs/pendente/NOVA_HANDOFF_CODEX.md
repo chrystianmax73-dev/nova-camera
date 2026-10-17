@@ -1,3 +1,10 @@
+## Verificação da 0.21.3 — sincronização do teste
+
+- Código da etapa: `4bd28076420f1cfad1b1852e84380a14a50165ed`, branch `codex/video-estabilidade-0-20`.
+- CI https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058243287: assembleDebug aprovado; testes de pixels/espelho aprovados; 210 testes, 204 aprovados, 5 dispensados, 1 falha no teste do diálogo (preferência lida antes de o callback assíncrono executar). Correção somente no teste: drenar Looper após os botões. Reexecutar a suíte completa e lint antes do APK.
+- CI anterior 0.21.2 https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056971458 ainda em execução no último acompanhamento. Baseline aprovado 39056484866.
+- APK novo ainda não gerado. Preparar nova-release com publicação pulada nesta branch, ativar uma única execução e restaurar gatilhos. Não criar release automático. Mesmo signingConfig e Secrets existentes; conferir certificado e ambos os modelos offline.
+
 ## Etapa preparada — 0.21.3, assinatura
 
 - Renderização inclui frontal espelhada, rotação/recorte e cache de textura; preserva o efeito durante recuperação do sensor. Fallback de assinatura é por perfil, com diagnóstico claro; geração de handler ignora falha antiga.

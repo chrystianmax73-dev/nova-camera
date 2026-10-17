@@ -7,7 +7,8 @@
 - Diagnóstico distingue assinatura solicitada, ativa e desenho na textura, além dos metadados reais do MP4. Desenho na textura não é prova de pixels presentes no MP4; confirmar visualmente no aparelho.
 - Consulta também verifica a faixa automática de FPS; se a sessão só aceitar 30 fixos, informa o recuo sem reduzir resolução. Alternativa de 30 fps fica disponível após recusa/fim das tentativas de recuperação.
 - Novos testes de pixels cobrem 0/90/180/270 graus e espelho, persistência de textura e mudanças de geometria. Teste da interface verifica que aceitar 30 fps exige confirmação e mantém UHD.
-- CI desta etapa pendente. Sem validação física da 0.21.3; UHD/60 em 5× e assinatura no MP4 final continuam exigindo teste no S24 Ultra. Não foi recebido MP4 pessoal nem enviado conteúdo pessoal ao repositório.
+- Primeira execução da 0.21.3 ([39058243287](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058243287)): compilação debug aprovada; 210 testes, 204 aprovados, 5 locais dispensados e 1 falha no teste da confirmação de FPS. Testes gráficos passaram. O teste precisava drenar a fila principal após o clique assíncrono do AlertDialog; sincronização corrigida e nova execução pendente. Lint não declarado aprovado nesta execução.
+- CI final desta etapa pendente. Sem validação física da 0.21.3; UHD/60 em 5× e assinatura no MP4 final continuam exigindo teste no S24 Ultra. Não foi recebido MP4 pessoal nem enviado conteúdo pessoal ao repositório.
 - Pós-processamento opcional, rastreamento e profundidade cinematográfica ainda não implementados; aguardam estabilização física da captura para a próxima etapa.
 
 # 0.21.2 — negociação de vídeo e recuperação (17/10/2026)
