@@ -1,6 +1,11 @@
 name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/native-camera-resolution]
+concurrency:
+  group: nova-signed-validation-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -15,10 +20,69 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
-      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      # O download do NDK às vezes chega corrompido ("Error reading Zip content"): até 4 tentativas.
+      - name: SDK, NDK e CMake (com novas tentativas)
+        run: |
+          for i in 1 2 3 4; do
+            sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1' && exit 0
+            echo "Tentativa $i falhou; nova tentativa em $((i * 10)) s" >&2
+            sleep $((i * 10))
+          done
+          exit 1
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Testes e lint antes de gerar a prévia
+        run: |
+          if ! gradle --no-daemon :app:testDebugUnitTest :app:lintDebug; then
+            REPORT=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            if [[ -f "$REPORT" ]]; then cat "$REPORT"; fi
+            exit 1
+          fi
+      - name: Resumo dos testes executados
+        run: |
+          python3 - <<'PYTEST'
+          import pathlib, xml.etree.ElementTree as ET
+          total = skipped = failed = 0
+          for file in pathlib.Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root = ET.parse(file).getroot()
+              total += int(root.attrib['tests']); skipped += int(root.attrib.get('skipped',0))
+              failed += int(root.attrib.get('failures',0)) + int(root.attrib.get('errors',0))
+          print(f'Testes: {total-skipped-failed} aprovados, {skipped} locais dispensados, {failed} falhas')
+          assert failed == 0
+          PYTEST
+      - name: Codec JPEG real em host com imagem sintética 200 MP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PYJPEG'
+          from PIL import Image, ImageCms
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP'])
+          profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+          Image.new('RGB',(16320,12240),(150,95,70)).save(root/'large.jpg',quality=95,icc_profile=profile)
+          Image.new('RGB',(64,64),(150,95,70)).save(root/'progressive.jpg',progressive=True)
+          PYJPEG
+          if [[ ! -f /usr/include/jpeglib.h ]]; then sudo apt-get update -qq; sudo apt-get install -y libjpeg-dev; fi
+          c++ -std=c++17 -shared -fPIC app/src/main/cpp/jpeg_bands.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" -ljpeg -o "$RUNNER_TEMP/libNovaJpegTest.so"
+          javac -d "$RUNNER_TEMP/jpegtest" tools/jpeg_bands/JpegBands.java
+          /usr/bin/time -f '%M' -o "$RUNNER_TEMP/jpeg-rss.txt" java -Xmx32m -cp "$RUNNER_TEMP/jpegtest" com.novacamera.s24.processing.JpegBands "$RUNNER_TEMP/libNovaJpegTest.so" "$RUNNER_TEMP/large.jpg" "$RUNNER_TEMP/final.jpg" "$RUNNER_TEMP/progressive.jpg"
+          python3 - <<'PYJPEG'
+          from PIL import Image
+          from pathlib import Path
+          import os
+          # Somente os JPEGs sintéticos criados acima, com dimensões conhecidas.
+          Image.MAX_IMAGE_PIXELS = 240_000_000
+          root = Path(os.environ['RUNNER_TEMP'])
+          a=Image.open(root/'large.jpg'); b=Image.open(root/'final.jpg')
+          assert a.size==b.size==(16320,12240)
+          assert a.info['icc_profile']==b.info['icc_profile'], 'Perfil ICC perdido'
+          rss=int((root/'jpeg-rss.txt').read_text().strip())
+          assert rss<180*1024, f'Memória host excessiva: {rss} KiB'
+          print(f'JPEG 200 MP sequencial: dimensões/ICC preservados; pico RSS host {rss} KiB. Não é medição no S24.')
+          PYJPEG
       - name: Preparar chave persistente (somente de GitHub Secrets)
         shell: bash
         env:
@@ -31,8 +95,65 @@ jobs:
             echo 'Faltam os quatro Secrets NOVA_KEYSTORE_BASE64 / NOVA_KEYSTORE_PASSWORD / NOVA_KEY_ALIAS / NOVA_KEY_PASSWORD' >&2
             exit 1
           fi
-          printf '%s' "$KS_BASE64" | base64 --decode > "$RUNNER_TEMP/nova-upload-key.jks"
-          chmod 600 "$RUNNER_TEMP/nova-upload-key.jks"
+          KS_FILE="$RUNNER_TEMP/nova-upload-key.jks"
+          # Tolera colagem com quebras de linha, CRLF, espaços, aspas ou cabeçalho -----BEGIN/END-----.
+          CLEAN="$(printf '%s' "$KS_BASE64" | sed '/^-----/d' | tr -d ' \r\n\t"')"
+          echo "NOVA_KEYSTORE_BASE64 após limpeza: ${#CLEAN} caracteres (chave RSA 3072 ≈ 4400)"
+          if ! printf '%s' "$CLEAN" | base64 --decode > "$KS_FILE" 2>/dev/null; then
+            echo 'NOVA_KEYSTORE_BASE64 não é base64 válido: texto incompleto ou com caracteres extras. Gere de novo e cole o conteúdo inteiro.' >&2
+            exit 1
+          fi
+          chmod 600 "$KS_FILE"
+          if ! keytool -list -keystore "$KS_FILE" -storepass:env KS_PASS >/dev/null 2>&1; then
+            echo 'A keystore não abre com NOVA_KEYSTORE_PASSWORD (senha errada) ou o arquivo está truncado (compare o tamanho acima).' >&2
+            exit 1
+          fi
+          if ! keytool -list -keystore "$KS_FILE" -storepass:env KS_PASS -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo 'A keystore abre, mas não contém o alias informado em NOVA_KEY_ALIAS.' >&2
+            exit 1
+          fi
+          echo 'Keystore, senha e alias conferidos.'
+      - name: Modelo de IA opcional (NAFNet → ncnn)
+        # Baixa os pesos oficiais (MIT) do NAFNet-SIDD-width32, converte para ncnn e confere a
+        # conversão contra o PyTorch. Se qualquer passo falhar, o APK sai sem o modelo e a opção
+        # "Redução de ruído por IA" aparece como indisponível — nada mais muda.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy gdown
+          gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth"
+          echo "sha256 dos pesos: $(sha256sum "$RUNNER_TEMP/nafnet.pth" | cut -d' ' -f1)"
+          mkdir -p app/src/main/assets/nafnet
+          python3 tools/nafnet/export_ncnn.py --weights "$RUNNER_TEMP/nafnet.pth" --out app/src/main/assets/nafnet
+          ls -la app/src/main/assets/nafnet
+      - name: Modelo de profundidade opcional (Depth Anything V2 Small → ncnn)
+        # Retrato com profundidade. Pesos oficiais Apache-2.0 (só a versão Small; as maiores são
+        # CC-BY-NC e não podem entrar). Converte, confere contra o PyTorch e faz um teste de sanidade;
+        # se qualquer passo falhar, o APK sai sem o modelo e o Retrato usa só a segmentação.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet transformers==4.46.3 huggingface_hub==0.26.2 pnnx==20260526 ncnn==1.0.20260526 numpy
+          python3 - <<'PY'
+          import hashlib, os
+          from huggingface_hub import snapshot_download
+          d = snapshot_download("depth-anything/Depth-Anything-V2-Small-hf", local_dir=os.environ["RUNNER_TEMP"] + "/da2s",
+                                allow_patterns=["config.json", "model.safetensors", "LICENSE*", "README.md"])
+          w = os.path.join(d, "model.safetensors")
+          digest = hashlib.sha256(open(w, "rb").read()).hexdigest()
+          print("sha256 dos pesos:", digest)
+          # Pesos fixados na primeira conversão aprovada (build 28); mudança no repositório = reprovar.
+          assert digest == "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70", "pesos diferentes dos validados"
+          readme = open(os.path.join(d, "README.md"), encoding="utf-8").read().lower()
+          assert "license: apache-2.0" in readme, "licença do modelo não é Apache-2.0"
+          PY
+          mkdir -p app/src/main/assets/depth
+          python3 tools/depth/export_ncnn.py --hf-dir "$RUNNER_TEMP/da2s" --out app/src/main/assets/depth
+          ls -la app/src/main/assets/depth
       - name: Compilar APK assinado
         env:
           NOVA_KEYSTORE_FILE: ${{ runner.temp }}/nova-upload-key.jks
@@ -40,16 +161,46 @@ jobs:
           NOVA_KEY_ALIAS: ${{ secrets.NOVA_KEY_ALIAS }}
           NOVA_KEY_PASSWORD: ${{ secrets.NOVA_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleRelease
+      - name: Verificar pesos disponíveis offline no APK
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('app/build/outputs/apk/release/app-release.apk') as apk:
+              for path in ('assets/nafnet/nafnet.param', 'assets/nafnet/nafnet.bin'):
+                  assert apk.getinfo(path).file_size > 0, path
+              names = set(apk.namelist())
+              print('profundidade no APK:', {'assets/depth/depth.param', 'assets/depth/depth.bin'} <= names)
+          PY
+      - name: Verificar continuidade da assinatura e versionCode
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PREVIOUS="$RUNNER_TEMP/previous-apk"
+          mkdir -p "$PREVIOUS"
+          gh release download nova-test-16 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$PREVIOUS"
+          OLD_APK="$(find "$PREVIOUS" -name '*.apk' -print -quit)"
+          NEW_APK="app/build/outputs/apk/release/app-release.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$APKSIGNER" verify --print-certs "$OLD_APK" > "$RUNNER_TEMP/old-cert.txt"
+          "$APKSIGNER" verify --print-certs "$NEW_APK" > "$RUNNER_TEMP/new-cert.txt"
+          OLD_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/old-cert.txt")"
+          NEW_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/new-cert.txt")"
+          test -n "$OLD_CERT" && test "$OLD_CERT" = "$NEW_CERT"
+          OLD_CODE="$("$AAPT" dump badging "$OLD_APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)"
+          NEW_CODE="$("$AAPT" dump badging "$NEW_APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)"
+          test "$NEW_CODE" -gt "$OLD_CODE"
+          echo "Assinatura SHA-256: $NEW_CERT; versionCode: $OLD_CODE → $NEW_CODE" >> "$GITHUB_STEP_SUMMARY"
       - name: Publicar prévia no repositório privado
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="nova-test-${GITHUB_RUN_NUMBER}"
-          APK="Nova-Camera-v0.3-build${GITHUB_RUN_NUMBER}.apk"
+          VERSION="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          APK="Nova-Camera-v${VERSION}-build${GITHUB_RUN_NUMBER}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
-          gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Nova Camera • teste #${GITHUB_RUN_NUMBER}" --notes 'Prévia experimental. Validação necessária no S24 Ultra e S25 Ultra.' --prerelease
-          gh release list --limit 100 --json tagName,isPrerelease,createdAt --jq '[.[] | select(.isPrerelease and (.tagName | startswith("nova-test-")))] | sort_by(.createdAt) | reverse | .[2:] | .[].tagName' | while IFS= read -r OLD; do
-            [[ -z "$OLD" ]] && continue
-            gh release delete "$OLD" --yes --cleanup-tag
-          done
+          gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Nova Camera ${VERSION} • teste #${GITHUB_RUN_NUMBER}" --notes 'Prévia experimental. Validação necessária no S24 Ultra e S25 Ultra.' --prerelease
+          echo "APK validado: $APK · commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

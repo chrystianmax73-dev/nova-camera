@@ -1,0 +1,695 @@
+package com.novacamera.s24.processing
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
+import android.util.Log
+import com.novacamera.s24.core.DeviceHeat
+import com.novacamera.s24.core.ThermalPolicy
+import com.novacamera.s24.core.imaging.Plane
+import com.novacamera.s24.core.imaging.Planes
+import com.novacamera.s24.core.imaging.oriented
+import com.novacamera.s24.core.imaging.ToneIntent
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Properties
+import java.util.concurrent.Executors
+import kotlin.math.max
+
+/** O que o processamento faz com os quadros capturados. */
+enum class JobKind(val label: String, val tone: ToneIntent) {
+    NIGHT("Noturno", ToneIntent.NIGHT),
+    HDR("HDR", ToneIntent.HDR),
+    PORTRAIT("Retrato", ToneIntent.PORTRAIT),
+    FOOD("Food", ToneIntent.FOOD),
+    /** FOTO: ajuste automático e adaptativo da foto comum (muitas vezes nenhum). */
+    AUTO("Automático", ToneIntent.LIGHT),
+    PHOTO("Foto", ToneIntent.LIGHT),
+    /** FOTO na tele (≥ 4,5×) com pouca luz: quadros alinhados e somados, tom da Foto (não clareia). */
+    ZOOM("Zoom", ToneIntent.LIGHT),
+    ;
+    /** Fusão de quadros iguais (redução de ruído sem suavizar): Noturno, tele e Foto com luz média. */
+    val merges get() = this == NIGHT || this == ZOOM || this == PHOTO
+}
+
+class Job(
+    val kind: JobKind,
+    /** Índice 0 = referência (exposição normal). */
+    val frames: List<CapturedFrame>,
+    val mirror: Boolean,
+    /** Ampliação equivalente da captura (contraste local só no zoom). */
+    val zoom: Float = 1f,
+    /** AUTO: a foto comum já gravada na galeria, que será substituída pela versão pronta. */
+    val sourceUri: Uri? = null,
+    /** Assinatura a desenhar na versão final (null = desligada). */
+    val signature: SignatureStyle? = null,
+    /** Por que a captura usou um quadro só (multiquadro dispensado), para a revisão. */
+    val captureNote: String? = null,
+    /** AUTO: ajuste de tom permitido (desligado = só a assinatura). */
+    val autoTone: Boolean = true,
+    val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
+    /** Retrato: intensidade escolhida antes da foto (a mesma da prévia). */
+    val portraitBlur: Float = 0.6f,
+    /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
+    val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
+    /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
+    val subjectPoint: Pair<Float, Float>? = null,
+    /**
+     * Zoom digital sobre a lente (> 1): os quadros vieram sem recorte e a foto final é o centro
+     * 1/srFactor montado por super-resolução. 1 = foto comum.
+     */
+    val srFactor: Float = 1f,
+    /** Alta resolução na tele: saída [outScale]× maior que o quadro (2 = ~48 MP), por super-resolução. */
+    val outScale: Float = 1f,
+) {
+    val id: Long = System.currentTimeMillis()
+    internal val cancel = CancelToken()
+}
+
+/** Estado publicado para a interface (sempre na thread principal). */
+data class JobProgress(
+    val jobId: Long, val kind: JobKind, val fraction: Float, val stage: String,
+    val pending: Int, val finished: Boolean = false,
+    val enhancedUri: Uri? = null, val originalUri: Uri? = null, val sessionId: String? = null,
+    val message: String? = null,
+)
+
+/**
+ * Sessão de revisão (arquivos privados do app): original e "base" (resultado da fusão, antes do
+ * tom/desfoque) na orientação real, mais a máscara do retrato. Permite reeditar a intensidade
+ * depois da captura sem recapturar. Só as últimas [ProcessingQueue.KEEP_SESSIONS] são mantidas.
+ */
+class Session(val dir: File) {
+    val id: String get() = dir.name
+    val original get() = File(dir, "original.jpg")
+    val base get() = File(dir, "base.jpg")
+    val matteFile get() = File(dir, "matte.bin")
+    /** Luminância da cena acima do branco SDR (HDR Nova), já na orientação da foto. */
+    val hdrFile get() = File(dir, "hdr.bin")
+    private val metaFile get() = File(dir, "meta.properties")
+    val meta = Properties().also { p -> if (metaFile.exists()) metaFile.inputStream().use(p::load) }
+
+    var kind: JobKind
+        get() = JobKind.valueOf(meta.getProperty("kind", JobKind.AUTO.name))
+        set(v) { meta.setProperty("kind", v.name) }
+    var tone: Float
+        get() = meta.getProperty("tone", "1").toFloat()
+        set(v) { meta.setProperty("tone", v.toString()) }
+    var blur: Float
+        get() = meta.getProperty("blur", "0.6").toFloat()
+        set(v) { meta.setProperty("blur", v.toString()) }
+    var enhancedUri: Uri?
+        get() = meta.getProperty("enhanced")?.let(Uri::parse)
+        set(v) { if (v == null) meta.remove("enhanced") else meta.setProperty("enhanced", v.toString()) }
+    var originalUri: Uri?
+        get() = meta.getProperty("originalUri")?.let(Uri::parse)
+        set(v) { if (v == null) meta.remove("originalUri") else meta.setProperty("originalUri", v.toString()) }
+    var hasPerson: Boolean
+        get() = meta.getProperty("person", "false").toBoolean()
+        set(v) { meta.setProperty("person", v.toString()) }
+    var note: String
+        get() = meta.getProperty("note", "")
+        set(v) { meta.setProperty("note", v) }
+    var style: com.novacamera.s24.core.imaging.PhotoStyle
+        get() = com.novacamera.s24.core.imaging.PhotoStyle.fromMeta(meta.getProperty("style"))
+        set(v) { meta.setProperty("style", v.toMeta()) }
+    var zoom: Float
+        get() = meta.getProperty("zoom", "1").toFloat()
+        set(v) { meta.setProperty("zoom", v.toString()) }
+    var signature: SignatureStyle?
+        get() = SignatureStyle.fromMeta(meta.getProperty("signature"))
+        set(v) { if (v == null) meta.remove("signature") else meta.setProperty("signature", v.toMeta()) }
+    var exif: Map<String, String>
+        get() = meta.stringPropertyNames().filter { it.startsWith("exif.") }.associate { it.removePrefix("exif.") to meta.getProperty(it) }
+        set(v) { v.forEach { (k, value) -> meta.setProperty("exif.$k", value) } }
+
+    fun save() { metaFile.outputStream().use { meta.store(it, null) } }
+
+    /** Desfoque pela profundidade estimada (0 = no foco), na orientação da foto. */
+    val depthFile get() = File(dir, "depth_blur.bin")
+    fun saveBlurMap(p: Plane) = savePlane(depthFile, p)
+    fun loadBlurMap(): Plane? = loadPlane(depthFile)
+    fun saveHdr(p: Plane) = savePlane(hdrFile, p)
+    fun loadHdr(): Plane? = loadPlane(hdrFile)
+    private fun savePlane(f: File, p: Plane) = DataOutputStream(f.outputStream().buffered()).use { out ->
+        out.writeInt(p.w); out.writeInt(p.h); p.data.forEach(out::writeFloat)
+    }
+    private fun loadPlane(f: File): Plane? = if (!f.exists()) null else runCatching {
+        DataInputStream(f.inputStream().buffered()).use { inp ->
+            val w = inp.readInt(); val h = inp.readInt()
+            Plane(w, h, FloatArray(w * h) { inp.readFloat() })
+        }
+    }.getOrNull()
+
+    fun saveMatte(p: Plane) = DataOutputStream(matteFile.outputStream().buffered()).use { out ->
+        out.writeInt(p.w); out.writeInt(p.h); p.data.forEach(out::writeFloat)
+    }
+
+    fun loadMatte(): Plane? = if (!matteFile.exists()) null else DataInputStream(matteFile.inputStream().buffered()).use { inp ->
+        val w = inp.readInt(); val h = inp.readInt()
+        Plane(w, h, FloatArray(w * h) { inp.readFloat() })
+    }
+}
+
+/**
+ * Fila única de processamento em segundo plano (uma tarefa por vez, prioridade baixa de CPU).
+ * O original é sempre gravado ANTES do processamento: cancelar, falta de memória ou
+ * aquecimento nunca fazem a foto se perder.
+ */
+object ProcessingQueue {
+    private const val TAG = "NovaProcessing"
+    const val KEEP_SESSIONS = 4
+    const val MAX_PENDING = 3
+
+    private val executor = Executors.newSingleThreadExecutor { r ->
+        Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "nova-processing")
+    }
+    private val main = Handler(Looper.getMainLooper())
+    private val listeners = mutableListOf<(JobProgress) -> Unit>()
+    private val queued = ArrayList<Job>()
+    @Volatile private var current: Job? = null
+    @Volatile var heat: DeviceHeat? = null
+    @Volatile var keepOriginals = false
+    /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
+    @Volatile var aiDenoise = false
+    /** Perfil de tom "Contraste" (preto firme e contraste local); fica gravado em cada sessão. */
+    @Volatile var contrastProfile = false
+
+    val pending: Int get() = synchronized(queued) { queued.size } + (if (current != null) 1 else 0)
+    fun canAccept() = pending < MAX_PENDING
+
+    fun addListener(l: (JobProgress) -> Unit) { listeners += l }
+    fun removeListener(l: (JobProgress) -> Unit) { listeners -= l }
+
+    private fun post(p: JobProgress) = main.post { listeners.toList().forEach { it(p) } }
+
+    fun submit(context: Context, job: Job) {
+        val app = context.applicationContext
+        MediaWriter.identify(app)
+        synchronized(queued) { queued += job }
+        // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
+        refineCancel?.cancelled = true
+        post(JobProgress(job.id, job.kind, 0f, "Na fila", pending))
+        executor.execute {
+            synchronized(queued) { queued -= job }
+            current = job
+            started[job.id] = android.os.SystemClock.elapsedRealtime() to heat
+            try { run(app, job) } finally { current = null; started.remove(job.id) }
+        }
+    }
+
+    /** Descarta só o cache do modelo, fora da UI e depois da tarefa atual. */
+    fun trimModelMemory() { executor.execute { NcnnDenoiser.release() } }
+
+    /** Cancela a tarefa em andamento e as que estão na fila (os originais já salvos ficam). */
+    fun cancelAll() {
+        refineCancel?.cancelled = true
+        current?.cancel?.cancelled = true
+        synchronized(queued) { queued.forEach { it.cancel.cancelled = true } }
+    }
+
+    fun sessionsDir(context: Context) = File(context.filesDir, "review")
+
+    fun session(context: Context, id: String): Session? =
+        File(sessionsDir(context), id).takeIf { it.isDirectory }?.let(::Session)
+
+    private fun stamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+
+    private fun run(context: Context, job: Job) {
+        val resolver = context.contentResolver
+        val name = stamp()
+        val session = Session(File(sessionsDir(context), "${job.id}"))
+        session.dir.mkdirs()
+        session.kind = job.kind
+        session.style = job.style
+        if (contrastProfile) session.meta.setProperty("profile", "contrast")
+        if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
+        // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
+        // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
+        val orderedFrames = if (job.kind.merges && job.frames.size > 1) runCatching {
+            val first = job.frames[0]
+            if (job.frames.any { it.evIndex != first.evIndex || it.rotationDegrees != first.rotationDegrees || it.crop != first.crop }) job.frames
+            else {
+                val scores = job.frames.map { frame ->
+                    val src = JpegSource(frame)
+                    try {
+                        com.novacamera.s24.core.imaging.FrameQuality.score(src.luma(kotlin.math.max(1, kotlin.math.max(src.width, src.height) / 768)))
+                    } finally { src.close() }
+                }
+                val index = com.novacamera.s24.core.imaging.FrameQuality.best(scores)
+                session.meta.setProperty("referenceIndex", index.toString())
+                listOf(job.frames[index]) + job.frames.filterIndexed { i, _ -> i != index }
+            }
+        }.getOrDefault(job.frames) else job.frames
+        val frame0 = orderedFrames[0]
+        session.exif = MediaWriter.exifOf(frame0.jpeg)
+        var originalUri: Uri? = null
+        fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
+
+        job.imagingFacts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
+        session.zoom = job.zoom
+        session.signature = job.signature
+        try {
+            if (job.kind == JobKind.AUTO) { runAuto(context, job, session, name); return }
+            // 1. Original (quadro de referência, sem processamento) — salvo primeiro, sempre.
+            progress(0.02f, "Salvando original")
+            var orig = Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror)
+            // Super-resolução: o "original" é o que o zoom digital de um quadro daria (centro ampliado).
+            if (job.srFactor > 1.05f) orig = Engine.cropCenter(orig, job.srFactor)
+            MediaWriter.writeFile(session.original, orig, 95)
+            // Original byte a byte (o JPEG da câmera, sem recompressão) em "Originais".
+            if (keepOriginals) originalUri = MediaWriter.insertBytes(resolver, frame0.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS)
+            session.originalUri = originalUri
+            val h = heat
+            val critical = h != null && h.thermalStatus >= ThermalPolicy.CRITICAL
+            if (critical) {
+                if (originalUri == null && job.kind != JobKind.AUTO)
+                    originalUri = MediaWriter.insert(resolver, orig, "NOVA_$name.jpg", MediaWriter.GALLERY, session.exif, null)
+                orig.recycle()
+                finish(job, session, null, originalUri, "Aparelho muito quente: salvo só o original, sem processamento")
+                return
+            }
+            // Com aquecimento severo, a fusão multiquadro é pulada (um quadro só, processamento leve).
+            val frames = if (h != null && h.thermalStatus >= ThermalPolicy.SEVERE) orderedFrames.take(1) else orderedFrames
+
+            // 2. Fusão (orientação do sensor), lendo os quadros por faixas.
+            var base: Bitmap
+            var note = job.captureNote ?: ""
+            var hdrScene: Plane? = null
+            if (job.srFactor > 1.05f || job.outScale > 1.05f) {
+                orig.recycle()
+                val sources = frames.map(::JpegSource)
+                try {
+                    val a = if (sources.size > 1) {
+                        progress(0.05f, "Alinhando ${frames.size} quadros")
+                        Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
+                    } else null
+                    // Alta resolução só com memória folgada (a foto de 48 MP ocupa ~190 MB); senão 1,5× ou normal.
+                    val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
+                    val (out, n) = Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
+                        progress(0.2f + 0.45f * it, "Super-resolução")
+                    }
+                    base = out
+                    val z = String.format(java.util.Locale.US, "%.1f", job.srFactor).replace('.', ',')
+                    val mp = (out.width.toLong() * out.height / 1_000_000L)
+                    note = when {
+                        n < 2 && job.srFactor > 1.05f -> "Zoom digital de ${z}× com um quadro (movimento ou alinhamento incerto)"
+                        n < 2 -> "Alta resolução indisponível (movimento ou alinhamento incerto): um quadro"
+                        job.srFactor > 1.05f -> "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
+                        else -> "Alta resolução: $n de ${frames.size} quadros, $mp MP"
+                    } + if (scale < job.outScale - 0.01f) " · memória curta: resolução reduzida" else ""
+                } finally { sources.forEach { it.close() } }
+            } else if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
+                orig.recycle()
+                val sources = frames.map(::JpegSource)
+                try {
+                    progress(0.05f, "Alinhando ${frames.size} quadros")
+                    val a = Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
+                    base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
+                    if (job.kind.merges) {
+                        val rejected = Engine.mergeInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
+                        val n = a.usedFrames
+                        note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
+                               else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
+                    } else {
+                        val n = Engine.fuseInto(sources, base, a, job.cancel, onScene = { hdrScene = it }) {
+                            progress(0.2f + 0.45f * it, "Combinando exposições")
+                        }
+                        note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
+                               else "$n de ${frames.size} exposições combinadas (só onde coincidem)"
+                    }
+                    session.meta.setProperty("unsafe", a.unsafe.joinToString { "%.2f".format(java.util.Locale.US, it) })
+                } finally { sources.forEach { it.close() } }
+                base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
+                hdrScene?.let { runCatching { session.saveHdr(it.oriented(frame0.rotationDegrees, job.mirror)) } }
+            } else {
+                base = orig
+                // Foto de um quadro (luz boa) é o caminho normal, não uma falha do multiquadro.
+                if ((job.kind.merges || job.kind == JobKind.HDR) && !(job.kind == JobKind.PHOTO && job.frames.size < 2))
+                    note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
+            }
+            if (job.cancel.cancelled) throw CancelledException()
+            // Redução de ruído por IA (opcional): Noturno e Retrato. Roda depois que a foto já está
+            // na galeria (refino em segundo plano); a base sai com mais qualidade para a rede.
+            // Não em fotos de alta resolução (~48 MP): tempo e memória da rede fora de proporção.
+            val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context) &&
+                base.width.toLong() * base.height <= 16_500_000L
+            MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95)
+
+            // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
+            if (job.kind == JobKind.PORTRAIT) {
+                progress(0.68f, "Separando pessoa e fundo")
+                val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
+                val person = seg?.takeIf { it.coverage >= 0.03f }
+                // Profundidade estimada: assunto inteiro (pessoa ou objeto do centro) nítido e desfoque
+                // crescendo com a distância até ele.
+                progress(0.69f, "Estimando profundidade")
+                val depth = runCatching { DepthEstimator.estimate(context, base) }
+                    .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
+                val subject = runCatching { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint) }
+                    .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
+                if (subject != null) {
+                    session.saveMatte(subject.matte)
+                    subject.blur?.let { runCatching { session.saveBlurMap(it) } }
+                    session.hasPerson = true
+                    // Soma à nota da captura (ex.: alta resolução), em vez de apagá-la.
+                    subject.note?.let { note = if (note.isBlank()) it else "$note · $it" }
+                } else {
+                    val why = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
+                              else "Nenhuma pessoa ou objeto destacado: foto salva sem desfoque"
+                    note = if (note.isBlank()) why else "$note · $why"
+                }
+            }
+            session.note = note
+            session.save()
+
+            // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
+            render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") }
+            job.signature?.let { Signature.draw(base, it.withExif(session.exif)) }
+            UltraHdr.attach(session, base)
+            progress(0.96f, "Salvando")
+            val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
+            val enhanced = MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
+                "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "")
+            base.recycle()
+            session.enhancedUri = enhanced
+            if (aiLater) session.meta.setProperty(AI_KEY, AI_PENDING)
+            session.save()
+            finish(job, session, enhanced, originalUri, note.ifEmpty { null })
+            if (aiLater) synchronized(refines) { refines.remove(session.id); refines.addLast(session.id) }
+        } catch (e: CancelledException) {
+            finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Cancelado · original salvo")
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "sem memória", e)
+            finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Memória insuficiente: salvo só o original")
+        } catch (e: Exception) {
+            Log.e(TAG, "falha no processamento", e)
+            finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Falha no processamento: salvo só o original")
+        } finally {
+            prune(context)
+            releaseModelLater()
+            scheduleRefine(context)
+        }
+    }
+
+    /** Reutilização curta entre fotos; descarte fora da UI e sem liberar durante inferência. */
+    private fun releaseModelLater() {
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) NcnnDenoiser.release()
+        else main.postDelayed({ executor.execute {
+            if (pending == 0 && refineCancel == null) NcnnDenoiser.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
+        } }, com.novacamera.s24.core.DenoisePolicy.IDLE_MS)
+    }
+
+    private const val AI_KEY = "ai"
+    private const val AI_PENDING = "pending"
+    /** A rede já rodou e a base foi regravada; falta só o acabamento e a troca na galeria. */
+    private const val AI_BASE = "base"
+    private const val AI_DONE = "done"
+    private const val AI_SKIPPED = "skipped"
+
+    /** Sessões esperando a IA, na ordem das fotos. Só roda com a fila de fotos vazia. */
+    private val refines = ArrayDeque<String>()
+    @Volatile private var refineCancel: CancelToken? = null
+
+    /** Refino pendente (para diagnóstico e testes). */
+    val pendingRefines: Int get() = synchronized(refines) { refines.size }
+
+    private fun scheduleRefine(context: Context) {
+        if (synchronized(refines) { refines.isNotEmpty() }) executor.execute { runNextRefine(context.applicationContext) }
+    }
+
+    /**
+     * IA em segundo plano: a foto Nova já está na galeria; aqui a base é limpa pela rede, recebe o
+     * mesmo acabamento (tom, desfoque, assinatura) e substitui a mesma entrada da galeria — continua
+     * uma foto só. Uma foto nova, aquecimento, economia de bateria ou o orçamento interrompem; a
+     * foto da galeria fica como estava. Não sobrevive ao fechamento forçado do app.
+     */
+    private fun runNextRefine(context: Context) {
+        if (pending > 0) return // a foto seguinte agenda de novo quando terminar
+        if (!aiDenoise) { synchronized(refines) { refines.clear() }; return }
+        if (!com.novacamera.s24.core.DenoisePolicy.allowed(heat)) return // tenta de novo depois da próxima foto
+        val id = synchronized(refines) { refines.removeFirstOrNull() } ?: return
+        val session = session(context, id)
+        val uri = session?.enhancedUri
+        if (session == null || uri == null || !session.base.exists()) return scheduleRefine(context) // sessão já descartada
+        val token = CancelToken()
+        refineCancel = token
+        var bmp: Bitmap? = null
+        try {
+            bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply {
+                inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
+            }) ?: error("base ilegível")
+            if (session.meta.getProperty(AI_KEY) != AI_BASE) {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, com.novacamera.s24.core.DenoisePolicy.BACKGROUND) {}
+                if (!ok) {
+                    session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+                    return
+                }
+                MediaWriter.writeFile(session.base, bmp, 98)
+                val secs = (android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0
+                session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") + "ruído reduzido por IA em $secs s"
+                session.meta.setProperty(AI_KEY, AI_BASE); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+            }
+            render(session, bmp, session.tone, session.blur, token) {}
+            if (token.cancelled) throw CancelledException()
+            session.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
+            UltraHdr.attach(session, bmp)
+            MediaWriter.write(context.contentResolver, uri, bmp, session.exif,
+                "Nova ${session.kind.label}" + if (session.note.isNotEmpty()) " · ${session.note}" else "")
+            session.meta.setProperty(AI_KEY, AI_DONE); session.save()
+            Log.i(TAG, "IA em segundo plano concluída: $id")
+        } catch (e: CancelledException) {
+            synchronized(refines) { if (id !in refines) refines.addFirst(id) }
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "IA em segundo plano sem memória: $id", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "IA em segundo plano falhou: $id", e) // ex.: foto apagada da galeria
+        } finally {
+            bmp?.recycle()
+            refineCancel = null
+            releaseModelLater()
+            scheduleRefine(context)
+        }
+    }
+
+    /**
+     * FOTO: a foto comum já está na galeria ([Job.sourceUri]). Se o plano adaptativo achar que
+     * vale ajustar (ou se a assinatura estiver ligada), o original vai byte a byte para
+     * "Originais" e a foto da galeria é substituída pela versão pronta — uma foto só, sem passos
+     * extras. Se não valer, nada muda.
+     */
+    private fun runAuto(context: Context, job: Job, session: Session, name: String) {
+        val resolver = context.contentResolver
+        val frame = job.frames[0]
+        val target = job.sourceUri ?: return finish(job, session, null, null, null)
+        // Aquecimento severo/crítico: a foto comum fica como está.
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { session.dir.deleteRecursively(); return finish(job, session, null, null, null) }
+        post(JobProgress(job.id, job.kind, 0.1f, "Analisando", pending))
+        val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
+        BitmapFactory.decodeByteArray(frame.jpeg,0,frame.jpeg.size,bounds)
+        if(bounds.outWidth.toLong()*bounds.outHeight>20_000_000L) { runHighResolutionAuto(context,job,session);return }
+        val bmp = Engine.orient(JpegSource(frame).let { s -> s.decodeFull().also { s.close() } }, frame.rotationDegrees, false)
+        val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(frame.jpeg))
+        val facts = job.imagingFacts.copy(
+            iso = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 } ?: job.imagingFacts.iso,
+            exposureNs = exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, 0.0)
+                .takeIf { it.isFinite() && it > 0 && it < 60 }?.let { (it * 1_000_000_000).toLong() } ?: job.imagingFacts.exposureNs)
+        facts.toMeta().forEach { (k, v) -> session.meta.setProperty(k, v) }
+        session.meta.setProperty("nai.enabled", "true")
+        val plan = Engine.planAdaptive(bmp, job.zoom, facts)
+        val tone = job.autoTone && !plan.skip
+        if (!tone && job.signature == null && job.style.neutral) {
+            bmp.recycle()
+            session.dir.deleteRecursively()
+            return finish(job, session, null, null, null)
+        }
+        if (job.cancel.cancelled) throw CancelledException()
+        MediaWriter.writeFile(session.original, bmp, 95)
+        session.base.delete(); session.original.copyTo(session.base)
+        val originalUri = if (keepOriginals && tone)
+            MediaWriter.insertBytes(resolver, frame.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS) else null
+        session.originalUri = originalUri
+        session.note = listOfNotNull(if (tone) plan.reason else if (job.signature != null) "Só assinatura (ajuste automático desligado)" else null,
+            job.style.label()).joinToString(" · ")
+        if (!tone) session.tone = 0f
+        session.save()
+        if (tone) Engine.toneInPlace(bmp, plan, 1f, false, job.cancel) { post(JobProgress(job.id, job.kind, 0.2f + 0.7f * it, "Ajustando", pending)) }
+        Engine.styleInPlace(bmp, job.style, job.cancel)
+        job.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
+        if (job.cancel.cancelled) throw CancelledException()
+        MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
+        bmp.recycle()
+        session.enhancedUri = target
+        session.save()
+        finish(job, session, target, originalUri, null)
+    }
+
+    /** Ajuste e assinatura em faixas para 50/200 MP; grava novamente a única URI final. */
+    private fun runHighResolutionAuto(context: Context,job: Job,session: Session) {
+        val target=job.sourceUri ?: return finish(job,session,null,null,null)
+        session.original.writeBytes(job.frames[0].jpeg)
+        session.original.copyTo(session.base,overwrite=true)
+        session.meta.setProperty("banded","true")
+        val originalUri=if(keepOriginals) MediaWriter.insertBytes(context.contentResolver,job.frames[0].jpeg,
+            "NOVA_${session.id}_original.jpg",MediaWriter.ORIGINALS) else null
+        session.originalUri=originalUri
+        job.imagingFacts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
+        session.meta.setProperty("nai.enabled","true")
+        val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
+        BitmapFactory.decodeFile(session.base.path,bounds)
+        val sample=BitmapFactory.decodeFile(session.base.path,BitmapFactory.Options().apply {
+            inSampleSize=maxOf(1,maxOf(bounds.outWidth,bounds.outHeight)/1024)
+        }) ?: error("Prévia indisponível")
+        val plan=Engine.planAdaptive(sample,job.zoom,job.imagingFacts);sample.recycle()
+        session.tone=if(job.autoTone)1f else 0f
+        if((plan.skip||!job.autoTone)&&job.signature==null&&job.style.neutral){session.dir.deleteRecursively();finish(job,session,null,null,null);return}
+        session.style=job.style
+        val output=File(session.dir,"final.tmp.jpg")
+        val ok=JpegBands.process(session.base,output,plan,session.tone,job.signature?.withExif(session.exif),job.cancel,session.exif,job.style) {
+            post(JobProgress(job.id,job.kind,0.15f+0.8f*it,"Ajustando",pending))
+        }
+        if(ok) context.contentResolver.openOutputStream(target,"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } }
+            ?: error("Sem acesso à fotografia final")
+        output.delete()
+        session.note=if(ok)"Alta resolução processada em faixas" else "Mantido JPEG do sensor: processamento em faixas indisponível ou além do orçamento"
+        session.enhancedUri=target;session.save();finish(job,session,target,originalUri,null)
+    }
+
+    /** Se o usuário desativou "manter originais" e o processamento não terminou, o original vai para a galeria. */
+    private fun saveOriginalFallback(context: Context, session: Session, name: String, job: Job): Uri? {
+        if (job.kind == JobKind.AUTO || !session.original.exists()) return null
+        return runCatching {
+            val bmp = BitmapFactory.decodeFile(session.original.path) ?: return null
+            MediaWriter.insert(context.contentResolver, bmp, "NOVA_$name.jpg", MediaWriter.GALLERY, session.exif, null).also { bmp.recycle() }
+        }.getOrNull()
+    }
+
+    private val started = java.util.concurrent.ConcurrentHashMap<Long, Pair<Long, DeviceHeat?>>()
+
+    private fun finish(job: Job, session: Session, enhanced: Uri?, original: Uri?, message: String?) {
+        started.remove(job.id)?.let { (t0, h0) ->
+            com.novacamera.s24.core.CostLog.add(com.novacamera.s24.core.CostLog.Entry(
+                job.kind.label, android.os.SystemClock.elapsedRealtime() - t0, h0, heat))
+        }
+        post(JobProgress(job.id, job.kind, 1f, "Pronto", pending - 1, finished = true,
+            enhancedUri = enhanced, originalUri = original, sessionId = if (enhanced != null) session.id else null, message = message))
+    }
+
+    /**
+     * Acabamento sobre a "base" (orientação real), no lugar. Também usado pela revisão para
+     * reaplicar com outra intensidade — sempre a partir da base, nunca acumulando.
+     */
+    /** Escala da alta resolução que cabe na memória livre (folga para a foto e as etapas seguintes). */
+    private fun safeOutScale(wanted: Float, w: Int, h: Int): Float {
+        if (wanted <= 1f) return 1f
+        val rt = Runtime.getRuntime()
+        val free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
+        for (s in floatArrayOf(wanted, 1.5f, 1f)) {
+            if (s > wanted) continue
+            val bytes = (w * s).toLong() * (h * s).toLong() * 4
+            // Folga de 1,6× a foto final: a saída é escrita já orientada (sem cópia girada) e as etapas
+            // seguintes trabalham por blocos. Com 2,2× a 0.19.0 caía para 1,5× (28 MP) no S24 Ultra.
+            if (s <= 1f || free > bytes * 1.6) return s
+        }
+        return 1f
+    }
+
+    fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
+        val kind = session.kind
+        val plan = if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
+            Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
+                session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
+        else Engine.planTone(bmp, kind.tone, session.zoom)
+        // Tele (3×/5×/10×): detalhe fino antes do tom (o tom não realça o que foi recuperado). Também no
+        // HDR e no Retrato (foto real: cacto 5× pelo HDR saía sem o realce). Noturno não (ruído).
+        if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
+            Engine.detailInPlace(bmp, session.zoom, cancel)
+        Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
+        // Pouca luz na foto comum (o Noturno tem o próprio clareamento; Food fica como está).
+        if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
+            Engine.lowLightInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)
+        // ISO alto: sombras sem manchas roxas/azuis de ruído de cor — antes do desfoque do retrato,
+        // que transformaria essas manchas em "aquarela". Food fica com a cor que tem.
+        if (kind != JobKind.FOOD) Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)
+        // Perfil "Contraste": não no Noturno (tom do Noturno mantido por decisão do usuário) nem no Food.
+        if (session.meta.getProperty("profile") == "contrast" && kind != JobKind.NIGHT && kind != JobKind.FOOD)
+            Engine.profileInPlace(bmp, cancel)
+        if (kind == JobKind.PORTRAIT && session.hasPerson) {
+            val matte = session.loadMatte()
+            if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) }
+        }
+        // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
+        Engine.styleInPlace(bmp, session.style, cancel)
+        progress(1f)
+    }
+
+    /** Lê a base/original de uma sessão em tamanho reduzido para a tela de revisão. */
+    fun decodeForScreen(file: File, maxSide: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (bounds.outWidth <= 0) return null
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+        val bmp=BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+            inSampleSize = sample; inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
+        }) ?: return null
+        val rotation=runCatching { androidx.exifinterface.media.ExifInterface(file).rotationDegrees }.getOrDefault(0)
+        return Engine.orient(bmp,rotation,false).also { if(it!==bmp)bmp.recycle() }
+    }
+
+    /** Regrava a versão aprimorada em resolução cheia com novas intensidades (na fila, em segundo plano). */
+    fun reRender(context: Context, session: Session, tone: Float, blur: Float, done: (Boolean) -> Unit) {
+        val app = context.applicationContext
+        executor.execute {
+            val ok = runCatching {
+                if(session.meta.getProperty("banded")=="true") {
+                    val sample=decodeForScreen(session.base,1024) ?: error("Prévia ausente")
+                    // Plano em coordenadas do JPEG, para preservar a orientação EXIF na saída.
+                    val exif=androidx.exifinterface.media.ExifInterface(session.base)
+                    val unrotated=Engine.orient(sample,(360-exif.rotationDegrees)%360,false)
+                    if(unrotated!==sample)sample.recycle()
+                    val plan=Engine.planAdaptive(unrotated,session.zoom,com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
+                        session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
+                    unrotated.recycle()
+                    val output=File(session.dir,"reedit.tmp.jpg")
+                    check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif,session.style){})
+                    app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    output.delete();session.tone=tone;session.save()
+                    return@runCatching
+                }
+                val bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply { inMutable = true })
+                    ?: error("base ausente")
+                session.tone = tone; session.blur = blur
+                render(session, bmp, tone, blur, CancelToken()) {}
+                session.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
+                UltraHdr.attach(session, bmp)
+                val uri = session.enhancedUri ?: error("sem versão aprimorada")
+                MediaWriter.write(app.contentResolver, uri, bmp, session.exif, "Nova ${session.kind.label}")
+                bmp.recycle()
+                session.save()
+            }.onFailure { Log.e(TAG, "reedição falhou", it) }.isSuccess
+            main.post { done(ok) }
+        }
+    }
+
+    private fun prune(context: Context) {
+        val dirs = sessionsDir(context).listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name.toLongOrNull() ?: 0L } ?: return
+        // Sessões esperando a IA ficam além das quatro de revisão, com teto de espaço.
+        val waiting = synchronized(refines) { refines.toSet() }
+        val keep = dirs.take(KEEP_SESSIONS) + dirs.drop(KEEP_SESSIONS).filter { it.name in waiting }.take(KEEP_SESSIONS)
+        dirs.filter { it !in keep }.forEach { dir ->
+            dir.deleteRecursively()
+            synchronized(refines) { refines.remove(dir.name) }
+        }
+    }
+}
+
