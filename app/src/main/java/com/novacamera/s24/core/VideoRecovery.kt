@@ -8,9 +8,14 @@ class VideoRecovery(private val maxRetries: Int = 2) {
     var exhausted = false
         private set
 
-    fun stalled(recording: Boolean): Action {
+    /** O primeiro recuo mantém qualidade/FPS/assinatura e retira somente EIS. */
+    var disableStabilization = false
+        private set
+
+    fun stalled(recording: Boolean, stabilized: Boolean = false): Action {
         if (awaitingFinalize || exhausted) return Action.IGNORE
         if (retries >= maxRetries) exhausted = true else retries++
+        if (!exhausted && stabilized) disableStabilization = true
         if (recording) {
             awaitingFinalize = true
             return Action.FINALIZE
@@ -25,5 +30,6 @@ class VideoRecovery(private val maxRetries: Int = 2) {
     }
 
     /** Só uma ação explícita do usuário inicia outro orçamento. */
-    fun reset() { retries = 0; awaitingFinalize = false; exhausted = false }
+    fun reset() { retries = 0; awaitingFinalize = false; exhausted = false; disableStabilization = false }
 }
+

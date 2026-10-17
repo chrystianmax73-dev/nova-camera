@@ -1,3 +1,14 @@
+# 0.21.2 — negociação de vídeo e recuperação (17/10/2026)
+
+- Base 0.21.1 preservada; [compilação, testes unitários e lint da base aprovados](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056484866), sem alterar o app antes dessa execução.
+- Feedback físico 0.21.1/build 60: Full HD salvo em 1080×1920, AVC e 58,90 fps médios; UHD/60 recusado, prévia parada em 1×/5×, assinatura ausente. Crashes apresentados são da 0.20.0, não desta versão.
+- Consulta dos FPS da sessão CameraX com prévia, qualidade e efeitos; duração genérica de saída MediaRecorder deixa de vetar isoladamente uma combinação. Capacidade do encoder continua conferida.
+- EIS de gravação substitui a solicitação de estabilização da prévia; CameraX coordena OIS e controle AE do vídeo. Recuo limitado sem EIS mantém resolução, FPS e assinatura; o arquivo ativo é finalizado antes de religar.
+- Combinação recusada mantém apenas prévia e bloqueia gravação. Interface apresenta a restrição e oferece FPS inferior na mesma resolução somente com escolha explícita. Não há redução silenciosa de qualidade.
+- Vigia ignora avisos de ligações antigas e dá margem inicial para a sessão começar a entregar quadros.
+- Verificação desta alteração: CI ainda pendente; 4K/60 em 5×, estabilização, arquivo MP4 e fluidez exigem novo teste físico no S24 Ultra. Nenhuma alegação de suporte real a essa combinação.
+- Próxima etapa crítica: assinatura segura no MP4. Pós-processamento opcional, rastreamento e vídeo cinematográfico continuam pendentes, em etapas independentes.
+
 # Nova Camera — estado real dos recursos
 
 Legenda da coluna **Validação**:
@@ -674,4 +685,5 @@ Teste **sem carregador** primeiro e anote se estava carregando.
 11. Gravar 5–10 min em 4K: anotar se surge o selo de aquecimento e se estava carregando.
 
 Formato de retorno: modelo, item, resultado (ok/falha), observação e, se houver, o relatório de diagnóstico. Não é necessário enviar fotos pessoais.
+
 

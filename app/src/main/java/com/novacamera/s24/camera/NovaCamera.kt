@@ -37,6 +37,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.MeteringPoint
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
+import androidx.camera.core.SessionConfig
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.UseCase
 import androidx.camera.core.UseCaseGroup
@@ -175,6 +176,11 @@ class NovaCamera(
     private val watchdog by lazy { Handler(watchdogThread.looper) }
     private var watchFrames = -1
     private var watchSince = 0L
+    @Volatile private var watchGeneration = 0L
+    private var sampledGeneration = -1L
+    private var watchedCamera: Camera? = null
+    private var watchStartFrames = 0
+    private var watchHasFrame = false
     @Volatile private var watchCamera: Camera? = null
     private var liveBlurBlocked = false
     private val watchTick = object : Runnable {
@@ -182,13 +188,19 @@ class NovaCamera(
             val cam = watchCamera
             val frames = synchronized(telemetry) { telemetry.frames }
             val now = SystemClock.uptimeMillis()
-            if (cam == null || cam !== camera || paused || released || frames <= 0) {
+            val generation = watchGeneration
+            if (cam !== watchedCamera || generation != sampledGeneration) {
+                watchedCamera = cam; sampledGeneration = generation
+                watchStartFrames = frames; watchHasFrame = false
+                watchFrames = frames; watchSince = now
+            } else if (cam == null || cam !== camera || paused || released) {
                 watchFrames = frames; watchSince = now
             } else if (frames != watchFrames) {
+                watchHasFrame = frames != watchStartFrames
                 watchFrames = frames; watchSince = now
-            } else if (now - watchSince >= stallLimitMs()) {
+            } else if (now - watchSince >= (if (watchHasFrame) stallLimitMs() else maxOf(stallLimitMs(), 10_000L))) {
                 watchSince = now
-                handler.post { onPreviewStalled(cam) }
+                handler.post { if (generation == watchGeneration) onPreviewStalled(cam) }
             }
             if (!released) watchdog.postDelayed(this, 1000L)
         }
@@ -207,14 +219,16 @@ class NovaCamera(
     private fun onPreviewStalled(cam: Camera) {
         if (cam !== camera || released || paused) return
         if (mode.isVideo) {
-            val action = videoRecovery.stalled(isRecording)
+            val action = videoRecovery.stalled(isRecording, boundVideoStabilization)
             if (action == com.novacamera.s24.core.VideoRecovery.Action.IGNORE) return
             // Sem outro tick até uma ligação nova; nunca disputa superfícies com o codificador.
             watchCamera = null
-            val context = "${mode.label} · lente ${currentLens?.routeKey} · zoom ${equivalent(zoomOnLens)}× · assinatura=${videoEffect != null} · ${boundVideoFps} fps · recuperação=$action"
+            val context = "${mode.label} · lente ${currentLens?.routeKey} · zoom ${equivalent(zoomOnLens)}× · assinatura=${videoEffect != null} · ${settings.videoQuality.label}/${boundVideoFps} fps · EIS=$boundVideoStabilization · físico=${previewOptics.first} · recuperação=$action"
             com.novacamera.s24.core.StallLog.add(activity, context)
             com.novacamera.s24.core.VideoLog.add(activity, "Prévia parada: $context")
-            if (videoEffect != null) videoEffectFailed = true
+            // Uma parada do sensor não prova falha da assinatura. Primeiro retiramos EIS,
+            // mantendo a qualidade, o FPS selecionado e o efeito. Finalize precede o novo bind.
+            if (videoRecovery.disableStabilization) videoStabilizationBlocked = true
             pendingZoomOnLens = zoomOnLens
             when (action) {
                 com.novacamera.s24.core.VideoRecovery.Action.FINALIZE -> {
@@ -270,6 +284,7 @@ class NovaCamera(
     private var boundVideoFps = 30
     private var boundVideoStabilization = false
     private var videoStabilizationBlocked = false
+    private var videoProfile = ""
     private var videoBindingIssue: String? = null
     private var requestedVideoSize: VideoContract.Size? = null
     private val videoInspection = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -467,6 +482,7 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         watchCamera = null
+        watchGeneration++
         p.unbindAll()
         camera = null
         videoEffects.close()
@@ -518,6 +534,8 @@ class NovaCamera(
             return
         }
         val info = runCatching { p.getCameraInfo(baseSelector) }.getOrNull() ?: return
+        val profile = "${Camera2CameraInfo.from(info).cameraId}/${settings.videoQuality}/${settings.videoFps}/${isFront}"
+        if (profile != videoProfile) { videoProfile = profile; videoStabilizationBlocked = false }
         currentLens = lenses.firstOrNull { it.routeKey == currentLensId }
             ?: lenses.firstOrNull { it.cameraId == Camera2CameraInfo.from(info).cameraId && it.physicalCameraId == null }
         val pinned = currentLens?.physicalCameraId?.takeIf { wantedExtension == ExtensionMode.NONE && !mode.isVideo }
@@ -536,6 +554,7 @@ class NovaCamera(
         var qualityLabel: String? = null
         var qualityOptions = emptyList<VideoQualityOption>()
         var fpsOptions = emptyList<Int>()
+        var suggestedVideoFps: Int? = null
         autoFpsApplied = false
         var rawAvailable = false
         var rawActive = false
@@ -639,18 +658,15 @@ class NovaCamera(
                 .setTargetRotation(targetRotation)
                 .setMirrorMode(if (settings.mirrorFrontVideo) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             if (settings.videoStabilization && !videoStabilizationBlocked) {
-                when {
-                    Preview.getPreviewCapabilities(info).isStabilizationSupported -> {
-                        previewBuilder.setPreviewStabilizationEnabled(true); stabilization = true
-                    }
-                    capabilities.isStabilizationSupported -> { vb.setVideoStabilizationEnabled(true); stabilization = true }
+                // EIS da gravação, sem solicitar PREVIEW_STABILIZATION (modo 2) na sessão.
+                // O suporte de EIS da prévia não garante UHD/60 nem a troca para a tele.
+                if (capabilities.isStabilizationSupported) {
+                    vb.setVideoStabilizationEnabled(true); stabilization = true
                 }
             }
-            val cameraCharacteristics = activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
-                .getCameraCharacteristics(Camera2CameraInfo.from(info).cameraId)
             fpsOptions = VIDEO_FPS.filter { f ->
                 info.supportedFrameRateRanges.any { it.lower == f && it.upper == f } &&
-                    requestedSize != null && VideoPreflight.supports(cameraCharacteristics, requestedSize, f)
+                    requestedSize != null && VideoPreflight.codecSupports(requestedSize, f)
             }
             val requestedFps = settings.videoFps
             if (requestedFps !in fpsOptions)
@@ -728,7 +744,7 @@ class NovaCamera(
             imageCapture = ib.build()
         }
 
-        val group = if (highSpeedConfig == null) {
+        var group = if (highSpeedConfig == null) {
             val preview = previewBuilder.build().also { it.surfaceProvider = previewView.surfaceProvider }
             useCases += preview
             imageCapture?.takeUnless { nativePhotoSelected }?.let { useCases += it }
@@ -753,6 +769,42 @@ class NovaCamera(
             }.build()
         } else null
 
+        if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoCapture != null) {
+            val effects = listOfNotNull(videoEffect, portraitEffect)
+            val ranges = runCatching {
+                info.getSupportedFrameRateRanges(SessionConfig(useCases, previewView.viewPort, effects))
+                    .map { it.lower to it.upper }
+            }.onFailure {
+                com.novacamera.s24.core.VideoLog.add(activity, "Consulta da sessão indisponível: ${it.javaClass.simpleName}: ${it.message}")
+            }.getOrNull()
+            fpsOptions = com.novacamera.s24.core.VideoSessionSupport.fps(fpsOptions, ranges)
+            com.novacamera.s24.core.VideoLog.add(activity,
+                "Sessão ${videoProfile} · zoom=${equivalent(pendingZoomOnLens ?: zoomOnLens)}× · EIS=$stabilization · assinatura=${videoEffect != null} · FPS da sessão=${ranges ?: "consulta indisponível"}")
+            if (settings.videoFps !in fpsOptions && videoBindingIssue == null) {
+                if (stabilization) {
+                    videoStabilizationBlocked = true
+                    listener.onMessage("Tentando ${settings.videoQuality.label}/${settings.videoFps} fps sem estabilização eletrônica")
+                    handler.post { if (!released && !paused) bind() }
+                    return
+                }
+                videoBindingIssue = "${settings.videoQuality.label}/${settings.videoFps} fps não aceito pela sessão desta câmera"
+                suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(settings.videoFps, fpsOptions)
+            }
+            if (videoBindingIssue != null) {
+                // A combinação recusada não deve congelar a câmera. Apenas prévia; nenhum MP4
+                // de qualidade inferior será produzido. Uma alternativa exige escolha explícita.
+                videoEffects.close()
+                val preview = useCases.filterIsInstance<Preview>().single()
+                group = UseCaseGroup.Builder().addUseCase(preview).apply {
+                    previewView.viewPort?.let(::setViewPort)
+                }.build()
+                videoCapture = null
+                stabilization = false
+                autoFpsApplied = false
+                fps = settings.videoFps
+            }
+        }
+
         try {
             retiredPortraitEffect?.release(); retiredPortraitEffect = null
             previewOptics = null to null
@@ -764,6 +816,12 @@ class NovaCamera(
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
             camera = null
+            if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && stabilization) {
+                videoStabilizationBlocked = true
+                listener.onMessage("Esta combinação recusou EIS; tentando a mesma resolução e FPS sem EIS")
+                handler.post { if (!released && !paused) bind() }
+                return
+            }
             if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoEffect == null && !autoFpsApplied) {
                 val reason = "Combinação de vídeo indisponível. Altere resolução, fps ou estabilização"
                 videoBindingIssue = reason
@@ -771,7 +829,7 @@ class NovaCamera(
                 state?.copy(mode = mode, support = support, isFront = isFront,
                     videoQualityLabel = settings.videoQuality.label, videoFps = settings.videoFps,
                     videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
-                    videoFpsVariable = false, videoCaptureProblem = reason)?.let { state = it; listener.onCameraState(it) }
+                    videoFpsVariable = false, videoCaptureProblem = reason, videoSuggestedFps = null)?.let { state = it; listener.onCameraState(it) }
                 listener.onMessage(reason)
                 return
             }
@@ -893,6 +951,7 @@ class NovaCamera(
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
             videoFpsVariable = autoFpsApplied, videoCaptureProblem = videoBindingIssue,
+            videoSuggestedFps = suggestedVideoFps,
             timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
         )
         state = s
@@ -1339,7 +1398,7 @@ class NovaCamera(
         if (m.awbMode != null && m.awbMode in c.awbModes) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, m.awbMode)
         }
-        val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive &&
+        val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !mode.isVideo &&
             !mode.isPro && !m.manualExposure && night == null
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
@@ -1351,8 +1410,9 @@ class NovaCamera(
                 b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
             }
         }
-        // OIS explícita quando a lente anuncia (alguns firmwares só ligam em templates de foto).
-        if (c.opticalStabilization) {
+        // No vídeo, CameraX coordena OIS/EIS e os perfis de FPS; não sobrescrever o template.
+        // Nas fotos, mantemos a OIS explícita existente.
+        if (c.opticalStabilization && !mode.isVideo) {
             b.setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
         }
         val manualActive = m.manualExposure && c.manualSensor && night == null
@@ -2348,5 +2408,6 @@ class NovaCamera(
         val VIDEO_FPS = listOf(24, 30, 60)
     }
 }
+
 
 

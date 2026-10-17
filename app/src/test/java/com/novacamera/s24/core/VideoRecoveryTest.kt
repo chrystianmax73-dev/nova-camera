@@ -5,6 +5,18 @@ import org.junit.Test
 import com.novacamera.s24.core.VideoRecovery.Action
 
 class VideoRecoveryTest {
+    @Test fun paradaComEisRetiraSomenteEstabilizacaoEAguardaFinalize() {
+        val r = VideoRecovery()
+        assertEquals(Action.FINALIZE, r.stalled(recording = true, stabilized = true))
+        assertTrue(r.disableStabilization)
+        repeat(10) { assertEquals(Action.IGNORE, r.stalled(true)) }
+        assertEquals(Action.REBIND, r.finalized())
+        assertEquals(Action.REBIND, r.stalled(recording = false, stabilized = false))
+        assertEquals(Action.STOP, r.stalled(false))
+        r.reset()
+        assertFalse(r.disableStabilization)
+    }
+
     @Test fun gravacaoSoReligaDepoisDeFinalizarEIgnoraInterrupcoesRepetidas() {
         val r = VideoRecovery()
         assertEquals(Action.FINALIZE, r.stalled(true))
@@ -53,3 +65,4 @@ class VideoRecoveryTest {
         assertEquals("frontal", context)
     }
 }
+

@@ -1,3 +1,11 @@
+## Continuidade em andamento — 0.21.2
+
+- Branch: `codex/video-estabilidade-0-20`; base com feedback registrada em `d99bfd40932940ffc2ea3f37e212b4a739967817`.
+- Baseline real aprovado: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056484866 (assembleDebug, testDebugUnitTest, lintDebug).
+- Negociação agora consulta SessionConfig CameraX e encoder; EIS de vídeo, sem forçar OIS/cena de rosto no template de vídeo; recuo sem EIS conserva assinatura/qualidade/FPS. Prévia isolada quando seleção é recusada; alternativa exige escolha explícita. Vigia descarta sessão antiga e tolera início lento.
+- CI da alteração ainda pendente; não validado fisicamente. Próximo: aprovar CI, restaurar assinatura com tratamento correto de espelho e falha por configuração, testar novamente, produzir APK assinado pelo workflow existente.
+- Não implementar pós-processamento pesado nem profundidade antes dessas correções. Sem novos modelos/permissões/keystore. Sem mudança de Noturno.
+
 # Nova Camera — continuidade após estabilização de vídeo
 
 ## Feedback real da 0.21.1 (build 60) — próxima correção
@@ -114,3 +122,4 @@ Testar gesto em Foto/Retrato: toque simples, hold→soltar, hold→arrastar→so
 ## Texto para continuar em outra sessão
 
 Continue Nova Camera na branch `codex/video-estabilidade-0-20`, preservando a origem `ccr-7443eaac-tqygyg` e o release `nova-test-58`. Confira o HEAD, leia `docs/pendente/NOVA_HANDOFF_CODEX.md` inteiro e o topo de `docs/STATUS.md`. O código está em 0.21.1; o último commit do app é `33c02249d65838ed8283d335ff32ab1979d17c4f`. GitHub Actions foi explicitamente autorizado como validação porque o ambiente local não tem Gradle e o proxy falha. O workflow android-check.yml roda em push nesta branch; não dispare releases. Já há correções de ordem GL/fallback da assinatura, recuperação limitada, qualidade explícita sem fallback silencioso, leitura real do MP4 e gravação rápida por gesto. Consulte os resultados de CI no handoff e não confunda com validação física. Próximo incremento: foco com rastreamento visual real; depois profundidade na prévia e no MP4, frontal/traseira, resolvendo a composição com a assinatura. Preserve assinatura Android, offline, configurações e tom do Noturno. Commits pequenos em português, versionName/STATUS por versão e CI após cada etapa.
+

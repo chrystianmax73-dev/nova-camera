@@ -65,6 +65,8 @@ data class CameraState(
     val videoFpsVariable: Boolean = false,
     /** Prévia pode existir numa combinação recusada; não autoriza gravar em outra qualidade. */
     val videoCaptureProblem: String? = null,
+    /** Alternativa na mesma resolução; só se aplica após confirmação na interface. */
+    val videoSuggestedFps: Int? = null,
     /** Intervalo entre quadros do Timelapse (só nesse modo). */
     val timelapseIntervalMs: Long? = null,
 )
@@ -93,5 +95,6 @@ interface CameraListener {
     /** Rajada em andamento (quadro [done] de [total]). */
     fun onBurstProgress(done: Int, total: Int) {}
 }
+
 
 

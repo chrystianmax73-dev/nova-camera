@@ -1068,7 +1068,23 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (!state.support.canCapture) {
             infoCard.text = "${state.mode.label} indisponível neste aparelho\n\n${state.support.note}"
             infoCard.visibility = View.VISIBLE
-        } else infoCard.visibility = View.GONE
+        } else if (state.videoCaptureProblem != null) {
+            val alternative = state.videoSuggestedFps
+            infoCard.text = state.videoCaptureProblem + if (alternative != null)
+                "\n\nToque para escolher ${state.videoQualityLabel ?: settings.videoQuality.label}/$alternative fps" else
+                "\n\nEscolha outra resolução ou taxa de quadros nos controles acima"
+            infoCard.visibility = View.VISIBLE
+            infoCard.setOnClickListener {
+                if (alternative != null && !camera.isRecording) android.app.AlertDialog.Builder(this)
+                    .setTitle("Alterar taxa de quadros?")
+                    .setMessage("Manter ${settings.videoQuality.label} e tentar $alternative fps? O arquivo será conferido após a gravação.")
+                    .setNegativeButton("Manter seleção", null)
+                    .setPositiveButton("Usar $alternative fps") { _, _ ->
+                        settings.videoFps = alternative
+                        showTransition(); camera.requestRebind()
+                    }.show()
+            }
+        } else { infoCard.visibility = View.GONE; infoCard.setOnClickListener(null) }
         if (state.support.engine == ModeEngine.NOVA && state.support.note.isNotBlank() && announcedMode != state.mode) hint.show(state.support.note, 4500)
         announcedMode = state.mode
         proPanel.visibility = if (state.mode.isPro) View.VISIBLE else View.GONE
@@ -1407,5 +1423,6 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
 }
+
 
 
