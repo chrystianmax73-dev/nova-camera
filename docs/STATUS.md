@@ -6,6 +6,29 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.18.0 — Super-resolução multiquadro no zoom digital da tele (pinça)
+
+Antes: 10× na lente 5× = recorte do centro de **um** quadro ampliado 2× por interpolação (granulado e
+falso padrão na pinça). Agora (Foto, tele física, zoom digital ≥ 1,4× sobre a lente, ajuste
+"Super-resolução no zoom da tele", ligado):
+
+1. A rajada de **8 quadros** é feita na lente **sem recorte** (a prévia mostra a lente sem recorte por
+   um instante); o zoom volta ao fim da rajada.
+2. Alinhamento do motor (global, regiões, subpixel) + medição fina por bloco em resolução cheia, na
+   luminância suavizada (o detalhe serrilhado enviesava a medida).
+3. Cada amostra é colocada na posição exata numa grade `fator`× mais fina (núcleo gaussiano σ = 0,28·fator);
+   robustez pela faixa local da referência (o detalhe real é aceito; o que se mexeu, rejeitado); onde
+   nenhuma amostra chega, vale a referência interpolada.
+4. Ideia publicada (Wronski et al., 2019), implementação própria; nada de IA gerando detalhe.
+
+| Validação | Resultado |
+|---|---|
+| Núcleo, 8 quadros, deslocamentos verdadeiros | +2,1 dB sobre o zoom de um quadro |
+| Núcleo, 6 quadros com ruído | +2,4 dB |
+| Caminho completo (alinhamento do app + montagem) | +2,1 dB; visualmente, o zoom de um quadro mostra falso padrão (serrilhado) e a SR mostra o padrão verdadeiro |
+| Objeto que se mexe entre quadros | rejeitado (sem fantasma) |
+| No aparelho (JPEG processado pela Samsung, tremido real) | **não medido**; o ganho tende a ser menor que no sintético |
+
 ## 0.17.4 — Tele no escuro: quadros iguais no lugar do HDR e clareamento contido
 
 Caso real (0.17.3): frasco a 5×, quarto escuro. Nova: tele real (115 mm, f/3,4), ISO 2056, 1/24 s,

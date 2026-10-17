@@ -338,6 +338,58 @@ object Engine {
         return if (count == 0) 1f else (rejected / count).toFloat()
     }
 
+    /** Zoom digital de um quadro: centro 1/[factor] ampliado ao tamanho original (bilinear). */
+    fun cropCenter(bmp: Bitmap, factor: Float): Bitmap {
+        val cw = max(1, (bmp.width / factor).toInt()); val ch = max(1, (bmp.height / factor).toInt())
+        val crop = Bitmap.createBitmap(bmp, (bmp.width - cw) / 2, (bmp.height - ch) / 2, cw, ch)
+        val out = Bitmap.createScaledBitmap(crop, bmp.width, bmp.height, true)
+        if (crop !== bmp && crop !== out) crop.recycle()
+        if (out !== bmp) bmp.recycle()
+        return out
+    }
+
+    /**
+     * Super-resolução do zoom digital da tele: o centro 1/[factor] dos quadros (feitos na lente sem
+     * recorte) vira a foto inteira, montada com as amostras de todos os quadros na posição exata
+     * (ver [com.novacamera.s24.core.imaging.SuperRes]). Sem alinhamento ([a] null) ou com um quadro
+     * só, equivale ao zoom digital de um quadro. Devolve quantos quadros entraram.
+     */
+    fun superResInto(frames: List<FrameSource>, out: Bitmap, a: Alignment?, factor: Float, cancel: CancelToken, progress: (Float) -> Unit): Int {
+        val w = frames[0].width; val h = frames[0].height
+        val cropX = (w - w / factor) / 2f; val cropY = (h - h / factor) / 2f
+        val used = frames.indices.filter { a != null && a.usable[it] }.ifEmpty { listOf(0) }
+        val noise = a?.noise ?: 0.01f
+        val tile = 320
+        val total = ((out.width + tile - 1) / tile) * ((out.height + tile - 1) / tile)
+        var done = 0
+        val margin = 4
+        for (oy0 in 0 until out.height step tile) for (ox0 in 0 until out.width step tile) {
+            if (cancel.cancelled) throw CancelledException()
+            val otw = min(tile, out.width - ox0); val oth = min(tile, out.height - oy0)
+            val rx0 = (cropX + ox0 / factor).toInt() - margin; val ry0 = (cropY + oy0 / factor).toInt() - margin
+            val rw = (otw / factor).toInt() + 2 * margin + 1; val rh = (oth / factor).toInt() + 2 * margin + 1
+            val refPx = IntArray(rw * rh).also { readClamped(frames[0], rx0, ry0, rw, rh, it) }
+            val ref = com.novacamera.s24.core.imaging.SuperRes.Region(refPx, rx0, ry0, rw, rh)
+            val list = ArrayList<Pair<com.novacamera.s24.core.imaging.SuperRes.Region, Pair<Float, Float>>>()
+            list += ref to (0f to 0f)
+            if (a != null) for (k in used) {
+                if (k == 0) continue
+                val cx = (rx0 + rw / 2f) / a.scale; val cy = (ry0 + rh / 2f) / a.scale
+                val g = a.fieldsF?.let { Align.shiftAtF(it[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale) }
+                    ?: Align.shiftAt(a.fields[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale).let { FShift(it.dx.toFloat(), it.dy.toFloat()) }
+                val gx = kotlin.math.round(g.x).toInt(); val gy = kotlin.math.round(g.y).toInt()
+                val m = 3
+                val movPx = IntArray((rw + 2 * m) * (rh + 2 * m)).also { readClamped(frames[k], rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m, it) }
+                val mov = com.novacamera.s24.core.imaging.SuperRes.Region(movPx, rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m)
+                list += mov to com.novacamera.s24.core.imaging.SuperRes.estimateShift(ref, mov, gx, gy)
+            }
+            val px = com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise)
+            out.setPixels(px, 0, otw, ox0, oy0, otw, oth)
+            done++; progress(done.toFloat() / total)
+        }
+        return used.size
+    }
+
     /**
      * HDR: fusão das exposições alinhadas (índice 0 = referência). Cada pixel de outro quadro só
      * entra se for consistente com a referência (meia resolução + verificação em resolução cheia).

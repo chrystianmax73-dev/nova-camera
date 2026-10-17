@@ -62,6 +62,11 @@ class Job(
     val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
     /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
     val subjectPoint: Pair<Float, Float>? = null,
+    /**
+     * Zoom digital sobre a lente (> 1): os quadros vieram sem recorte e a foto final é o centro
+     * 1/srFactor montado por super-resolução. 1 = foto comum.
+     */
+    val srFactor: Float = 1f,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -254,7 +259,9 @@ object ProcessingQueue {
             if (job.kind == JobKind.AUTO) { runAuto(context, job, session, name); return }
             // 1. Original (quadro de referência, sem processamento) — salvo primeiro, sempre.
             progress(0.02f, "Salvando original")
-            val orig = Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror)
+            var orig = Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror)
+            // Super-resolução: o "original" é o que o zoom digital de um quadro daria (centro ampliado).
+            if (job.srFactor > 1.05f) orig = Engine.cropCenter(orig, job.srFactor)
             MediaWriter.writeFile(session.original, orig, 95)
             // Original byte a byte (o JPEG da câmera, sem recompressão) em "Originais".
             if (keepOriginals) originalUri = MediaWriter.insertBytes(resolver, frame0.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS)
@@ -275,7 +282,22 @@ object ProcessingQueue {
             var base: Bitmap
             var note = job.captureNote ?: ""
             var hdrScene: Plane? = null
-            if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
+            if (job.srFactor > 1.05f) {
+                orig.recycle()
+                val sources = frames.map(::JpegSource)
+                try {
+                    val a = if (sources.size > 1) {
+                        progress(0.05f, "Alinhando ${frames.size} quadros")
+                        Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
+                    } else null
+                    base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
+                    val n = Engine.superResInto(sources, base, a, job.srFactor, job.cancel) { progress(0.2f + 0.45f * it, "Super-resolução") }
+                    val z = String.format(java.util.Locale.US, "%.1f", job.srFactor).replace('.', ',')
+                    note = if (n < 2) "Zoom digital de ${z}× com um quadro (movimento ou alinhamento incerto)"
+                           else "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
+                } finally { sources.forEach { it.close() } }
+                base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
+            } else if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
                 try {

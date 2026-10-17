@@ -1602,6 +1602,17 @@ class NovaCamera(
                 else listOf(0)
             else -> listOf(0)
         }
+        // Super-resolução: zoom digital sobre uma tele física (ex.: 10× na lente 5×). A rajada é feita na
+        // lente sem recorte e a foto final é montada com as amostras de todos os quadros.
+        val lensNow = currentLens
+        val srFactor = if (settings.superRes && !isFront && activeExtension == ExtensionMode.NONE &&
+            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM) &&
+            lensNow?.physicalCameraId != null && lensNow.intrinsic >= 2.5f && zoomOnLens >= SR_MIN_DIGITAL) zoomOnLens else 1f
+        if (srFactor > 1f) {
+            kind = JobKind.ZOOM
+            steps = List(SR_FRAMES) { 0 }
+            captureNote = "Super-resolução: $SR_FRAMES quadros na lente sem recorte"
+        }
         val mirror = isFront && settings.mirrorFrontPhoto
         val frames = ArrayList<CapturedFrame>()
         val baseEv = appliedEv()
@@ -1611,13 +1622,14 @@ class NovaCamera(
         fun submit() {
             capturing = false
             if (nightOverride != null) { nightOverride = null; applyInterop() }
+            if (srFactor > 1f && camera === cam) cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
             releaseNightFocus()
             if (baseEv != appliedEv() || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
             if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
-                zoom = equivalent(zoomOnLens), signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
+                zoom = equivalent(zoomOnLens), srFactor = srFactor, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null))
             listener.onProcessingQueued(kind)
@@ -1641,7 +1653,7 @@ class NovaCamera(
                                     exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
                                         .takeIf { it.isFinite() && it>0 && it<60 }?.let { (it*1_000_000_000).toLong() })
                             }
-                            if(i==0 && initialKind==JobKind.PHOTO) {
+                            if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 // Testes de super-resolução: rajada da tele também com luz boa, e mais longa.
@@ -1729,6 +1741,10 @@ class NovaCamera(
         // "caça" no escuro). Todos os quadros saem com o mesmo foco; até 1,2 s de espera.
         if (kind == JobKind.NIGHT && !userPointActive && !aeLocked && activeExtension == ExtensionMode.NONE) {
             nightFocusThen(cam) { startBurst() }
+        } else if (srFactor > 1f) {
+            // Lente sem recorte durante a rajada; um instante para o quadro novo chegar ao sensor.
+            listener.onMessage("Segure firme · super-resolução")
+            cam.cameraControl.setZoomRatio(cameraZoom(1f)).addListener({ handler.postDelayed({ startBurst() }, SR_SETTLE_MS) }, main)
         } else startBurst()
     }
 
@@ -2108,6 +2124,10 @@ class NovaCamera(
     companion object {
         /** Rajada RAW de testes no Pro (super-resolução precisa de vários quadros com leve deslocamento). */
         private const val RAW_BURST_FRAMES = 6
+        /** Super-resolução: a partir de 1,4× de zoom digital sobre a tele; 8 quadros; espera após trocar o zoom. */
+        private const val SR_MIN_DIGITAL = 1.4f
+        private const val SR_FRAMES = 8
+        private const val SR_SETTLE_MS = 150L
         /** Rajada da tele na coleta de testes (a super-resolução usa de 6 a 8 quadros). */
         private const val COLLECT_TELE_FRAMES = 8
         private const val NIGHT_FOCUS_WAIT_MS = 1200L

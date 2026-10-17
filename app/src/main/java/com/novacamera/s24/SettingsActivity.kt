@@ -117,6 +117,9 @@ class SettingsActivity : NovaScreen() {
             "É uma prévia em resolução reduzida; a foto passa pelo processamento completo. Desligue se o aparelho esquentar.",
             { settings.portraitLivePreview }, { settings.portraitLivePreview = it })
 
+        switch("Super-resolução no zoom da tele", "Acima do zoom óptico (ex.: 10× na lente 5×), junta 8 quadros feitos na lente " +
+            "sem recorte: detalhe real na ampliação, em vez do recorte de um quadro só. A prévia mostra a lente sem recorte " +
+            "por um instante durante a rajada.", { settings.superRes }, { settings.superRes = it })
         switch("Perfil Contraste (teste)", "Preto mais firme e mais contraste local, na direção do vivo, iPhone e Pixel. " +
             "Não muda o Noturno. Desligado: tom natural de sempre.", { settings.contrastProfile }, { settings.contrastProfile = it })
 
