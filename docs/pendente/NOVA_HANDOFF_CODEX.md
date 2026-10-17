@@ -1,3 +1,12 @@
+# 0.24.5 — sinal de sessão e recuperação limitada (17/10/2026)
+
+- Sinal de atividade passa a contar todos os CaptureResults antes de ISO/exposição opcionais; callback por geração ignora resultados antigos. Aviso enfileirado só recupera se não chegou novo resultado nesse intervalo. Cadência diagnóstica também conta resultados sem campos opcionais; não mede apresentação na tela.
+- Vigia não usa ausência de callbacks em extensão OEM/alta velocidade como prova de travamento e não religa prévia isolada após combinação recusada. Fotos param o vigia antes de tratar a parada e verificam limite antes de retirar efeitos, evitando repetição sem fim; vídeo conserva espera por Finalize e orçamento existente. Log inclui assinatura do compositor e estado da máscara.
+- Regressões cobrem resultados sem campos opcionais, callback antigo, recuperação espontânea enquanto UI estava ocupada e perfis sem observação válida. CI pendente. Essas causas verificadas no código não provam explicar todos os congelamentos do HAL/GL no S24; teste físico continua necessário.
+- Inclui escolha térmica0.24.4; nenhuma queda silenciosa de resolução/FPS, assinatura Android ou motor fotográfico alterados. Próximo: confirmar CI, examinar geometria da marca compartilhada, gerar APK com fluxo assinado sem release.
+
+---
+
 # 0.24.4 — feedback térmico do S24 e escolha de vídeo comum (17/10/2026)
 
 - Base remota 1f49b39bd9037f1a3a1a34e655dcf667fa50f680 conferida; baseline Actions39071730931 aprovado antes de editar. Feedback real 0.24.3: calor severo3, carregando,42.7–43.6°C; potência indisponível. Rastreamento e máscara suspensos; esperar máscara não resolveria o calor. Sem mídia pessoal no Git.

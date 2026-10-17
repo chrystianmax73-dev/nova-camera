@@ -174,19 +174,21 @@ class NovaCamera(
      */
     private val watchdogThread by lazy { android.os.HandlerThread("nova-watchdog").also { it.start() } }
     private val watchdog by lazy { Handler(watchdogThread.looper) }
-    private var watchFrames = -1
+    private val previewProgress = com.novacamera.s24.core.CaptureProgress()
+    private var watchFrames = -1L
     private var watchSince = 0L
     @Volatile private var watchGeneration = 0L
     private var sampledGeneration = -1L
     private var watchedCamera: Camera? = null
-    private var watchStartFrames = 0
+    private var watchStartFrames = 0L
     private var watchHasFrame = false
     @Volatile private var watchCamera: Camera? = null
     private var liveBlurBlocked = false
     private val watchTick = object : Runnable {
         override fun run() {
             val cam = watchCamera
-            val frames = synchronized(telemetry) { telemetry.frames }
+            val progress = previewProgress.snapshot()
+            val frames = progress.frames
             val now = SystemClock.uptimeMillis()
             val generation = watchGeneration
             if (cam !== watchedCamera || generation != sampledGeneration) {
@@ -200,7 +202,11 @@ class NovaCamera(
                 watchFrames = frames; watchSince = now
             } else if (now - watchSince >= (if (watchHasFrame) stallLimitMs() else maxOf(stallLimitMs(), 10_000L))) {
                 watchSince = now
-                handler.post { if (generation == watchGeneration) onPreviewStalled(cam) }
+                handler.post {
+                    // A fila principal pode estar ocupada por uma captura. Se houve resultado
+                    // novo enquanto o aviso aguardava, não desmonta uma câmera já recuperada.
+                    if (generation == watchGeneration && previewProgress.unchanged(progress)) onPreviewStalled(cam)
+                }
             }
             if (!released) watchdog.postDelayed(this, 1000L)
         }
@@ -217,13 +223,14 @@ class NovaCamera(
     private val videoRecovery = com.novacamera.s24.core.VideoRecovery()
 
     private fun onPreviewStalled(cam: Camera) {
-        if (cam !== camera || released || paused) return
+        if (cam !== camera || cam !== watchCamera || released || paused) return
         if (mode.isVideo) {
+            if ((mode==CaptureMode.VIDEO || mode==CaptureMode.VIDEO_PRO) && videoCapture==null) return
             val action = videoRecovery.stalled(isRecording, boundVideoStabilization)
             if (action == com.novacamera.s24.core.VideoRecovery.Action.IGNORE) return
             // Sem outro tick até uma ligação nova; nunca disputa superfícies com o codificador.
             watchCamera = null
-            val context = "${mode.label} · lente ${currentLens?.routeKey} · zoom ${equivalent(zoomOnLens)}× · assinatura=${videoEffect != null} · ${settings.videoQuality.label}/${boundVideoFps} fps · EIS=$boundVideoStabilization · físico=${previewOptics.first} · apenas prévia=${videoCapture == null} · recuperação=$action"
+            val context = "${mode.label} · lente ${currentLens?.routeKey} · zoom ${equivalent(zoomOnLens)}× · assinatura=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · $cinematicDiagnostic · ${settings.videoQuality.label}/${boundVideoFps} fps · EIS=$boundVideoStabilization · físico=${previewOptics.first} · apenas prévia=${videoCapture == null} · recuperação=$action"
             com.novacamera.s24.core.StallLog.add(activity, context)
             com.novacamera.s24.core.VideoLog.add(activity, "Prévia parada: $context")
             // Uma parada do sensor não prova falha da assinatura. Primeiro retiramos EIS,
@@ -246,6 +253,9 @@ class NovaCamera(
             }
             return
         }
+        // Fotos também param o vigia até um novo bind: evita repetir a mensagem a cada 3 s
+        // depois de esgotar as tentativas, inclusive com análise/efeito ainda presentes.
+        watchCamera = null
         val nowMs = SystemClock.uptimeMillis()
         while (recentStalls.isNotEmpty() && nowMs - recentStalls.first() > 60_000L) recentStalls.removeFirst()
         recentStalls.addLast(nowMs)
@@ -254,9 +264,13 @@ class NovaCamera(
             equivalent(zoomOnLens), portraitEffect != null || videoEffect != null, portraitAnalysis != null,
             runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?")
         Log.w(TAG, "prévia parada: $line")
-        synchronized(telemetry) { telemetry.log(SystemClock.uptimeMillis(), "prévia parada; reabrindo") }
         com.novacamera.s24.core.StallLog.add(activity, line)
         when {
+            recentStalls.size >= 3 -> {
+                synchronized(telemetry) { telemetry.log(nowMs,"prévia sem resultados; recuperação encerrada") }
+                listener.onMessage("A imagem parou várias vezes; feche e abra a câmera")
+                return
+            }
             portraitAnalysis != null -> {
                 liveBlurBlocked = true
                 listener.onMessage("Prévia do desfoque pausada para não travar; a foto continua com desfoque")
@@ -266,12 +280,9 @@ class NovaCamera(
                 portraitPreviewFailed = true
                 listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
             }
-            recentStalls.size >= 3 -> {
-                listener.onMessage("A imagem parou várias vezes; feche e abra a câmera")
-                return
-            }
             else -> listener.onMessage("A imagem parou; reabrindo a câmera")
         }
+        synchronized(telemetry) { telemetry.log(nowMs,"prévia sem resultados; reabrindo") }
         pendingZoomOnLens = zoomOnLens
         bind()
     }
@@ -505,6 +516,7 @@ class NovaCamera(
         invalidateSubjectTracking()
         watchCamera = null
         watchGeneration++
+        previewProgress.begin(watchGeneration)
         videoEffectGeneration++
         p.unbindAll()
         camera = null
@@ -594,7 +606,7 @@ class NovaCamera(
         val highSpeed = mode == CaptureMode.CAMERA_LENTA && support.canCapture
 
         if (wantedExtension == ExtensionMode.NONE && !highSpeed) {
-            Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(statsCallback)
+            Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(progressCallback(watchGeneration))
         }
         motionWanted = mode == CaptureMode.NOITE && support.engine == ModeEngine.NOVA
         if (motionWanted && activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) motion.start()
@@ -868,8 +880,12 @@ class NovaCamera(
             if (pinned != null) watchPinnedStart(camera, currentLens)
             // Após esgotar o orçamento só a prévia é religada. Não reinicia gravação nem
             // continua o ciclo automático; uma escolha explícita renova o orçamento.
-            watchCamera = if (videoRecovery.exhausted &&
-                (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) null else camera
+            // Extensões OEM/alta velocidade não fornecem o callback de resultados usado pelo
+            // vigia. Ausência de telemetria nesses modos não prova prévia congelada.
+            watchCamera = if (com.novacamera.s24.core.CaptureProgress.canWatch(
+                wantedExtension==ExtensionMode.NONE && !highSpeed,
+                mode==CaptureMode.VIDEO || mode==CaptureMode.VIDEO_PRO,
+                videoCapture!=null, videoRecovery.exhausted)) camera else null
             watchdog.removeCallbacks(watchTick); watchdog.postDelayed(watchTick, 1000L)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
@@ -1632,16 +1648,27 @@ class NovaCamera(
     private var lastSensorReportMs = 0L
     @Volatile private var previewOptics: Pair<String?, Float?> = null to null
 
+    private fun progressCallback(generation:Long) = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(session:CameraCaptureSession,request:CaptureRequest,result:TotalCaptureResult) {
+            if (generation!=watchGeneration || !previewProgress.frame(generation)) return
+            statsCallback.onCaptureCompleted(session,request,result)
+        }
+    }
+
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
             val opticalResult = currentLens?.physicalCameraId?.let { result.physicalCameraResults[it] } ?: result
+            val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
+            val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()
+            val ts = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: 0L
+            val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
+            if (lensChanged) handler.post { listener.onActiveLens(lensLabel(currentLens?.physicalCameraId ?: physical)) }
+            // ISO/exposição de uma lente física são opcionais; não interrompem o sinal de vida.
             val iso = opticalResult.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
             val exp = opticalResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
             val focus = opticalResult.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
-            val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
-            val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()
             previewOptics = (currentLens?.physicalCameraId ?: physical) to opticalResult.get(CaptureResult.LENS_FOCAL_LENGTH)
             if(!isFront && !referenceMeasured && currentLensId==defaultLensId && currentLens?.physicalCameraId==null && zoom!=null && kotlin.math.abs(zoom-1f)<0.02f) {
                 val realSize=runCatching { activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
@@ -1662,9 +1689,6 @@ class NovaCamera(
                     }
                 }
             }
-            val ts = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: 0L
-            val lensChanged = synchronized(telemetry) { telemetry.frame(ts, zoom, physical, SystemClock.uptimeMillis()) }
-            if (lensChanged) handler.post { listener.onActiveLens(lensLabel(currentLens?.physicalCameraId ?: physical)) }
             val now = System.currentTimeMillis()
             if (now - lastSensorReportMs >= 500L) {
                 lastSensorReportMs = now
