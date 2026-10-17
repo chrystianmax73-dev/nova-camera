@@ -1,3 +1,10 @@
+# 0.21.5 — prévia após sessão recusada pelo CameraX (17/10/2026)
+
+- Estende a prévia isolada da 0.21.4 à recusa de bind: mantém a escolha de qualidade, impede gravação em outra resolução e permite escolher uma combinação alternativa. Se até a prévia falhar, não reinicia em ciclo.
+- Nova regressão verifica que recusa de bind encerra recuperações automáticas até uma escolha explícita do usuário.
+- Base das correções 0.21.3 com sincronização do teste aprovada em compilação debug, testes completos e lint: [39058541277](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277). A primeira execução teve 1 falha de sincronização do teste, corrigida antes desta aprovação; não foi escondida.
+- CI desta alteração ainda pendente. APK assinado será gerado somente após aprovação, sem release automático. 5×/4K60, marca nos pixels do MP4 e estabilidade física continuam dependentes de teste no S24 Ultra.
+
 # 0.21.4 — prévia segura após esgotar a recuperação (17/10/2026)
 
 - Depois de finalizar o arquivo e esgotar o orçamento de recuperação, liga somente a prévia; não deixa ativa a sessão de gravação que parou. Obturador continua bloqueado até nova escolha explícita.

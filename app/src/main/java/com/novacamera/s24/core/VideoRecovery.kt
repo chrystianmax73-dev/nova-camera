@@ -29,6 +29,9 @@ class VideoRecovery(private val maxRetries: Int = 2) {
         return if (exhausted) Action.STOP else Action.REBIND
     }
 
+    /** Bind recusado também deve terminar em prévia isolada, sem repetir a mesma sessão. */
+    fun rejectBinding() { exhausted = true }
+
     /** Só uma ação explícita do usuário inicia outro orçamento. */
     fun reset() { retries = 0; awaitingFinalize = false; exhausted = false; disableStabilization = false }
 }

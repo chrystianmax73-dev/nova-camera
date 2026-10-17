@@ -493,7 +493,7 @@ class NovaCamera(
         videoSignatureOverlay = null
         videoBindingIssue = if (videoRecovery.exhausted &&
             (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO))
-            "A sessão de gravação parou repetidamente; prévia apenas. Escolha outra combinação" else null
+            "A sessão de gravação não pôde ser mantida; prévia apenas. Escolha outra combinação" else null
         requestedVideoSize = null
         // Rajada do Noturno interrompida pela troca de câmera/modo: a sessão nova volta ao automático.
         nightOverride = null
@@ -861,6 +861,13 @@ class NovaCamera(
             if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoEffect == null && !autoFpsApplied) {
                 val reason = "Combinação de vídeo indisponível. Altere resolução, fps ou estabilização"
                 videoBindingIssue = reason
+                if (videoCapture != null) {
+                    videoRecovery.rejectBinding()
+                    pendingZoomOnLens = pendingZoomOnLens ?: zoomOnLens
+                    handler.post { if (!released && !paused) bind() }
+                    return
+                }
+                // Se até a prévia isolada falhar, não reinicia o ciclo.
                 com.novacamera.s24.core.VideoLog.add(activity, "Bind recusado: ${settings.videoQuality.label}/${settings.videoFps} fps · ${e.javaClass.simpleName}: ${e.message}")
                 state?.copy(mode = mode, support = support, isFront = isFront,
                     videoQualityLabel = settings.videoQuality.label, videoFps = settings.videoFps,

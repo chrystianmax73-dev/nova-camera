@@ -5,6 +5,16 @@ import org.junit.Test
 import com.novacamera.s24.core.VideoRecovery.Action
 
 class VideoRecoveryTest {
+    @Test fun bindRecusadoBloqueiaNovasRecuperacoesAteEscolhaDoUsuario() {
+        val r = VideoRecovery()
+        r.rejectBinding()
+        assertTrue(r.exhausted)
+        repeat(100) { assertEquals(Action.IGNORE, r.stalled(false)) }
+        assertEquals(Action.IGNORE, r.finalized())
+        r.reset()
+        assertEquals(Action.REBIND, r.stalled(false))
+    }
+
     @Test fun paradaComEisRetiraSomenteEstabilizacaoEAguardaFinalize() {
         val r = VideoRecovery()
         assertEquals(Action.FINALIZE, r.stalled(recording = true, stabilized = true))

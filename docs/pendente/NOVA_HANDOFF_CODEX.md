@@ -1,3 +1,10 @@
+## 0.21.5 — finalizar verificação e entregar APK
+
+- Branch `codex/video-estabilidade-0-20`; base `4a0c1ec6779f9421b41f4575f5446ca21faba364` (0.21.3) aprovada em compile, unidade e lint: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277. A falha anterior era o callback assíncrono do teste, agora aprovado.
+- 0.21.4 (`d699cc53d7a08c4b91bed4316aaf978bafec5e3d`) inclui prévia isolada no STOP; CI https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596 ainda acompanhando.
+- 0.21.5 acrescenta o mesmo recuo para bind recusado, com teste de orçamento. Não tentar gravar usando essa prévia. Aguardar CI completo desta versão e gerar artefato APK assinado via workflow existente, pulando publicação de release nesta branch. Restaurar gatilhos após uma única execução.
+- Sem teste físico novo, não afirmar que 4K/60/5× ou logo no MP4 estão validados. Pós-processamento, rastreamento e profundidade aguardam esse retorno. Próximo passo exato: acompanhar CI da 0.21.5; se verde, gerar APK com ambos os modelos e conferir certificado/versionCode, atualizar este handoff e fornecer o link ao usuário.
+
 ## 0.21.4 — último ajuste de recuperação
 
 - Após STOP do orçamento, religar somente prévia, sem vídeo/efeito, com obturador bloqueado e alternativa explícita. Se havia gravação, aguardar Finalize antes disso. Esta prévia não reinicia o watchdog/ciclo; usuário precisa alterar configuração.
