@@ -880,7 +880,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val i = options.indexOf(settings.videoQuality)
         settings.videoQuality = options[(i + 1) % options.size]
         showTransition()
-        camera.bind()
+        camera.requestRebind()
         hint.show("Vídeo: ${settings.videoQuality.label}", 1400)
     }
 
@@ -898,7 +898,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val next = options[(options.indexOf(s.videoFps) + 1) % options.size]
         if (s.mode == CaptureMode.CAMERA_LENTA) settings.slowMotionFps = next else settings.videoFps = next
         showTransition()
-        camera.bind()
+        camera.requestRebind()
         hint.show("$next fps", 1200)
     }
 
@@ -1308,4 +1308,5 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
 }
+
 

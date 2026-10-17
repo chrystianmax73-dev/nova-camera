@@ -38,7 +38,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.20.0"
+        versionName = "0.20.1"
         // Alvo: Galaxy S24/S25 Ultra (arm64). Evita levar as bibliotecas nativas (MediaPipe) de 4 arquiteturas.
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
@@ -117,4 +117,5 @@ dependencies {
     // Renderiza a interface real em JVM (sem aparelho) para teste de fumaça e capturas de layout.
     testImplementation("org.robolectric:robolectric:4.17")
 }
+
 

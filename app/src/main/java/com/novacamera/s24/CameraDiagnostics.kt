@@ -33,6 +33,7 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.core.EnergyLog.report())
             appendLine(com.novacamera.s24.core.CrashLog.report(context))
             appendLine(com.novacamera.s24.core.StallLog.report(context))
+            appendLine(com.novacamera.s24.core.VideoLog.report(context))
             appendLine(exitReport(context))
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)
             appendLine(com.novacamera.s24.processing.UltraHdr.deviceReport)
@@ -216,4 +217,5 @@ object BuildConfigInfo {
         "${info.versionName} (${info.longVersionCode})"
     }.getOrDefault("?")
 }
+
 

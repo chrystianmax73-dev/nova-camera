@@ -6,6 +6,26 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.20.1 — Ciclo GL da assinatura e recuperação limitada do vídeo
+
+Base 0.20.0 recompilada, com testes e lint aprovados no Actions:
+https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39049540137 .
+
+- O efeito anterior é fechado antes de criar o próximo na mesma fila GL. Antes, ao trocar
+  resolução/FPS, o init novo podia preceder o release antigo, desfazendo o contexto da textura.
+- RuntimeException das tarefas do OverlayEffect é encaminhada ao controlador sem matar o Looper
+  necessário à liberação. O efeito falho é desligado nesta sessão; durante gravação, solicita Stop
+  e só religa após Finalize. Não é um tratamento global de crashes.
+- Recuperação do vídeo: duas tentativas por sessão, sem renovar o orçamento no bind e sem reduzir
+  FPS/resolução. Ao esgotar, o vigia para; uma ação explícita permite nova tentativa.
+- Diagnóstico distingue assinatura de vídeo de efeito de retrato. Registra falhas do efeito localmente.
+- Encerramento pede finalização do arquivo antes de liberar o provider e os executores do app.
+
+**Testes:** regressões adicionadas para ordem GL, assinatura desligada/religada, mudança de
+configuração, orçamento de recuperação e finalização; execução deste commit pendente no CI.
+**Compilação:** pendente no CI deste commit. **Aparelho:** não validado; o diagnóstico original
+comprova a falha na 0.20.0, não a resolução no S24. Qualidade/FPS e leitura do MP4 são a etapa seguinte.
+
 ## 0.20.0 — Foco por toque confiável na tele e nas rajadas
 
 O toque já focava e media no ponto (anel, confirmação por cor, toque longo = AE/AF bloqueado), mas
@@ -599,3 +619,4 @@ Teste **sem carregador** primeiro e anote se estava carregando.
 11. Gravar 5–10 min em 4K: anotar se surge o selo de aquecimento e se estava carregando.
 
 Formato de retorno: modelo, item, resultado (ok/falha), observação e, se houver, o relatório de diagnóstico. Não é necessário enviar fotos pessoais.
+

@@ -201,15 +201,39 @@ class NovaCamera(
     }
 
     private val recentStalls = ArrayDeque<Long>()
+    private val videoRecovery = com.novacamera.s24.core.VideoRecovery()
 
     private fun onPreviewStalled(cam: Camera) {
         if (cam !== camera || released || paused) return
+        if (mode.isVideo) {
+            val action = videoRecovery.stalled(isRecording)
+            if (action == com.novacamera.s24.core.VideoRecovery.Action.IGNORE) return
+            // Sem outro tick até uma ligação nova; nunca disputa superfícies com o codificador.
+            watchCamera = null
+            val context = "${mode.label} · lente ${currentLens?.routeKey} · zoom ${equivalent(zoomOnLens)}× · assinatura=${videoEffect != null} · ${boundVideoFps} fps · recuperação=$action"
+            com.novacamera.s24.core.StallLog.add(activity, context)
+            com.novacamera.s24.core.VideoLog.add(activity, "Prévia parada: $context")
+            if (videoEffect != null) videoEffectFailed = true
+            pendingZoomOnLens = zoomOnLens
+            when (action) {
+                com.novacamera.s24.core.VideoRecovery.Action.FINALIZE -> {
+                    listener.onMessage("A câmera parou; finalizando o vídeo antes de recuperar")
+                    stopRecording()
+                }
+                com.novacamera.s24.core.VideoRecovery.Action.REBIND -> {
+                    listener.onMessage("A câmera parou; recuperando sem mudar resolução ou fps")
+                    bind()
+                }
+                else -> listener.onMessage("A câmera não se recuperou. Altere a configuração ou reabra a câmera")
+            }
+            return
+        }
         val nowMs = SystemClock.uptimeMillis()
         while (recentStalls.isNotEmpty() && nowMs - recentStalls.first() > 60_000L) recentStalls.removeFirst()
         recentStalls.addLast(nowMs)
         val line = String.format(Locale.US, "%s · %s · lente %s · zoom %.2f× · efeito=%s · análise=%s · versão %s",
             SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()), mode.label, currentLens?.routeKey ?: "?",
-            equivalent(zoomOnLens), portraitEffect != null, portraitAnalysis != null,
+            equivalent(zoomOnLens), portraitEffect != null || videoEffect != null, portraitAnalysis != null,
             runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?")
         Log.w(TAG, "prévia parada: $line")
         synchronized(telemetry) { telemetry.log(SystemClock.uptimeMillis(), "prévia parada; reabrindo") }
@@ -223,15 +247,6 @@ class NovaCamera(
             recentStalls.size >= 2 && portraitEffect != null -> {
                 portraitPreviewFailed = true
                 listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
-            }
-            // Vídeo: a combinação pedida (60 fps; depois estabilização) é o suspeito; sai dela nesta sessão.
-            mode.isVideo && recentStalls.size >= 2 && boundVideoFps > 30 && !highFpsBlocked -> {
-                highFpsBlocked = true; recentStalls.clear()
-                listener.onMessage("A imagem parou a $boundVideoFps fps; usando 30 fps nesta sessão")
-            }
-            mode.isVideo && recentStalls.size >= 2 && boundVideoStabilization && !videoStabilizationBlocked -> {
-                videoStabilizationBlocked = true; recentStalls.clear()
-                listener.onMessage("A imagem parou com a estabilização; gravando sem ela nesta sessão")
             }
             recentStalls.size >= 3 -> {
                 listener.onMessage("A imagem parou várias vezes; feche e abra a câmera")
@@ -312,6 +327,7 @@ class NovaCamera(
     }
 
     fun release() {
+        if (released) return
         released = true
         watchCamera = null
         runCatching { watchdog.removeCallbacks(watchTick); watchdogThread.quitSafely() }
@@ -320,13 +336,20 @@ class NovaCamera(
         nativeRun?.cancel()
         stopRecording()
         handler.removeCallbacksAndMessages(null)
-        provider?.unbindAll()
-        io.shutdown()
-        timelapseExecutor.shutdown()
-        videoEffect?.close(); videoEffect = null
+        // O Finalize ainda precisa do codificador e da fila de trabalho. A Lifecycle do Android
+        // também pode interromper a fonte, mas não a soltamos antes de pedir a finalização.
+        if (!isRecording) releaseCaptureResources()
         stopPortraitAnalysis()
         portraitEffect?.release(); portraitEffect = null
         portraitExecutor.shutdown()
+    }
+
+    private fun releaseCaptureResources() {
+        provider?.unbindAll()
+        videoEffects.close()
+        effectHandler.post { effectThread.quitSafely() }
+        io.shutdown()
+        timelapseExecutor.shutdown()
     }
 
     // ------------------------------------------------------------------ seleção
@@ -337,6 +360,7 @@ class NovaCamera(
      */
     fun setMode(m: CaptureMode, rebind: Boolean = true) {
         if (isRecording || nativeRun != null || m == mode) return
+        videoRecovery.reset()
         mode = m
         settings.lastMode = m
         resetFocusState()
@@ -347,6 +371,7 @@ class NovaCamera(
 
     fun switchFacing(rebind: Boolean = true) {
         if (isRecording || nativeRun != null) return
+        videoRecovery.reset()
         isFront = !isFront
         resetFocusState()
         evIndex = 0; backlightBoost = 0
@@ -428,6 +453,7 @@ class NovaCamera(
     }
 
     fun beginNewSession() {
+        videoRecovery.reset()
         freshSessionRequested = true
         if (paused) paused = false
         if (hasProvider && !isRecording) bind()
@@ -436,6 +462,10 @@ class NovaCamera(
     fun bind() {
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
+        watchCamera = null
+        p.unbindAll()
+        camera = null
+        videoEffects.close()
         // Rajada do Noturno interrompida pela troca de câmera/modo: a sessão nova volta ao automático.
         nightOverride = null
         synchronized(telemetry) { telemetry.breakStream() }
@@ -682,15 +712,12 @@ class NovaCamera(
             portraitPreviewFor(support, wide, pinned, wantedExtension)?.let { (effect, a) ->
                 portraitEffect = effect; portraitAnalysis = a; a?.let { useCases += it }
             } ?: listener.onPortraitPreview(null)
-            val retired = videoEffect
-            videoEffect = null
-            retiredEffect = retired
             val sig = signatureStyle()
             // Assinatura no vídeo: só no Vídeo/Vídeo Pro e fora do vídeo frontal espelhado (a ordem
             // espelho/rotação do codificador não é garantida e o texto poderia sair invertido).
             if (sig != null && settings.signatureVideo && !videoEffectFailed && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && !(isFront && settings.mirrorFrontVideo)) {
-                videoEffect = signatureEffect(sig)
+                videoEffects.replace { signatureEffect(sig) }
             }
             UseCaseGroup.Builder().apply {
                 // O ViewPort faz a foto salva corresponder exatamente ao que a pré-visualização mostra.
@@ -702,8 +729,6 @@ class NovaCamera(
         } else null
 
         try {
-            p.unbindAll()
-            retiredEffect?.close(); retiredEffect = null
             retiredPortraitEffect?.release(); retiredPortraitEffect = null
             previewOptics = null to null
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
@@ -717,7 +742,7 @@ class NovaCamera(
             // Recuo em degraus, do ajuste mais específico ao mais básico.
             when {
                 videoEffect != null -> {
-                    videoEffect?.close(); videoEffect = null
+                    videoEffects.close()
                     videoEffectFailed = true
                     listener.onMessage("Assinatura no vídeo indisponível nesta configuração; gravando sem ela")
                 }
@@ -1943,17 +1968,37 @@ class NovaCamera(
         return effect to analysis
     }
 
-    private var videoEffect: androidx.camera.effects.OverlayEffect? = null
-    /** Efeito da configuração anterior: só é fechado depois que a câmera solta a sessão. */
-    private var retiredEffect: androidx.camera.effects.OverlayEffect? = null
+    private val videoEffects = com.novacamera.s24.core.SerialEffectSlot<androidx.camera.effects.OverlayEffect>()
+    private val videoEffect get() = videoEffects.current
     /** Falhou nesta sessão do app: não tenta de novo até reabrir (a preferência do usuário fica). */
     private var videoEffectFailed = false
     private val effectThread by lazy { android.os.HandlerThread("nova-video-signature").also { it.start() } }
+    private val effectHandler by lazy { VideoEffectHandler(effectThread.looper) { error -> onVideoEffectFailure(error) } }
+
+    private fun onVideoEffectFailure(error: Throwable) {
+        Log.e(TAG, "Falha GL da assinatura do vídeo", error)
+        handler.post {
+            if (released || videoEffectFailed) return@post
+            videoEffectFailed = true
+            com.novacamera.s24.core.VideoLog.add(activity,
+                "Assinatura desligada nesta sessão: ${error.javaClass.simpleName}: ${error.message}")
+            // Se a falha ocorreu durante a gravação, Finalize decide quando é seguro religar.
+            if (isRecording) {
+                listener.onMessage("Assinatura falhou; finalizando este vídeo. Próxima gravação sem assinatura")
+                settingsChangedDuringRecording = true
+                stopRecording()
+            } else {
+                listener.onMessage("Assinatura incompatível nesta configuração; vídeo disponível sem ela")
+                pendingZoomOnLens = zoomOnLens
+                bind()
+            }
+        }
+    }
 
     /** Desenha a assinatura em cada quadro gravado (não na pré-visualização). */
     private fun signatureEffect(style: com.novacamera.s24.processing.SignatureStyle): androidx.camera.effects.OverlayEffect {
         val effect = androidx.camera.effects.OverlayEffect(androidx.camera.core.CameraEffect.VIDEO_CAPTURE, 0,
-            Handler(effectThread.looper)) { t -> Log.e(TAG, "Assinatura no vídeo", t) }
+            effectHandler) { t -> onVideoEffectFailure(t) }
         var cached: Triple<android.graphics.Matrix, Int, Int>? = null
         var cachedKey = ""
         effect.setOnDrawListener { frame ->
@@ -2095,7 +2140,8 @@ class NovaCamera(
                 listener.onRecordingFinished(uri, err)
                 if (uri != null) listener.onMessage("Timelapse salvo: $frames quadros · " +
                     String.format(Locale.US, "%.1f s de vídeo", frames / run.plan.outputFps.toFloat()).replace('.', ','))
-                if (settingsChangedDuringRecording || freshSessionRequested) { settingsChangedDuringRecording = false; bind() }
+                if (released) releaseCaptureResources()
+                else if (settingsChangedDuringRecording || freshSessionRequested) { settingsChangedDuringRecording = false; bind() }
             }
         }
     }
@@ -2147,7 +2193,13 @@ class NovaCamera(
                         if (err != null) Log.e(TAG, "Finalize vídeo: ${event.error}", event.cause)
                         // Muitos erros ainda produzem arquivo válido (ex.: fonte interrompida).
                         listener.onRecordingFinished(event.outputResults.outputUri.takeIf { it != android.net.Uri.EMPTY }, err)
-                        if (settingsChangedDuringRecording || freshSessionRequested) { settingsChangedDuringRecording = false; bind() }
+                        val recovery = videoRecovery.finalized()
+                        if (released) releaseCaptureResources()
+                        else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.REBIND ||
+                            settingsChangedDuringRecording || freshSessionRequested) {
+                            settingsChangedDuringRecording = false
+                            if (!videoRecovery.exhausted) bind()
+                        }
                     }
                 }
             }
@@ -2161,7 +2213,8 @@ class NovaCamera(
     private var settingsChangedDuringRecording = false
 
     fun requestRebind() {
-        if (isRecording) settingsChangedDuringRecording = true else bind()
+        if (isRecording) settingsChangedDuringRecording = true
+        else { videoRecovery.reset(); bind() }
     }
 
     fun pauseOrResumeRecording() {
@@ -2214,4 +2267,5 @@ class NovaCamera(
         val VIDEO_FPS = listOf(24, 30, 60)
     }
 }
+
 
