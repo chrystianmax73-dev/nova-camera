@@ -8,6 +8,8 @@ Legenda da coluna **Validação**:
 
 ## 0.21.1 — Finalização de vídeo após fechar a tela
 
+**APK para teste físico:** 0.21.1, build 60 (versionCode 1060), [baixar ZIP com o APK assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39054257114/artifacts/12108213568). Extraia e instale `app-release.apk`. Testes/lint, compilação release, modelos offline e continuidade da assinatura passaram no [Actions](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39054257114). A etapa de criar release recebeu HTTP 403; o arquivo foi preservado como artefato por 30 dias (até 16/11/2026). Não existe tag nova-test-60 publicada por esta execução. A assinatura permanente foi mantida; nenhum teste físico foi realizado nesta sessão.
+
 O controlador mantém a finalização do MP4 após solicitar parada. Se o callback chegar depois de
 destruir/encerrar a Activity, a interface não tenta reproduzir som já liberado nem carregar miniatura
 num executor encerrado. A medição do MP4 e a liberação do controlador continuam independentes da UI.

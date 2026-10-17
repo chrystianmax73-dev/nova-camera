@@ -1,5 +1,15 @@
 # Nova Camera — continuidade após estabilização de vídeo
 
+## APK entregue para teste — 0.21.1, build 60
+
+- [Download do ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39054257114/artifacts/12108213568), disponível até 16/11/2026. Requer acesso ao GitHub para baixar o artefato.
+- [Execução do build 60](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39054257114), commit `67c1e2eb843b85656f736229b8baec5e0d78107a`; código do app idêntico ao commit `33c0224`.
+- Testes/lint, compilação release, modelos offline, conferência da assinatura permanente e versionCode passaram. A etapa de publicação do release falhou com `HTTP 403: Resource not accessible by integration`. O workflow aparece com falha por esse motivo; não confundir com falha da compilação ou com ausência do APK preservado.
+- Build 59 também compilou e verificou assinatura, mas recebeu o mesmo 403 sem preservar artefato. Por isso foi necessário o build 60.
+- Foi acrescentado upload-artifact depois da conferência da assinatura e antes de criar release. O gatilho temporário de push nesta branch foi restaurado ao estado original; futuras publicações continuam manuais. Assinatura, implementação das etapas de assinatura e código do aplicativo não foram alterados para esta entrega.
+- O último release publicado continua sendo nova-test-58; não fornecer link fictício de nova-test-60. O aviso automático de novo APK foi desligado ao entregar o arquivo nesta conversa.
+- Atualização pode ser instalada sobre a 0.20.0 pela mesma assinatura. Validar agora no aparelho; rastreamento e profundidade cinematográfica em vídeo continuam pendentes.
+
 ## Estado e autorização atuais
 
 - Repositório: https://github.com/chrystianmax73-dev/nova-camera
@@ -8,7 +18,7 @@
 - Release preservado: [nova-test-58, 0.20.0](https://github.com/chrystianmax73-dev/nova-camera/releases/tag/nova-test-58), commit `328c7cf29aff23faf1b7beaaa81c0d5adf82bab3`.
 - Último commit do aplicativo: `33c02249d65838ed8283d335ff32ab1979d17c4f`, versão **0.21.1**. Consulte o HEAD antes de retomar; um commit posterior pode apenas atualizar este handoff/STATUS.
 - O dono autorizou explicitamente **GitHub Actions como ambiente de validação**. Não exigir Gradle offline local: o workspace tem proxy inacessível e não tem Gradle/SDK. O conector GitHub funciona para ler/gravar Git e consultar Actions.
-- **Não disparar releases** nesta etapa. Não foi gerado/distribuído um APK novo; o workflow de testes apenas compila debug, executa testes e lint.
+- O dono autorizou gerar e entregar o APK para teste. Builds assinados 59 e 60 foram executados; o APK do build 60 está disponível no link abaixo. Não disparar outros releases sem nova instrução.
 - O handoff anterior foi preservado integralmente no [commit ad9adb6](https://github.com/chrystianmax73-dev/nova-camera/blob/ad9adb650c345865083c10723bc2cc4b7b2e3186/docs/pendente/NOVA_HANDOFF_CODEX.md). Ele contém a investigação original e o handoff completo da 0.20.0. A exigência histórica de testes offline locais e a ordem antiga de pendências foram substituídas pelas instruções atuais do dono.
 
 ## Regras permanentes
