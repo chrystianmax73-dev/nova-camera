@@ -80,4 +80,5 @@ gradle --offline :app:testDebugUnitTest      # tudo deve passar antes de mudar a
 ```
 - Commits pequenos, mensagem em português, sempre na mesma branch; atualizar `versionName` e uma
   seção nova no topo de `docs/STATUS.md` a cada versão.
-- O release sai sozinho pelo workflow ao enviar; dar ao dono o link `releases/tag/nova-test-N`.
+- O release **não** sai sozinho: depois do push, disparar manualmente o workflow `nova-release.yml`
+  (workflow_dispatch) na branch; ao terminar, dar ao dono o link `releases/tag/nova-test-N`.
