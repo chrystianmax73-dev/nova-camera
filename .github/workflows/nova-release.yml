@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/native-camera-resolution]
+    branches: [codex/native-camera-resolution, codex/video-estabilidade-0-20]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -193,6 +193,13 @@ jobs:
           NEW_CODE="$("$AAPT" dump badging "$NEW_APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)"
           test "$NEW_CODE" -gt "$OLD_CODE"
           echo "Assinatura SHA-256: $NEW_CERT; versionCode: $OLD_CODE → $NEW_CODE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Disponibilizar APK assinado para testes
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova-Camera-build${{ github.run_number }}-APK-assinado
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
       - name: Publicar prévia no repositório privado
         shell: bash
         env:
