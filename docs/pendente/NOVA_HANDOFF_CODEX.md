@@ -1,5 +1,13 @@
 # Nova Camera — continuidade após estabilização de vídeo
 
+## Feedback real da 0.21.1 (build 60) — próxima correção
+
+O dono testou no S24 Ultra/API 37: Full HD grava com boa qualidade; diagnóstico do MP4 registra 1080×1920, AVC, 58,90 fps médios. 5×/4K60 não inicia e pede outra combinação. Assinatura ativada nas preferências não aparece; sessões registram assinatura=false. Congelamentos persistem a 1× e 5×, com duas tentativas e STOP; os crashes listados ainda são da 0.20.0. Isso não comprova 4K60 na API nem restauração da assinatura.
+
+Ordem atual: corrigir 4K/FPS, congelamentos e assinatura, entregar outro APK assinado para teste; depois implementar aprimoramento local opcional de vídeo (original preservado, áudio/PTS/resolução, progresso/cancelamento/controle térmico), rastreamento e profundidade em etapas independentes. Cinematográfico deve começar conservadoramente em FHD/30 sem remover FHD/60 ou 4K. Não processar agressivamente o vídeo que já tem boa qualidade. O usuário autorizou gerar a atualização para validação; manter assinatura permanente, sem INTERNET ou mídia pessoal no Git. Diagnósticos não substituem inspeção de um MP4 pessoal que não foi anexado.
+
+Esta atualização de documentação inicia uma nova validação da base sem mudar o aplicativo; consultar Actions antes do primeiro commit de código.
+
 ## APK entregue para teste — 0.21.1, build 60
 
 - [Download do ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39054257114/artifacts/12108213568), disponível até 16/11/2026. Requer acesso ao GitHub para baixar o artefato.
