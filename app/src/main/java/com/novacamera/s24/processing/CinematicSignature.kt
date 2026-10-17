@@ -1,5 +1,7 @@
 package com.novacamera.s24.processing
 
+import android.graphics.Bitmap
+import android.graphics.Paint
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Rect
@@ -20,9 +22,14 @@ object CinematicSignature {
         val (matrix,width,height)=Signature.uprightToBuffer(input.crop,input.rotation,input.mirrored)
         matrix.postConcat(toSensor)
         matrix.postConcat(sensorToOutput)
-        val save=canvas.save()
-        try { canvas.concat(matrix);Signature.drawOn(canvas,width,height,style) }
-        finally { canvas.restoreToCount(save) }
+        // Rasteriza de pé antes de transformar: Canvas com rotação/reflexão pode mudar
+        // hinting das fontes e a sombra, mesmo quando a geometria final é equivalente.
+        // Alocação só na mudança de geometria, nunca por quadro.
+        val upright=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+        try {
+            Signature.draw(upright,style)
+            canvas.drawBitmap(upright,matrix,Paint(Paint.FILTER_BITMAP_FLAG))
+        } finally { upright.recycle() }
         return true
     }
 }

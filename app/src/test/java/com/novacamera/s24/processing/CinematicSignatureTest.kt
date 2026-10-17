@@ -27,13 +27,13 @@ class CinematicSignatureTest {
             val sensorToUpright=Matrix(sensorToInput).apply { postConcat(inputToUpright) }
             val actual=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
             assertTrue(CinematicSignature.draw(Canvas(actual),input,sensorToUpright,style))
-            assertPixelsNear(expected,actual)
+            assertPixelsNear(expected,actual,"saída orientada $rotation/$mirror")
             // Superfície compartilhada: câmera ainda deitada; consumidor gira/espelha depois.
             val shared=Bitmap.createBitmap(680,380,Bitmap.Config.ARGB_8888)
             assertTrue(CinematicSignature.draw(Canvas(shared),input,sensorToInput,style))
             val displayed=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
             Canvas(displayed).drawBitmap(shared,inputToUpright,null)
-            assertPixelsNear(expected,displayed)
+            assertPixelsNear(expected,displayed,"saída compartilhada $rotation/$mirror")
             expected.recycle();actual.recycle();shared.recycle();displayed.recycle()
         }
     }
@@ -43,7 +43,7 @@ class CinematicSignatureTest {
         assertFalse(CinematicSignature.draw(Canvas(bmp),CinematicSignature.Input(Rect(0,0,100,100),90,false,singular),Matrix(),SignatureStyle()))
         bmp.recycle()
     }
-    private fun assertPixelsNear(a:Bitmap,b:Bitmap) {
+    private fun assertPixelsNear(a:Bitmap,b:Bitmap,case:String) {
         var marked=0;var different=0
         for(y in 0 until a.height)for(x in 0 until a.width) {
             val p=a.getPixel(x,y);val q=b.getPixel(x,y)
@@ -53,6 +53,6 @@ class CinematicSignatureTest {
             }
         }
         assertTrue("marca deve ter pixels",marked>100)
-        assertTrue("divergência da marca: $different de $marked",different<marked*.03)
+        assertTrue("$case: divergência da marca $different de $marked",different<marked*.03)
     }
 }

@@ -123,3 +123,8 @@ dependencies {
 
 
 
+
+// Falhas gráficas precisam mostrar a asserção e sua geometria no log do Actions.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+}
