@@ -12,8 +12,10 @@ O controlador mantém a finalização do MP4 após solicitar parada. Se o callba
 destruir/encerrar a Activity, a interface não tenta reproduzir som já liberado nem carregar miniatura
 num executor encerrado. A medição do MP4 e a liberação do controlador continuam independentes da UI.
 
-**Testes:** regressão Robolectric com a Activity real destruída antes de receber Finalize;
-execução pendente no CI deste commit. **Compilação:** pendente no CI. **Aparelho:** não validado.
+**Testes:** regressão Robolectric com a Activity real destruída antes de receber Finalize, junto
+com a suíte completa: aprovados no Actions
+https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39053015203 .
+**Compilação:** assembleDebug e lintDebug aprovados nessa execução. **Aparelho:** não validado.
 
 ## 0.21.0 — Gravação rápida em Foto e Retrato
 
