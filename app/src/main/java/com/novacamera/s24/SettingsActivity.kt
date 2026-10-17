@@ -117,6 +117,9 @@ class SettingsActivity : NovaScreen() {
             "É uma prévia em resolução reduzida; a foto passa pelo processamento completo. Desligue se o aparelho esquentar.",
             { settings.portraitLivePreview }, { settings.portraitLivePreview = it })
 
+        switch("Alta resolução na tele", "No 3× e 5× (Foto e Retrato), junta 8 quadros numa foto 2× maior (~48 MP): mais " +
+            "detalhe real no zoom de pinça. Arquivos de 15–20 MB e alguns segundos a mais; segure firme durante a rajada.",
+            { settings.teleHighRes }, { settings.teleHighRes = it })
         switch("Super-resolução no zoom da tele", "Acima do zoom óptico (ex.: 10× na lente 5×), junta 8 quadros feitos na lente " +
             "sem recorte: detalhe real na ampliação, em vez do recorte de um quadro só. A prévia mostra a lente sem recorte " +
             "por um instante durante a rajada.", { settings.superRes }, { settings.superRes = it })

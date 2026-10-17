@@ -20,6 +20,8 @@ import kotlin.math.roundToInt
  * nenhuma amostra chega, vale a referência interpolada (nunca fica pior que o zoom de um quadro).
  */
 object SuperRes {
+    private const val KERNEL_LUT = 1024
+
     /** Região de um quadro lida da memória: pixels ARGB, origem (x0, y0) no próprio quadro. */
     class Region(val px: IntArray, val x0: Int, val y0: Int, val w: Int, val h: Int) {
         private val lumas by lazy { FloatArray(px.size) { Px.luma(px[it]) } }
@@ -95,6 +97,10 @@ object SuperRes {
         val sigma = 0.28f * factor
         val inv2s2 = 1f / (2f * sigma * sigma)
         val rad = max(1, (2f * sigma + 0.5f).toInt())
+        // Tabela do núcleo pela distância² (exp por amostra custava ~15 s numa foto de 48 MP).
+        val maxD2 = 2f * (rad + 1) * (rad + 1)
+        val lutScale = (KERNEL_LUT - 1) / maxD2
+        val kernel = FloatArray(KERNEL_LUT) { exp(-(it / lutScale) * inv2s2) }
         val ref = frames[0].first
         val tol = 0.04f + 3f * noise
         // Robustez pela faixa local da referência (mín./máx. 3×3 em volta da posição): o detalhe fino
@@ -127,7 +133,9 @@ object SuperRes {
                     val dy = y - uy
                     for (x in max(0, cx - rad)..min(outW - 1, cx + rad)) {
                         val dx = x - ux
-                        val w = exp(-(dx * dx + dy * dy) * inv2s2) * robust
+                        val d2 = dx * dx + dy * dy
+                        if (d2 >= maxD2) continue
+                        val w = kernel[(d2 * lutScale).toInt()] * robust
                         if (w < 1e-3f) continue
                         val o = y * outW + x
                         accR[o] += w * r; accG[o] += w * g; accB[o] += w * b; accW[o] += w

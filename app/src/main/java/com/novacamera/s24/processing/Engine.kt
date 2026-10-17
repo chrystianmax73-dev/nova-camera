@@ -25,6 +25,7 @@ import com.novacamera.s24.core.imaging.ToneMap
 import com.novacamera.s24.core.imaging.ToneParams
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Um quadro capturado em memória (JPEG do sensor, ainda sem recorte/rotação). */
 class CapturedFrame(val jpeg: ByteArray, val rotationDegrees: Int, val crop: Rect?, val evIndex: Int = 0)
@@ -354,18 +355,62 @@ object Engine {
      * (ver [com.novacamera.s24.core.imaging.SuperRes]). Sem alinhamento ([a] null) ou com um quadro
      * só, equivale ao zoom digital de um quadro. Devolve quantos quadros entraram.
      */
-    fun superResInto(frames: List<FrameSource>, out: Bitmap, a: Alignment?, factor: Float, cancel: CancelToken, progress: (Float) -> Unit): Int {
+    fun superResInto(frames: List<FrameSource>, out: Bitmap, a: Alignment?, factor: Float, cancel: CancelToken, progress: (Float) -> Unit): Int =
+        superResTiles(frames, a, factor, out.width.toFloat() / frames[0].width, cancel, progress) { px, x0, y0, tw, th ->
+            out.setPixels(px, 0, tw, x0, y0, tw, th)
+        }
+
+    /**
+     * Super-resolução já na orientação final ([rotationDegrees], [mirror]), sem a cópia girada de uma
+     * foto de até 48 MP (a rotação de [orient] dobraria a memória). [cropFactor] = zoom digital sobre
+     * a lente (1 = quadro inteiro); [outScale] = tamanho da saída em relação ao quadro (2 = alta
+     * resolução). Devolve a foto e quantos quadros entraram.
+     */
+    fun superRes(frames: List<FrameSource>, a: Alignment?, cropFactor: Float, outScale: Float, rotationDegrees: Int, mirror: Boolean,
+                 cancel: CancelToken, progress: (Float) -> Unit): Pair<Bitmap, Int> {
+        val ow = (frames[0].width * outScale).roundToInt(); val oh = (frames[0].height * outScale).roundToInt()
+        val r = ((rotationDegrees % 360) + 360) % 360
+        val turned = r == 90 || r == 270
+        val dw = if (turned) oh else ow; val dh = if (turned) ow else oh
+        val out = Bitmap.createBitmap(dw, dh, Bitmap.Config.ARGB_8888)
+        val n = superResTiles(frames, a, cropFactor, outScale, cancel, progress) { px, x0, y0, tw, th ->
+            // Bloco (x0, y0, tw, th) da saída sem giro → mesmo bloco girado/espelhado na foto final.
+            val rw = if (turned) th else tw; val rh = if (turned) tw else th
+            val dst = IntArray(px.size)
+            for (j in 0 until th) for (i in 0 until tw) {
+                var dx: Int; val dy: Int
+                when (r) {
+                    90 -> { dx = th - 1 - j; dy = i }
+                    180 -> { dx = tw - 1 - i; dy = th - 1 - j }
+                    270 -> { dx = j; dy = tw - 1 - i }
+                    else -> { dx = i; dy = j }
+                }
+                if (mirror) dx = rw - 1 - dx
+                dst[dy * rw + dx] = px[j * tw + i]
+            }
+            var rx = when (r) { 90 -> oh - (y0 + th); 180 -> ow - (x0 + tw); 270 -> y0; else -> x0 }
+            val ry = when (r) { 90 -> x0; 180 -> oh - (y0 + th); 270 -> ow - (x0 + tw); else -> y0 }
+            if (mirror) rx = dw - (rx + rw)
+            out.setPixels(dst, 0, rw, rx, ry, rw, rh)
+        }
+        return out to n
+    }
+
+    private fun superResTiles(frames: List<FrameSource>, a: Alignment?, cropFactor: Float, outScale: Float, cancel: CancelToken,
+                              progress: (Float) -> Unit, sink: (IntArray, Int, Int, Int, Int) -> Unit): Int {
         val w = frames[0].width; val h = frames[0].height
-        val cropX = (w - w / factor) / 2f; val cropY = (h - h / factor) / 2f
+        val factor = cropFactor * outScale
+        val ow = (w * outScale).roundToInt(); val oh = (h * outScale).roundToInt()
+        val cropX = (w - w / cropFactor) / 2f; val cropY = (h - h / cropFactor) / 2f
         val used = frames.indices.filter { a != null && a.usable[it] }.ifEmpty { listOf(0) }
         val noise = a?.noise ?: 0.01f
         val tile = 320
-        val total = ((out.width + tile - 1) / tile) * ((out.height + tile - 1) / tile)
+        val total = ((ow + tile - 1) / tile) * ((oh + tile - 1) / tile)
         var done = 0
         val margin = 4
-        for (oy0 in 0 until out.height step tile) for (ox0 in 0 until out.width step tile) {
+        for (oy0 in 0 until oh step tile) for (ox0 in 0 until ow step tile) {
             if (cancel.cancelled) throw CancelledException()
-            val otw = min(tile, out.width - ox0); val oth = min(tile, out.height - oy0)
+            val otw = min(tile, ow - ox0); val oth = min(tile, oh - oy0)
             val rx0 = (cropX + ox0 / factor).toInt() - margin; val ry0 = (cropY + oy0 / factor).toInt() - margin
             val rw = (otw / factor).toInt() + 2 * margin + 1; val rh = (oth / factor).toInt() + 2 * margin + 1
             val refPx = IntArray(rw * rh).also { readClamped(frames[0], rx0, ry0, rw, rh, it) }
@@ -383,8 +428,7 @@ object Engine {
                 val mov = com.novacamera.s24.core.imaging.SuperRes.Region(movPx, rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m)
                 list += mov to com.novacamera.s24.core.imaging.SuperRes.estimateShift(ref, mov, gx, gy)
             }
-            val px = com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise)
-            out.setPixels(px, 0, otw, ox0, oy0, otw, oth)
+            sink(com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise), ox0, oy0, otw, oth)
             done++; progress(done.toFloat() / total)
         }
         return used.size

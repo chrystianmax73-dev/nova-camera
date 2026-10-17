@@ -67,4 +67,28 @@ class SuperResAndroidTest {
         assertTrue(n >= 6)
         assertTrue("super-resolução deveria ganhar ≥ 1 dB: $pSr vs $pOne", pSr > pOne + 1.0)
     }
+
+    @Test fun giroEEspelhoDiretoNaSaidaIguaisAoOrient() {
+        val rnd = Random(9)
+        val bitmaps = List(3) { frame(it * 0.7, it * 0.4, rnd) }
+        val sources = bitmaps.map { BitmapSource(it) }
+        val a = Engine.align(sources, CancelToken()) {}
+        for ((rot, mirror) in listOf(90 to false, 180 to false, 270 to false, 90 to true, 0 to true)) {
+            val plain = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
+            Engine.superResInto(sources, plain, a, 1f, CancelToken()) {}
+            val expected = Engine.orient(plain, rot, mirror)
+            val (got, _) = Engine.superRes(sources, a, 1f, 2f, rot, mirror, CancelToken()) {}
+            assertTrue("dimensões $rot/$mirror", got.width == expected.width && got.height == expected.height)
+            var diff = 0
+            for (y in 0 until got.height step 7) for (x in 0 until got.width step 7) if (got.getPixel(x, y) != expected.getPixel(x, y)) diff++
+            assertTrue("pixels diferentes com giro $rot espelho $mirror: $diff", diff == 0)
+        }
+    }
+
+    @Test fun altaResolucaoDobraOTamanho() {
+        val rnd = Random(2)
+        val sources = List(4) { BitmapSource(frame(it * 0.5, it * 0.3, rnd)) }
+        val (out, n) = Engine.superRes(sources, Engine.align(sources, CancelToken()) {}, 1f, 2f, 90, false, CancelToken()) {}
+        assertTrue(out.width == h * 2 && out.height == w * 2 && n >= 3)
+    }
 }

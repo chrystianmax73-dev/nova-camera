@@ -1613,6 +1613,17 @@ class NovaCamera(
             steps = List(SR_FRAMES) { 0 }
             captureNote = "Super-resolução: $SR_FRAMES quadros na lente sem recorte"
         }
+        // Alta resolução na tele (opção): no zoom óptico da tele (3×/5×, sem recorte digital), Foto ou
+        // Retrato, a foto sai 2× maior montada com 8 quadros — detalhe real na pinça.
+        val outScale = if (srFactor <= 1f && settings.teleHighRes && !isFront && activeExtension == ExtensionMode.NONE &&
+            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM || kind == JobKind.PORTRAIT) &&
+            equivalent(zoomOnLens) >= TELE_HIGH_RES_FROM) 2f else 1f
+        if (outScale > 1f) {
+            if (kind != JobKind.PORTRAIT) kind = JobKind.ZOOM
+            steps = List(SR_FRAMES) { 0 }
+            captureNote = "Alta resolução: $SR_FRAMES quadros"
+            listener.onMessage("Segure firme · alta resolução")
+        }
         val mirror = isFront && settings.mirrorFrontPhoto
         val frames = ArrayList<CapturedFrame>()
         val baseEv = appliedEv()
@@ -1629,7 +1640,7 @@ class NovaCamera(
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
-                zoom = equivalent(zoomOnLens), srFactor = srFactor, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
+                zoom = equivalent(zoomOnLens), srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null))
             listener.onProcessingQueued(kind)
@@ -1653,7 +1664,7 @@ class NovaCamera(
                                     exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
                                         .takeIf { it.isFinite() && it>0 && it<60 }?.let { (it*1_000_000_000).toLong() })
                             }
-                            if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f) {
+                            if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f && outScale <= 1f) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 // Testes de super-resolução: rajada da tele também com luz boa, e mais longa.
@@ -2128,6 +2139,8 @@ class NovaCamera(
         private const val SR_MIN_DIGITAL = 1.4f
         private const val SR_FRAMES = 8
         private const val SR_SETTLE_MS = 150L
+        /** Alta resolução na tele: a partir do 2,5× equivalente (lentes 3× e 5×). */
+        private const val TELE_HIGH_RES_FROM = 2.5f
         /** Rajada da tele na coleta de testes (a super-resolução usa de 6 a 8 quadros). */
         private const val COLLECT_TELE_FRAMES = 8
         private const val NIGHT_FOCUS_WAIT_MS = 1200L

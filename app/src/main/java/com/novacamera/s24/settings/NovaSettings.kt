@@ -33,6 +33,7 @@ class NovaSettings(context: Context) {
     var collectBursts get() = bool("collect_bursts", false); set(v) = put("collect_bursts", v)
     var contrastProfile get() = bool("contrast_profile", false); set(v) = put("contrast_profile", v)
     var autoBacklight get() = bool("auto_backlight", true); set(v) = put("auto_backlight", v)
+    var teleHighRes get() = bool("tele_high_res", true); set(v) = put("tele_high_res", v)
     var superRes get() = bool("super_res", true); set(v) = put("super_res", v)
     var levelIndicator get() = bool("level_indicator", false); set(v) = put("level_indicator", v)
     var proHistogram get() = bool("pro_histogram", true); set(v) = put("pro_histogram", v)

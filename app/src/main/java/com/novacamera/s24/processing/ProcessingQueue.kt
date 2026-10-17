@@ -67,6 +67,8 @@ class Job(
      * 1/srFactor montado por super-resolução. 1 = foto comum.
      */
     val srFactor: Float = 1f,
+    /** Alta resolução na tele: saída [outScale]× maior que o quadro (2 = ~48 MP), por super-resolução. */
+    val outScale: Float = 1f,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -282,7 +284,7 @@ object ProcessingQueue {
             var base: Bitmap
             var note = job.captureNote ?: ""
             var hdrScene: Plane? = null
-            if (job.srFactor > 1.05f) {
+            if (job.srFactor > 1.05f || job.outScale > 1.05f) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
                 try {
@@ -290,13 +292,21 @@ object ProcessingQueue {
                         progress(0.05f, "Alinhando ${frames.size} quadros")
                         Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
                     } else null
-                    base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
-                    val n = Engine.superResInto(sources, base, a, job.srFactor, job.cancel) { progress(0.2f + 0.45f * it, "Super-resolução") }
+                    // Alta resolução só com memória folgada (a foto de 48 MP ocupa ~190 MB); senão 1,5× ou normal.
+                    val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
+                    val (out, n) = Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
+                        progress(0.2f + 0.45f * it, "Super-resolução")
+                    }
+                    base = out
                     val z = String.format(java.util.Locale.US, "%.1f", job.srFactor).replace('.', ',')
-                    note = if (n < 2) "Zoom digital de ${z}× com um quadro (movimento ou alinhamento incerto)"
-                           else "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
+                    val mp = (out.width.toLong() * out.height / 1_000_000L)
+                    note = when {
+                        n < 2 && job.srFactor > 1.05f -> "Zoom digital de ${z}× com um quadro (movimento ou alinhamento incerto)"
+                        n < 2 -> "Alta resolução indisponível (movimento ou alinhamento incerto): um quadro"
+                        job.srFactor > 1.05f -> "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
+                        else -> "Alta resolução: $n de ${frames.size} quadros, $mp MP"
+                    } + if (scale < job.outScale - 0.01f) " · memória curta: resolução reduzida" else ""
                 } finally { sources.forEach { it.close() } }
-                base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
             } else if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
@@ -329,7 +339,9 @@ object ProcessingQueue {
             if (job.cancel.cancelled) throw CancelledException()
             // Redução de ruído por IA (opcional): Noturno e Retrato. Roda depois que a foto já está
             // na galeria (refino em segundo plano); a base sai com mais qualidade para a rede.
-            val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context)
+            // Não em fotos de alta resolução (~48 MP): tempo e memória da rede fora de proporção.
+            val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context) &&
+                base.width.toLong() * base.height <= 16_500_000L
             MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95)
 
             // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
@@ -574,6 +586,19 @@ object ProcessingQueue {
      * Acabamento sobre a "base" (orientação real), no lugar. Também usado pela revisão para
      * reaplicar com outra intensidade — sempre a partir da base, nunca acumulando.
      */
+    /** Escala da alta resolução que cabe na memória livre (folga para a foto e as etapas seguintes). */
+    private fun safeOutScale(wanted: Float, w: Int, h: Int): Float {
+        if (wanted <= 1f) return 1f
+        val rt = Runtime.getRuntime()
+        val free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
+        for (s in floatArrayOf(wanted, 1.5f, 1f)) {
+            if (s > wanted) continue
+            val bytes = (w * s).toLong() * (h * s).toLong() * 4
+            if (s <= 1f || free > bytes * 2.2) return s
+        }
+        return 1f
+    }
+
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
         val kind = session.kind
         val plan = if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))

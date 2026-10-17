@@ -6,6 +6,21 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.19.0 — Alta resolução na tele (3× e 5×, Foto e Retrato)
+
+Opção **Ajustes › Foto Nova › Alta resolução na tele** (ligada). No zoom óptico da tele (≥ 2,5×
+equivalente, sem recorte digital), Foto ou Retrato: rajada de 8 quadros e foto final **2× maior**
+(~48 MP a partir de 12 MP), montada pela mesma super-resolução da 0.18 (amostras reais na posição
+exata; nada inventado).
+
+- Memória: a foto de 48 MP é escrita já na orientação final, bloco a bloco (sem a cópia girada, que
+  dobraria a memória). Antes, mede a memória livre: sem folga, cai para 1,5× ou tamanho normal e avisa
+  na descrição. Com um quadro só (aquecimento), tamanho normal.
+- Velocidade: núcleo por tabela (exp por amostra levaria ~15 s numa foto de 48 MP).
+- IA de ruído (Retrato) não roda em fotos acima de 16,5 MP.
+- Validação: testes (giro/espelho direto na saída idênticos ao `orient` pixel a pixel; tamanho 2×;
+  ganho da SR mantido). Tempo e memória no aparelho: **não medidos**.
+
 ## 0.18.0 — Super-resolução multiquadro no zoom digital da tele (pinça)
 
 Antes: 10× na lente 5× = recorte do centro de **um** quadro ampliado 2× por interpolação (granulado e
