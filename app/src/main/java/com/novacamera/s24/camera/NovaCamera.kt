@@ -2247,7 +2247,7 @@ class NovaCamera(
                 .build())
         pinned?.let { Camera2Interop.Extender(ab).setPhysicalCameraId(it) }
         val analysis = ab.build()
-        val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }) { s -> handler.post { listener.onPortraitPreview(s) } }
+        val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post { listener.onPortraitPreview(s) } })
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis
