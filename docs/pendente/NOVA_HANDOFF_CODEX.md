@@ -1,3 +1,76 @@
+# Continuidade — estabilização de vídeo (17/10/2026)
+
+Branch de trabalho: `codex/video-estabilidade-0-20`, derivada do HEAD `867499c68086a64df467f738e600c463b58f80d8` de `ccr-7443eaac-tqygyg`. O release `nova-test-58` permanece intacto.
+
+**Instrução atual do dono:** usar GitHub Actions como ambiente de validação. Publicar este handoff, habilitar `android-check.yml` nesta branch preservando os gatilhos da main, executar compilação/testes/lint da base antes de alterar o aplicativo, e verificar cada etapa posterior. Não disparar releases. A exigência anterior de executar testes offline localmente foi substituída por essa autorização explícita. Nenhuma alteração no app foi feita até esta publicação.
+
+Abaixo ficam preservados integralmente o handoff local da investigação anterior (registro histórico; suas instruções de bloqueio local foram substituídas acima) e o handoff da 0.20.0.
+
+---
+
+# Nova Camera — continuidade da estabilização de vídeo
+
+## Estado preservado em 17/10/2026
+
+- Repositório: https://github.com/chrystianmax73-dev/nova-camera
+- Branch de origem consultada: `ccr-7443eaac-tqygyg`.
+- HEAD consultado: `867499c68086a64df467f738e600c463b58f80d8`.
+- Branch derivada criada no GitHub: `codex/video-estabilidade-0-20`, exatamente nesse HEAD.
+- Release confirmado: https://github.com/chrystianmax73-dev/nova-camera/releases/tag/nova-test-58
+- Release 58: Nova Camera 0.20.0, commit `328c7cf29aff23faf1b7beaaa81c0d5adf82bab3`.
+- Nenhum arquivo do repositório alterado; nenhum commit, versão ou release novo.
+- Este documento é um artefato LOCAL em `/workspace/scratch/docs/pendente/`, fora do repositório. Não foi enviado ao GitHub e não substitui o handoff versionado.
+
+## Instruções vigentes
+
+Preservar avanços posteriores ao release 58. Não partir da main. Usar branch derivada do HEAD atualizado. Não alterar assinatura nem criar keystore, não pedir/expor segredos, não adicionar INTERNET, não enviar mídia pessoal, não copiar código proprietário, não mudar o tom do Noturno nem substituir o motor fotográfico. Commits pequenos em português; nova seção no topo do STATUS e versionName para cada versão implementada. Publicação pelo workflow nova-release.yml, disparado manualmente na branch.
+
+Ordem atual do dono: primeiro crash/qualidade/FPS/recuperação de vídeo; depois captura rápida por gesto e rastreamento do assunto; depois profundidade cinematográfica real na prévia e no MP4, frontal e traseira; finalmente refinamentos de eficiência e produto. Não adicionar controles fictícios. Nunca declarar validação física sem teste no aparelho.
+
+## Bloqueio de execução
+
+O workspace está sem checkout e sem Gradle. `git clone --branch ccr-7443eaac-tqygyg --single-branch https://github.com/chrystianmax73-dev/nova-camera.git /workspace/nova-camera` falhou: conexão com proxy porta 8080 recusada. `gradle --offline :app:testDebugUnitTest` retornou código 127, `gradle: command not found`.
+
+O conector GitHub permite leitura e criação de branch; isso não fornece um ambiente de compilação. Não substituir a exigência do dono de testes offline antes das alterações por um resultado de CI antigo. Não contornar o proxy nem buscar credenciais.
+
+## Leituras e evidências
+
+Handoff versionado inteiro e topo do STATUS lidos no HEAD 867499c. Examinados os caminhos de vídeo/foco em `app/src/main/java/com/novacamera/s24/camera/NovaCamera.kt`, além de ThermalPolicy e workflows. A arquitetura fotográfica citada pelo handoff também foi consultada na sessão anterior.
+
+O CI do HEAD 867499c concluiu com sucesso: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39044563381 . O workflow android-check.yml contém assembleDebug, testDebugUnitTest e lintDebug. Não é execução local offline nesta sessão, nem validação em aparelho.
+
+Diagnóstico real fornecido pelo dono: S24 Ultra SM-S928B, Android 17/API 37, Nova 0.20.0 (1058). Repetidos crashes na thread nova-video-signature em SurfaceTexture.updateTexImage → CameraX SurfaceProcessorImpl.blockAndPostOverlay/createBufferAndOverlay/onInputSurface. Prévia parada a 5x, câmera lógica 0, registros a cada 3 s. Seleção 4K/60, mas arquivo relatado de 1080×1920. O MP4 original não foi inspecionado nesta sessão.
+
+### Achados confirmados no código (linhas do HEAD consultado)
+
+1. NovaCamera.kt:579–592: preferência UHD aceita `[UHD,FHD]` e fallback geral `lowerQualityOrHigherThan(SD)`. A escolha explícita pode ser reduzida; o rótulo é calculado antes do bind, pela primeira qualidade anunciada, não pela resolução efetiva.
+2. :581: política térmica/economia pode reduzir UHD/MAX a FHD. Não atribuir o episódio relatado a temperatura: o diagnóstico registra estado leve, e a economia não foi estabelecida.
+3. :605–610: opções de FPS derivam das faixas gerais da câmera, sem comprovar a combinação qualidade/FPS/efeito/estabilização. 30 pode usar faixa variável por videoAutoFps.
+4. :2143–2150: Finalize não lê resolução, codec ou timestamps das amostras do arquivo. O relato 4K/60 versus FHD não é verificado no MP4 pelo app.
+5. :1954–1956: consumidor de erro do OverlayEffect apenas chama Log.e. A exceção apresentada ocorre na thread interna do efeito; o catch em bind (:714) não cobre uma falha assíncrona desse caminho.
+6. :685–706: efeito anterior é aposentado; unbindAll seguido imediatamente de close. Isso requer investigação da implementação exata do CameraX 1.6.2 e do encerramento efetivo das superfícies. Não está comprovado que esse trecho seja a causa raiz do erro de textura; não basta inserir try/catch ou atraso arbitrário.
+7. :210–213: campo `efeito` do StallLog mede portraitEffect, e não videoEffect. `efeito=false` no diagnóstico não exclui a assinatura de vídeo.
+8. :205–243: contador de travamentos e mensagem de reabertura são atualizados antes de bind. bind (:438) retorna durante gravação. O limite de tentativas apenas retorna, sem desarmar o watchdog; ele pode continuar registrando/mensurando a cada 3 s. Alterar para recuperação com orçamento explícito, estado terminal e tratamento de gravação/finalização.
+9. :314–329: release chama stopRecording e imediatamente unbindAll; investigar preservação do Finalize antes de descartar superfícies/executores.
+
+## Próximo passo exato
+
+1. Disponibilizar ambiente Android com acesso Git pelo proxy funcional, JDK 17, Gradle 8.13, SDK 36, NDK 27.0.12077973, CMake 3.22.1 e caches do projeto/Robolectric/ncnn para a suíte offline. Não pedir segredos de assinatura.
+2. Conferir novamente HEAD de origem e da branch derivada, preservando qualquer avanço. Fazer checkout da branch derivada. Ler AGENTS.md se existir, handoff versionado e topo do STATUS atualizados.
+3. Rodar `gradle --offline :app:testDebugUnitTest` antes de alterar o projeto. Registrar resultado real.
+4. Investigar fontes CameraX da versão exata: contrato de release de OverlayEffect, erros assíncronos e posse/contexto GL das superfícies. Planejar fallback sem efeito que preserve gravação e não mate a thread com tarefas pendentes. Não implementar captura global de exceções como suposta correção.
+5. Remover redução implícita para seleções explícitas de qualidade. Bloquear combinações inviáveis ou exigir escolha explícita de redução na interface. Conferir configuração vinculada antes de gravar. Medir MP4 final fora da thread principal com MediaExtractor/MediaMetadataRetriever; resolução orientada, MIME/codec e FPS observado por timestamps, distinguindo taxa nominal de taxa efetiva e variável. Não usar apenas KEY_FRAME_RATE para alegar 60 fps reais.
+6. Testar máquina de estados de gravação/recuperação com limites, geração de sessão e Finalize: zoom, resolução/FPS, assinatura on/off, frontal/traseira, Vídeo/Vídeo Pro, pausa/retomada e interrupções. Não reabrir enquanto um arquivo ainda está sendo finalizado.
+7. Implementar primeira versão pequena, atualizar STATUS separando Testes/Compilação/Aparelho, subir versionName, compilar e rodar regressões/lint. Não anunciar os bugs corrigidos fisicamente sem teste no S24.
+8. Só depois iniciar gestos e rastreamento; profundidade fica por último. A sequência completa ainda não foi implementada.
+
+## Texto para retomar
+
+Continue Nova Camera usando a branch `codex/video-estabilidade-0-20`, derivada de `ccr-7443eaac-tqygyg` no commit `867499c68086a64df467f738e600c463b58f80d8`. Preserve o release `nova-test-58` (0.20.0) e avanços posteriores. Leia este handoff e o handoff versionado completo. A sessão anterior apenas investigou e criou a branch, sem alterar código. O ambiente falhou no clone pelo proxy e não tinha Gradle; a suíte offline obrigatória ainda não foi executada com sucesso. Primeiro restabeleça o ambiente e rode `gradle --offline :app:testDebugUnitTest`. Depois corrija por etapas o crash assíncrono do OverlayEffect, o fallback silencioso UHD→FHD, a conferência real do MP4 e a recuperação sem ciclos. O diagnóstico real e os trechos relevantes estão acima. Só depois avance para gravação rápida, rastreamento e profundidade. Preserve assinatura, offline e tom do Noturno.
+
+
+---
+
 # Handoff — Nova Camera (continuidade)
 
 - **Repositório:** https://github.com/chrystianmax73-dev/nova-camera (público, GPL-3.0-or-later)
