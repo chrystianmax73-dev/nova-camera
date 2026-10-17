@@ -1,5 +1,7 @@
 # 0.24.2 — drena também liberação GL já solicitada (17/10/2026)
 
+- Build64 em execução [39070544992](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070544992), fonte `8bce82fe70ac054eedaaba2a9957c48f97509096`. Build63/39070326049 cancelado, não entregue. Gatilho original restaurado em `cecf66f2c940cc2d188107677a19de7b78dd6ea3`. Ainda sem artefato confirmado.
+
 - Revisão final cobre efeito já retirado do slot cujo cleanup ainda está enfileirado: marca de aposentadoria acompanha a fila, não apenas a referência atual. Novo teste cobre slot vazio com trabalho GL pendente; troca para cinematográfico continua aguardando a limpeza real. Perfis bloqueados deixam de criar efeito de assinatura que não será utilizado.
 - Inclui todas as etapas 0.22.1/0.23.0/0.24.0/0.24.1 abaixo, com grupos de energia separados por função. Núcleo anterior c4d4e8a aprovado em CI39069941647; execução assinada63 não será a entrega final, substituída por esta revisão com testes completos antes de gerar APK.
 - Próximo build de teste assinado com publicação skipped; ainda sem APK confirmado. Validação S24/MP4 e consumo permanecem pendentes, assim como denoise temporal avançado. Original, assinatura permanente e main preservados.

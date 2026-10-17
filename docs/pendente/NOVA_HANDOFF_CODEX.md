@@ -1,3 +1,13 @@
+# Entrega em andamento — 0.24.2 build 64 (1064 esperado)
+
+- Build assinado [39070544992](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070544992), job117507244005, em andamento; fonte `8bce82fe70ac054eedaaba2a9957c48f97509096`. Build63/39070326049 foi cancelado por esta revisão e não entregue; não reenviar como novo.
+- Gatilho de push restaurado em `cecf66f2c940cc2d188107677a19de7b78dd6ea3`; blob original a82bc113b2de207b7a3e9a9660cc19af520167ff. Sem release automático; guard de publicação preservado.
+- **Próximo passo exato:** aguardar build64, conferir testes/lint, NAFNet/Depth Anything, compileRelease, pesos no APK, certificado/versionCode e upload. Confirmar publicação skipped; registrar link real/bytes/digest/expiração e entregar. Não gerar duplicado enquanto ativo.
+- Cobre feedback de leitura lenta com PixelCopy assíncrono reduzido; cinematográfico experimental opcional FHD/30/EISoff, preview+VIDEO_CAPTURE e marca no mesmo renderer; primeiro acabamento opcional de sombras atéFHD/60/SDR/2min, original e amostras de áudio/PTS preservados por conferência real do arquivo exportado antes de publicar cópia. Denoise temporal avançado ainda pendente.
+- Roteiro físico VIDEO_EVOLUCAO_S24_VALIDACAO.md. Nenhum S24/MP4 pessoal novo nesta sessão; imagem anexada só foi vista localmente, não publicada. Não alegar qualidade de bordas/energia/MP4 validada por testes JVM. Histórico técnico e execuções anteriores abaixo.
+
+---
+
 # Revisão 0.24.2 — build anterior não é entrega final
 
 - Detectado caso adicional de troca GL: slot pode estar vazio mas cleanup anterior ainda estar na fila. commonEffectPending permanece marcado desde signatureEffect até a barreira confirmar drenagem; não confundir slot nulo com EGL já liberado. Teste cobre liberação já solicitada; perfis bloqueados não criam assinatura desnecessária.
