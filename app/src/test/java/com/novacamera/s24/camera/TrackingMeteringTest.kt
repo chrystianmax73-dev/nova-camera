@@ -7,20 +7,26 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TrackingMeteringTest {
     @Test fun espelhoFrontalMapeiaRegiaoParaOSensorCorreto() {
         val m=Matrix().apply { setValues(floatArrayOf(-.1f,0f,400f,0f,.1f,0f,0f,0f,1f)) }
         val r=TrackingMetering.region(m,Rect(0,0,4000,3000),400,300,.25f,.5f,.2f)!!.rect
-        assertEquals(3000,r.centerX()); assertEquals(1500,r.centerY())
-        assertEquals(600,r.width()); assertEquals(600,r.height())
+        // roundOut pode acrescentar um pixel na borda por precisão da inversa.
+        assertEquals(r.toString(),3000.0,r.exactCenterX().toDouble(),1.0)
+        assertEquals(r.toString(),1500.0,r.exactCenterY().toDouble(),1.0)
+        assertEquals(r.toString(),600.0,r.width().toDouble(),2.0)
+        assertEquals(r.toString(),600.0,r.height().toDouble(),2.0)
     }
     @Test fun rotacaoERecorteMapeiamRegiaoSemTrocarOsEixos() {
         val m=Matrix().apply { setValues(floatArrayOf(0f,-.1f,300f,.1f,0f,-50f,0f,0f,1f)) }
         val r=TrackingMetering.region(m,Rect(0,0,4000,3000),300,300,.25f,.5f,.2f)!!.rect
-        assertEquals(2000,r.centerX()); assertEquals(2250,r.centerY())
+        assertEquals(r.toString(),2000.0,r.exactCenterX().toDouble(),1.0)
+        assertEquals(r.toString(),2250.0,r.exactCenterY().toDouble(),1.0)
     }
     @Test fun recortaNoSensorERecusaTransformacaoInvalida() {
         val sensor=Rect(0,0,400,300)
