@@ -77,6 +77,7 @@ import com.novacamera.s24.core.ModeEngine
 import com.novacamera.s24.core.ModeResolver
 import com.novacamera.s24.core.ModeSupport
 import com.novacamera.s24.core.ShutterLog
+import com.novacamera.s24.core.VideoContract
 import com.novacamera.s24.core.ThermalPolicy
 import com.novacamera.s24.core.ZoomCurve
 import com.novacamera.s24.core.ZoomRequestGate
@@ -224,7 +225,7 @@ class NovaCamera(
                     listener.onMessage("A câmera parou; recuperando sem mudar resolução ou fps")
                     bind()
                 }
-                else -> listener.onMessage("A câmera não se recuperou. Altere a configuração ou reabra a câmera")
+                else -> blockVideoCapture("A câmera não se recuperou. Altere a configuração ou reabra a câmera")
             }
             return
         }
@@ -268,8 +269,10 @@ class NovaCamera(
     /** Vídeo: fps e estabilização da ligação atual; desligados na sessão se a prévia parar com eles. */
     private var boundVideoFps = 30
     private var boundVideoStabilization = false
-    private var highFpsBlocked = false
     private var videoStabilizationBlocked = false
+    private var videoBindingIssue: String? = null
+    private var requestedVideoSize: VideoContract.Size? = null
+    private val videoInspection = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
     private var zoomOnLens = 1f          // valor exibido/pretendido agora (na câmera atual)
@@ -349,6 +352,7 @@ class NovaCamera(
         videoEffects.close()
         effectHandler.post { effectThread.quitSafely() }
         io.shutdown()
+        videoInspection.shutdown()
         timelapseExecutor.shutdown()
     }
 
@@ -466,6 +470,8 @@ class NovaCamera(
         p.unbindAll()
         camera = null
         videoEffects.close()
+        videoBindingIssue = null
+        requestedVideoSize = null
         // Rajada do Noturno interrompida pela troca de câmera/modo: a sessão nova volta ao automático.
         nightOverride = null
         synchronized(telemetry) { telemetry.breakStream() }
@@ -606,21 +612,29 @@ class NovaCamera(
                 if (Quality.FHD in supported) add(VideoQualityOption.FHD)
                 if (Quality.HD in supported) add(VideoQualityOption.HD)
             }
-            val pref = settings.videoQuality.takeIf { it in qualityOptions } ?: VideoQualityOption.AUTO
-            // Sob economia de energia ou aquecimento severo, resoluções acima de Full HD cedem lugar.
-            val effective = if (limitVideo && (pref == VideoQualityOption.UHD || pref == VideoQualityOption.MAX)) VideoQualityOption.FHD else pref
-            val wanted = when (effective) {
+            val pref = settings.videoQuality
+            val explicit = pref != VideoQualityOption.AUTO
+            val available = pref in qualityOptions
+            if (explicit && !available) videoBindingIssue = "${pref.label} não está disponível nesta câmera; escolha outra resolução"
+            if (limitVideo && explicit && (pref == VideoQualityOption.UHD || pref == VideoQualityOption.MAX))
+                videoBindingIssue = "${pref.label} bloqueado por temperatura/economia. Escolha outra qualidade ou aguarde"
+            val wanted = when (pref) {
                 VideoQualityOption.AUTO -> if (limitVideo) listOf(Quality.FHD, Quality.HD) else listOf(Quality.UHD, Quality.FHD, Quality.HD)
                 VideoQualityOption.MAX -> listOf(Quality.HIGHEST)
-                VideoQualityOption.UHD -> listOf(Quality.UHD, Quality.FHD)
-                VideoQualityOption.FHD -> listOf(Quality.FHD, Quality.HD)
+                VideoQualityOption.UHD -> listOf(Quality.UHD)
+                VideoQualityOption.FHD -> listOf(Quality.FHD)
                 VideoQualityOption.HD -> listOf(Quality.HD)
             }
             val chosen = wanted.firstOrNull { it in supported || it == Quality.HIGHEST }
-            qualityLabel = chosen?.let(::resolutionOf)?.let(::videoLabel)
-            val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.fromOrderedList(wanted, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)))
-                .build()
+            val requestedSize = chosen?.let(::resolutionOf)
+            if (explicit && requestedSize != null) requestedVideoSize = VideoContract.Size(requestedSize.width, requestedSize.height)
+            qualityLabel = requestedSize?.let(::videoLabel)
+            // Somente AUTO aceita fallback. Uma seleção indisponível pode ter prévia,
+            // mas o obturador permanece bloqueado; ela nunca gera um MP4 de qualidade inferior.
+            val selectorForVideo = if (explicit && available) QualitySelector.from(wanted.single())
+                else if (explicit) QualitySelector.from(supported.firstOrNull() ?: Quality.FHD)
+                else QualitySelector.fromOrderedList(wanted, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
+            val recorder = Recorder.Builder().setQualitySelector(selectorForVideo).build()
             val vb = VideoCapture.Builder(recorder)
                 .setTargetRotation(targetRotation)
                 .setMirrorMode(if (settings.mirrorFrontVideo) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
@@ -632,13 +646,24 @@ class NovaCamera(
                     capabilities.isStabilizationSupported -> { vb.setVideoStabilizationEnabled(true); stabilization = true }
                 }
             }
-            fpsOptions = VIDEO_FPS.filter { f -> info.supportedFrameRateRanges.any { it.lower == f && it.upper == f } }
-            val wantedFps = settings.videoFps.takeIf { it in fpsOptions && !((limitVideo || highFpsBlocked) && it > 30) } ?: 30
+            val cameraCharacteristics = activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
+                .getCameraCharacteristics(Camera2CameraInfo.from(info).cameraId)
+            fpsOptions = VIDEO_FPS.filter { f ->
+                info.supportedFrameRateRanges.any { it.lower == f && it.upper == f } &&
+                    requestedSize != null && VideoPreflight.supports(cameraCharacteristics, requestedSize, f)
+            }
+            val requestedFps = settings.videoFps
+            if (requestedFps !in fpsOptions)
+                videoBindingIssue = "${requestedFps} fps não disponível com ${pref.label} nesta câmera; escolha outra combinação"
+            if (limitVideo && requestedFps > 30)
+                videoBindingIssue = "${requestedFps} fps bloqueado por temperatura/economia; escolha 30 fps ou aguarde"
+            val wantedFps = requestedFps.takeIf { it in fpsOptions } ?: 30 // só prévia quando bloqueado
             if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
             else if (settings.videoAutoFps && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
                 ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
                     ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
             }
+            if (wantedFps == 30 && !autoFpsApplied) vb.setTargetFrameRate(Range(30, 30))
             boundVideoFps = fps; boundVideoStabilization = stabilization
             videoCapture = vb.build()
         } else if (support.canCapture) {
@@ -739,6 +764,17 @@ class NovaCamera(
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
             camera = null
+            if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoEffect == null && !autoFpsApplied) {
+                val reason = "Combinação de vídeo indisponível. Altere resolução, fps ou estabilização"
+                videoBindingIssue = reason
+                com.novacamera.s24.core.VideoLog.add(activity, "Bind recusado: ${settings.videoQuality.label}/${settings.videoFps} fps · ${e.javaClass.simpleName}: ${e.message}")
+                state?.copy(mode = mode, support = support, isFront = isFront,
+                    videoQualityLabel = settings.videoQuality.label, videoFps = settings.videoFps,
+                    videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
+                    videoFpsVariable = false, videoCaptureProblem = reason)?.let { state = it; listener.onCameraState(it) }
+                listener.onMessage(reason)
+                return
+            }
             // Recuo em degraus, do ajuste mais específico ao mais básico.
             when {
                 videoEffect != null -> {
@@ -818,6 +854,16 @@ class NovaCamera(
         applyInterop()
         applyVideoMetering()
 
+        if (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) {
+            val actual = videoCapture?.resolutionInfo?.cropRect
+            if (actual != null) {
+                val size = VideoContract.Size(actual.width(), actual.height())
+                qualityLabel = videoLabel(android.util.Size(size.width, size.height))
+                if (requestedVideoSize?.sameFrame(size) == false)
+                    videoBindingIssue = "A sessão não entrega ${settings.videoQuality.label}; gravação bloqueada. Escolha outra combinação"
+            }
+            videoBindingIssue?.let { listener.onMessage(it) }
+        }
         val intrinsic = lens?.intrinsic ?: 1f
         val candidates = if (isFront) listOf(1f) else ZOOM_CANDIDATES
         val stops = LensSelection.reachableStops(lenses, candidates).ifEmpty { listOf(1f) }
@@ -846,6 +892,7 @@ class NovaCamera(
             photoSize = chosenSize, photoNativeCapture=nativePhotoSelected, photoSizeBlocked = sizeBlocked,
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
+            videoFpsVariable = autoFpsApplied, videoCaptureProblem = videoBindingIssue,
             timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
         )
         state = s
@@ -2149,7 +2196,17 @@ class NovaCamera(
     fun startRecording() {
         if (mode == CaptureMode.TIMELAPSE) return startTimelapse()
         val vc = videoCapture ?: return listener.onMessage("A câmera ainda não está pronta")
-        if (recording != null) return
+        if (recording != null || released || paused) return
+        videoBindingIssue?.let { listener.onMessage(it); return }
+        if (camera == null) return listener.onMessage("A câmera ainda não está vinculada")
+        val normalVideo = mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO
+        val request = VideoContract.Request(requestedVideoSize, state?.videoFps ?: settings.videoFps, autoFpsApplied)
+        if (normalVideo) {
+            val crop = vc.resolutionInfo?.cropRect ?: return listener.onMessage("Aguarde a configuração do vídeo")
+            if (request.size?.sameFrame(VideoContract.Size(crop.width(), crop.height())) == false)
+                return listener.onMessage("Resolução vinculada diferente da selecionada; gravação bloqueada")
+        }
+        val captureContext = "${mode.label} · ${if (isFront) "frontal" else "traseira"} · ${request.size ?: "AUTO"}/${request.fps} fps alvo · assinatura=${videoEffect != null}"
         val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
         if (free < MIN_FREE_BYTES) return listener.onMessage("Pouco espaço livre para gravar")
         vc.targetRotation = targetRotation
@@ -2192,9 +2249,13 @@ class NovaCamera(
                         val err = if (event.hasError()) describeVideoError(event.error) else null
                         if (err != null) Log.e(TAG, "Finalize vídeo: ${event.error}", event.cause)
                         // Muitos erros ainda produzem arquivo válido (ex.: fonte interrompida).
-                        listener.onRecordingFinished(event.outputResults.outputUri.takeIf { it != android.net.Uri.EMPTY }, err)
+                        val uri = event.outputResults.outputUri.takeIf { it != android.net.Uri.EMPTY }
+                        listener.onRecordingFinished(uri, err)
+                        if (uri != null && normalVideo) inspectVideo(uri, request, captureContext)
                         val recovery = videoRecovery.finalized()
                         if (released) releaseCaptureResources()
+                        else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.STOP)
+                            blockVideoCapture("Vídeo finalizado. A câmera não se recuperou; escolha outra configuração")
                         else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.REBIND ||
                             settingsChangedDuringRecording || freshSessionRequested) {
                             settingsChangedDuringRecording = false
@@ -2207,6 +2268,26 @@ class NovaCamera(
             Log.e(TAG, "Falha ao iniciar gravação", e)
             listener.onMessage("Não foi possível iniciar a gravação")
             null
+        }
+    }
+
+    private fun blockVideoCapture(reason: String) {
+        videoBindingIssue = reason
+        state?.copy(videoCaptureProblem = reason)?.let { state = it; listener.onCameraState(it) }
+        listener.onMessage(reason)
+    }
+
+    private fun inspectVideo(uri: android.net.Uri, request: VideoContract.Request, captureContext: String) {
+        videoInspection.execute {
+            val report = try {
+                val actual = VideoMetadata.read(activity.applicationContext, uri)
+                val violation = VideoContract.violation(request, actual.size, actual.fps)
+                actual.summary + (violation?.let { " · ATENÇÃO: $it" } ?: "")
+            } catch (e: Exception) {
+                "MP4 salvo; metadados não medidos: ${e.javaClass.simpleName}: ${e.message}"
+            }
+            com.novacamera.s24.core.VideoLog.add(activity.applicationContext, "$captureContext · $report")
+            handler.post { if (!released) listener.onMessage(report) }
         }
     }
 

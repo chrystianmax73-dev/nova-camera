@@ -958,7 +958,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
         qualityChip.text = s?.videoQualityLabel ?: ""
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
-        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: "${s?.videoFps ?: 30} fps"
+        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) "15–30 fps alvo" else "${s?.videoFps ?: 30} fps alvo"
         hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
         hdrChip.active = s?.hdr != null && s.hdr != HdrOption.OFF
         hdrChip.text = when(s?.hdr) { HdrOption.AUTO -> "AUTO"; HdrOption.OEM -> "HDR·S"; else -> "HDR" }
@@ -979,8 +979,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         cameraState = state
         refreshStrip(state.mode)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
-        shutter.isEnabled = state.support.canCapture
-        shutter.alpha = if (state.support.canCapture) 1f else 0.5f
+        shutter.isEnabled = state.support.canCapture && state.videoCaptureProblem == null
+        shutter.alpha = if (shutter.isEnabled) 1f else 0.5f
         overlay.focusEnabled = state.support.canCapture
         zoomBar.stops = state.zoomStops
         zoomAvailable = state.zoomStops.size > 1 || state.zoomMax > state.zoomMin * 1.05f

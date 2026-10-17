@@ -62,6 +62,9 @@ data class CameraState(
     /** Opções reais para os seletores de vídeo. */
     val videoQualityOptions: List<com.novacamera.s24.settings.VideoQualityOption> = emptyList(),
     val videoFpsOptions: List<Int> = emptyList(),
+    val videoFpsVariable: Boolean = false,
+    /** Prévia pode existir numa combinação recusada; não autoriza gravar em outra qualidade. */
+    val videoCaptureProblem: String? = null,
     /** Intervalo entre quadros do Timelapse (só nesse modo). */
     val timelapseIntervalMs: Long? = null,
 )
@@ -90,4 +93,5 @@ interface CameraListener {
     /** Rajada em andamento (quadro [done] de [total]). */
     fun onBurstProgress(done: Int, total: Int) {}
 }
+
 

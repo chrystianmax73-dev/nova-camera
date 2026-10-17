@@ -7,6 +7,7 @@ import java.util.Locale
 
 /** Diagnóstico local, sem nomes/URIs dos arquivos nem conteúdo dos quadros. */
 object VideoLog {
+    @Synchronized
     fun add(context: Context, text: String) {
         val p = context.getSharedPreferences("nova_video_diag", Context.MODE_PRIVATE)
         val line = SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()) + " · " + text

@@ -6,6 +6,28 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.20.2 — Qualidade explícita sem redução silenciosa e medição do MP4
+
+- UHD/FHD/HD explícitos usam seletor sem fallback de resolução. Combinações recusadas ficam
+  bloqueadas para gravação; o usuário escolhe outra configuração. O modo AUTO mantém a escolha
+  automática de resolução. Temperatura/economia bloqueiam pedidos excessivos sem alterar preferências.
+- Opções de FPS cruzam faixas da câmera, duração mínima anunciada da resolução e capacidade de
+  entrada Surface de codificadores AVC/HEVC. Isso é uma triagem; o bind real ainda pode recusar
+  combinações com estabilização/efeitos/lentes. Não é validação física de todas as combinações.
+- A resolução vinculada (crop) é conferida e o rótulo usa a sessão vinculada. Nova conferência
+  antes do disparo impede iniciar com uma resolução diferente da selecionada.
+- Após Finalize, MediaExtractor lê dimensões, rotação, MIME do codec e timestamps de todas as
+  amostras de vídeo. A leitura não decodifica imagens e roda numa fila própria. O relatório mostra
+  FPS médio observado, inclusive com pouca luz; não afirma taxa constante. Divergências geram aviso
+  e ficam no Diagnóstico, preservando o arquivo. Falha de leitura é informada como não medida.
+- O visor indica FPS **alvo** (ou faixa automática), não FPS real ainda não medido.
+
+**Testes:** adicionados casos 4K selecionado × FHD gravado, orientação retrato, 60 × 30 fps,
+taxa variável, quadros B e arquivo curto sem taxa mensurável. Execução deste commit pendente no CI.
+**Compilação:** pendente no CI deste commit. **Aparelho:** não validado; não foi inspecionado um
+MP4 real do S24 nesta sessão. O efeito GL e a qualidade precisam de teste frontal/traseiro e
+Vídeo/Vídeo Pro no aparelho, em 1080p/4K e 30/60, com assinatura e estabilização ligadas/desligadas.
+
 ## 0.20.1 — Ciclo GL da assinatura e recuperação limitada do vídeo
 
 Base 0.20.0 recompilada, com testes e lint aprovados no Actions:
@@ -21,9 +43,10 @@ https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39049540137 .
 - Diagnóstico distingue assinatura de vídeo de efeito de retrato. Registra falhas do efeito localmente.
 - Encerramento pede finalização do arquivo antes de liberar o provider e os executores do app.
 
-**Testes:** regressões adicionadas para ordem GL, assinatura desligada/religada, mudança de
-configuração, orçamento de recuperação e finalização; execução deste commit pendente no CI.
-**Compilação:** pendente no CI deste commit. **Aparelho:** não validado; o diagnóstico original
+**Testes:** regressões de ordem GL, assinatura desligada/religada, mudança de configuração,
+orçamento de recuperação e finalização passaram junto com a suíte completa no Actions:
+https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39051779855 .
+**Compilação:** assembleDebug e lintDebug aprovados nessa execução. **Aparelho:** não validado; o diagnóstico original
 comprova a falha na 0.20.0, não a resolução no S24. Qualidade/FPS e leitura do MP4 são a etapa seguinte.
 
 ## 0.20.0 — Foco por toque confiável na tele e nas rajadas
