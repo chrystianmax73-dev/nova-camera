@@ -3,7 +3,8 @@
 - Estende a prévia isolada da 0.21.4 à recusa de bind: mantém a escolha de qualidade, impede gravação em outra resolução e permite escolher uma combinação alternativa. Se até a prévia falhar, não reinicia em ciclo.
 - Nova regressão verifica que recusa de bind encerra recuperações automáticas até uma escolha explícita do usuário.
 - Base das correções 0.21.3 com sincronização do teste aprovada em compilação debug, testes completos e lint: [39058541277](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277). A primeira execução teve 1 falha de sincronização do teste, corrigida antes desta aprovação; não foi escondida.
-- CI desta alteração ainda pendente. APK assinado será gerado somente após aprovação, sem release automático. 5×/4K60, marca nos pixels do MP4 e estabilidade física continuam dependentes de teste no S24 Ultra.
+- Compilação debug, testes completos e lint aprovados na 0.21.5: [39058891633](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058891633), código `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`. Inclui todas as correções das etapas anteriores. 0.21.4 também aprovada em [39058739596](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596).
+- APK assinado em preparação pelo workflow existente, com publicação automática pulada nesta branch. 5×/4K60, marca nos pixels do MP4 e estabilidade física continuam dependentes de teste no S24 Ultra.
 
 # 0.21.4 — prévia segura após esgotar a recuperação (17/10/2026)
 

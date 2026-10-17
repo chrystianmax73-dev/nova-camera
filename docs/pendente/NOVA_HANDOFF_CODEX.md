@@ -1,3 +1,11 @@
+## 0.21.5 aprovada no CI — geração de APK
+
+- Branch `codex/video-estabilidade-0-20`; código final do app: `9d4257cfa3a1c587c979e503a295d3e8aceed7fb`.
+- CI final aprovado (assembleDebug, testDebugUnitTest, lintDebug): https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058891633. 0.21.4 também aprovada: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058739596. 0.21.3 corrigida aprovada: 39058541277. Não declarar a execução isolada inicial 39056971458 aprovada: estava em execução prolongada no último acompanhamento; a suíte final cobre seu código.
+- Próxima ação: uma execução do nova-release nesta branch para gerar APK assinado, com a etapa de publicação condicionada para não executar em push desta branch. Após identificar o run, restaurar a lista de gatilhos original. Manter ação manual e configuração da main; não criar release automático.
+- Conferir testes/lint, NAFNet e Depth Anything, assembleRelease, certificado/versionCode e upload-artifact. Só após upload efetivo fornecer o link novo; não reutilizar o build 60 como novidade.
+- Sem aparelho/MP4 novo, 4K/60/5×, marca no arquivo, áudio, reprodução e desempenho continuam pendentes de validação física. Roteiro: `docs/pendente/VIDEO_S24_VALIDACAO.md`.
+
 ## 0.21.5 — finalizar verificação e entregar APK
 
 - Branch `codex/video-estabilidade-0-20`; base `4a0c1ec6779f9421b41f4575f5446ca21faba364` (0.21.3) aprovada em compile, unidade e lint: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277. A falha anterior era o callback assíncrono do teste, agora aprovado.
