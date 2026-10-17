@@ -39,3 +39,16 @@ latência da HAL, ocupação da GPU ou precisão em pessoas/plantas reais.
 
 Profundidade cinematográfica e pós-processamento ainda são etapas posteriores. A presença de
 retículo acompanhado não prova segmentação, desfoque ou aprimoramento no MP4.
+
+
+## Uso da etapa 0.22.0
+
+Em Vídeo normal ou Pro, tocar num contorno texturizado inicia o acompanhamento; o retículo deve mover-se com o assunto, azul quando confiante e âmbar na incerteza. Toque no indicador para voltar ao automático. Pressão longa continua sendo bloqueio AF/AE. Desativar “Acompanhar assunto no vídeo” mantém toque AF comum e fornece controle de comparação.
+
+- Testar planta/pessoa/objeto texturizado com movimentos pequenos, frente/trás, retrato/paisagem, espelho, zoom estável e gravação rápida oriunda de Foto/Retrato. Selecionar novamente após troca física de lente/enquadramento.
+- Cobrir/retirar o alvo: suspender comandos durante incerteza, automático após perda; sem salto afirmado para objeto semelhante. Regiões lisas e bordas podem ser recusadas com aviso.
+- Verificar foco/exposição reais (lente frontal tem limites próprios), sem confundir retículo com nitidez medida. Pro manual deve preservar exposição manual; foco manual impede seleção.
+- Iniciar/parar vídeo, assinatura on/off, sair/voltar, alterar resolução/FPS/lente e selecionar outro alvo: nenhum resultado antigo deve afetar a câmera nova, nenhuma fila/reabertura/superfície extra. Conferir áudio, duração, assinatura, resolução e FPS pelos MP4 reais.
+- Comparar ao menos 3 pares controle/ativo com mesma cena/luz/qualidade/duração/carga inicial e aparelho frio semelhante. Registrar CPU/PSS/potência/temperatura/perdas e latência de cópia/análise. Separar potência total do aparelho, CPU do processo e dados MP4. Nenhum ganho de autonomia está demonstrado nesta entrega.
+- Calor moderado/economia reduzem apenas frequência da análise; severo encerra acompanhamento com aviso. Não reduzir qualidade do vídeo para fingir economia.
+- Este APK não tem bokeh cinematográfico nem aprimoramento temporal de vídeo. São as próximas etapas.

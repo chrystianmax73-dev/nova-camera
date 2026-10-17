@@ -188,6 +188,10 @@ class SettingsActivity : NovaScreen() {
             { settings.videoCenterMetering }, { settings.videoCenterMetering = it })
 
         section("Foco e exposição")
+        switch("Acompanhar assunto no vídeo", "Experimental: toque em pessoa ou objeto com textura no Vídeo/Vídeo Pro. " +
+            "Acompanha pequenos movimentos e prioriza AF/AE onde a lente permite; na perda volta ao automático. " +
+            "Toque longo continua bloqueando foco. Desative para usar só foco por toque e comparar consumo.",
+            { settings.videoSubjectTracking }, { settings.videoSubjectTracking = it })
         switch("Contraluz automática", "Com janela, céu ou lâmpada no quadro, o centro é clareado (até +1,5 EV) em vez de " +
             "a câmera escurecer tudo. Sai sozinha ao ajustar a exposição, tocar para medir ou travar AE.",
             { settings.autoBacklight }, { settings.autoBacklight = it })

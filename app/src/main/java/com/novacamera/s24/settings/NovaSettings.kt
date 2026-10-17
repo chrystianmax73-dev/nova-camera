@@ -90,6 +90,8 @@ class NovaSettings(context: Context) {
 
     // Vídeo
     var mirrorFrontVideo get() = bool("mirror_front_video", true); set(v) = put("mirror_front_video", v)
+    /** Seleção por gesto; nenhuma análise roda sem assunto selecionado. */
+    var videoSubjectTracking get() = bool("video_subject_tracking", true); set(v) = put("video_subject_tracking", v)
     var videoQuality get() = enum("video_quality", VideoQualityOption.AUTO); set(v) = put("video_quality", v.name)
     var videoFps get() = int("video_fps", 30); set(v) = put("video_fps", v)
     var slowMotionFps get() = int("slow_motion_fps", 120); set(v) = put("slow_motion_fps", v)

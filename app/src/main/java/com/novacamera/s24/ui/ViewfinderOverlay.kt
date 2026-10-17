@@ -52,6 +52,10 @@ class ViewfinderOverlay(context: Context) : View(context) {
     private val histClipPaint = Paint().apply { color = 0xFFFF5252.toInt(); style = Paint.Style.FILL }
     private val levelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
 
+    var trackedSubject: com.novacamera.s24.core.SubjectTracker.Result? = null
+        set(value) { field = value; invalidate() }
+    private val trackingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+
     /** Máscara do estouro (vermelho) e do realce de foco (verde) na resolução da análise. */
     private fun aidMask(r: com.novacamera.s24.core.imaging.ViewfinderAid.Result): android.graphics.Bitmap? {
         if (!showClipping && !showPeaking) return null
@@ -294,6 +298,15 @@ class ViewfinderOverlay(context: Context) : View(context) {
                 canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
                 canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
             }
+        }
+
+        trackedSubject?.let { target ->
+            val half = minOf(width, height) * target.side / 2
+            val x = target.x * width; val y = target.y * height
+            trackingPaint.color = if (target.phase == com.novacamera.s24.core.SubjectTracker.Phase.TRACKING)
+                Nova.ACCENT_SOFT else Nova.WARN
+            trackingPaint.strokeWidth = dp(1.5f)
+            canvas.drawRoundRect(x - half, y - half, x + half, y + half, dp(7f), dp(7f), trackingPaint)
         }
 
         val hasRing = ringX >= 0 && ringAlpha > 0f

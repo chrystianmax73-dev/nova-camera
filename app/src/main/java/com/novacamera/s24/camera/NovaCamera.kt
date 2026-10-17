@@ -334,6 +334,7 @@ class NovaCamera(
     /** Libera a câmera (economia de energia por inatividade). */
     fun pause() {
         if (isRecording || paused || nativeRun != null || released) return
+        endSubjectTracking()
         paused = true
         nativeRun?.cancel()
         synchronized(telemetry) { telemetry.breakStream() }
@@ -349,6 +350,7 @@ class NovaCamera(
 
     fun release() {
         if (released) return
+        invalidateSubjectTracking()
         released = true
         watchCamera = null
         runCatching { watchdog.removeCallbacks(watchTick); watchdogThread.quitSafely() }
@@ -484,6 +486,7 @@ class NovaCamera(
     fun bind() {
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
+        invalidateSubjectTracking()
         watchCamera = null
         watchGeneration++
         videoEffectGeneration++
@@ -1230,7 +1233,79 @@ class NovaCamera(
 
     // ------------------------------------------------------------------ foco e exposição
 
+    var subjectTracking = false; private set
+    var trackingEpoch = 0L; private set
+    private var trackedRegion: android.hardware.camera2.params.MeteringRectangle? = null
+    private var trackedAfMode: Int? = null
+    private var trackedAe = false
+    private var trackingBusy = false
+    private var trackingBusySince = 0L
+    private val trackingGate = com.novacamera.s24.core.TrackingMeterGate()
+    val trackingControls get() = listOfNotNull(if (trackedAfMode != null) "AF" else null,
+        if (trackedAe && !manual.manualExposure) "AE" else null).joinToString("/")
+
+    private fun invalidateSubjectTracking() {
+        if (subjectTracking) userPointActive = false
+        subjectTracking = false; trackedRegion = null; trackingBusy = false
+        trackedAfMode = null; trackedAe = false; trackingGate.reset(); trackingEpoch++
+    }
+
+    fun beginSubjectTracking(): Boolean {
+        val cam = camera ?: return false
+        if (paused || released || (mode != CaptureMode.VIDEO && mode != CaptureMode.VIDEO_PRO) ||
+            videoBindingIssue != null || (mode.isPro && manual.focusDiopters != null)) return false
+        val info = Camera2CameraInfo.from(cam.cameraInfo)
+        val afModes = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES).orEmpty()
+        val afRegions = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_MAX_REGIONS_AF) ?: 0
+        val aeRegions = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
+        val af = if (afRegions > 0) listOf(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,
+            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE).firstOrNull { it in afModes } else null
+        if (af == null && (aeRegions == 0 || manual.manualExposure)) return false
+        resetFocusState()
+        subjectTracking = true; userPointActive = true; zoomAtTap = zoomTarget
+        trackedAfMode = af; trackedAe = aeRegions > 0
+        backlightBoost = 0
+        cam.cameraControl.setExposureCompensationIndex(appliedEv())
+        cam.cameraControl.cancelFocusAndMetering()
+        applyInterop()
+        return true
+    }
+
+    /** Atualiza regiões; AF continua no modo contínuo, sem uma fila de disparos AF_TRIGGER. */
+    fun meterTrackedSubject(x: Float, y: Float, side: Float): Boolean {
+        val cam = camera ?: return false
+        if (!subjectTracking || paused || released) return false
+        if (trackingBusy) return SystemClock.elapsedRealtime() - trackingBusySince < 1500
+        val transform = previewView.sensorToViewTransform ?: return false
+        val sensor = Camera2CameraInfo.from(cam.cameraInfo).getCameraCharacteristic(
+            android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return false
+        val region = TrackingMetering.region(transform, sensor, previewView.width, previewView.height, x, y, side) ?: return false
+        if (!trackingGate.accept(x, y, SystemClock.elapsedRealtime())) return true
+        trackedRegion = region
+        trackingBusy = true
+        trackingBusySince = SystemClock.elapsedRealtime()
+        val token = trackingEpoch
+        val future = applyInterop() ?: run { trackingBusy = false; return false }
+        future.addListener({
+            if (token != trackingEpoch || !subjectTracking) return@addListener
+            trackingBusy = false
+            if (runCatching { future.get() }.isFailure) {
+                endSubjectTracking()
+                listener.onMessage("A câmera recusou a região do assunto; acompanhamento encerrado")
+            }
+        }, main)
+        return true
+    }
+
+    fun endSubjectTracking() {
+        if (!subjectTracking) return
+        resetFocusState()
+        camera?.cameraControl?.cancelFocusAndMetering()
+        applyInterop(); applyVideoMetering()
+    }
+
     private fun resetFocusState() {
+        invalidateSubjectTracking()
         focusToken++
         userPointActive = false
         aeLocked = false
@@ -1258,6 +1333,7 @@ class NovaCamera(
     }
 
     fun focusAt(x: Float, y: Float, lock: Boolean) {
+        endSubjectTracking()
         val cam = camera ?: return
         val token = ++focusToken
         userPointActive = true
@@ -1401,6 +1477,7 @@ class NovaCamera(
     val exposureIndex get() = evIndex
 
     fun setManual(m: ManualControls) {
+        if (m.focusDiopters != null) endSubjectTracking()
         val stats = latestStats
         // Ao fixar só ISO ou só velocidade, o outro parâmetro congela no valor que o automático usava.
         manual = if (m.manualExposure && stats != null) m.copy(
@@ -1439,6 +1516,13 @@ class NovaCamera(
         if (m.focusDiopters != null && c.manualFocus) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
             b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, m.focusDiopters.coerceIn(0f, c.minFocusDistance))
+        }
+        if (subjectTracking) {
+            trackedAfMode?.let { b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, it) }
+            trackedRegion?.let { region ->
+                if (trackedAfMode != null) b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(region))
+                if (trackedAe && !m.manualExposure) b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(region))
+            }
         }
         if (m.awbMode != null && m.awbMode in c.awbModes) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, m.awbMode)

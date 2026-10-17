@@ -1,10 +1,20 @@
+# 0.22.0 — rastreamento visual por toque, etapa experimental (17/10/2026)
+
+- Em Vídeo/Vídeo Pro, toque seleciona uma região com textura; correlação de luminância acompanha pequenos movimentos e atualiza regiões AF contínuo/AE compatíveis. Funciona sobre a prévia pública já orientada/espelhada, com mapeamento inverso para o sensor; aplicação real frontal/traseira exige teste físico.
+- Retículo separado do foco comum, estado incerto e botão para automático. Oclusão/ambiguidade prolongada, quadro atrasado, troca de lente/enquadramento, pausa, foco manual, memória insuficiente e calor severo encerram o acompanhamento. Pressão longa mantém o bloqueio anterior. Preferência permite desativar e comparar com o AF comum.
+- Sem classificação semântica, identificação individual, recuperação após oclusão ou máscara de profundidade. Não prometer rastreamento de qualquer objeto em qualquer movimento; retocar para selecionar novamente. O retículo é indicador na tela, não efeito gravado.
+- Análise somente após seleção, uma tarefa em voo, buffers pequenos reutilizados, 320 px no lado maior; ~5 Hz em movimento e menor frequência em repouso/calor/economia. Snapshot público ainda aloca uma imagem da prévia; custo é medido e leituras lentas encerram o recurso. Sem novo stream CameraX, superfície GL ou mudanças nos FPS/resolução do MP4.
+- Diagnóstico mede CPU/tempo da análise, custo da cópia, dimensões, perdas de confiança, CPU/PSS do processo e energia/temperatura existentes. GPU não medida; nenhuma melhoria de autonomia demonstrada. Protocolo: [RASTREAMENTO_S24_VALIDACAO.md](pendente/RASTREAMENTO_S24_VALIDACAO.md).
+- Base 0.21.6 aprovada antes desta etapa. Novos testes cobrem movimento real, iluminação, oclusão, quadros atrasados, limites de cadência, espelho/rotação/recorte e cancelamento de sessão. Compilação/testes/lint desta versão e APK assinado ainda pendentes.
+- Próximas etapas: validar o rastreamento no S24, depois profundidade cinematográfica real na prévia/MP4 (iniciar em FHD/30) e pós-processamento opcional preservando o original. Nenhum desses dois efeitos está implementado nesta versão.
+
 # 0.21.6 — referência de desempenho antes do rastreamento (17/10/2026)
 
 - Base atual `6503e0388420ff48800a0a24d18017200c1e1c9e`/0.21.5 aprovada em compilação, testes e lint no [Actions 39059803047](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059803047), antes de mudar o aplicativo.
 - Diagnóstico passa a medir CPU acumulada do processo, PSS, cadência de resultados de captura/perdas estimadas e custo da coleta, a cada ~10 s na fila de IO. Intervalos de atividades diferentes, pausas e contadores reiniciados não são misturados.
 - Energia/temperatura existentes preservadas; identificação de resolução/FPS alvo/EIS/frente-trás para sessões comparáveis. Potência é do aparelho inteiro; GPU não é medida e latência de cópia não será apresentada como ocupação de GPU.
 - Ainda não há comparação física controlada na 0.21.5/0.21.6, nem prova de melhoria de autonomia. O feedback “Deu certo” foi recebido, sem matriz detalhada de lente/FPS/MP4. Nova instrução do dono autoriza avançar nas próximas etapas.
-- CI desta alteração pendente. Próxima prioridade autorizada: rastreamento real, depois profundidade e pós-processamento, com eficiência integrada; preservar APK estável 0.21.5/build 61 e assinatura permanente.
+- Compilação, testes unitários e lint aprovados no [Actions 39060797636](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39060797636). Próxima prioridade autorizada: rastreamento real, depois profundidade e pós-processamento, com eficiência integrada; preservar APK estável 0.21.5/build 61 e assinatura permanente.
 
 # 0.21.5 — prévia após sessão recusada pelo CameraX (17/10/2026)
 

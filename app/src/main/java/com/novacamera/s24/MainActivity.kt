@@ -108,6 +108,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var modeGrid: ModeGrid
     private lateinit var recChip: TextView
     private lateinit var statusRow: LinearLayout
+    private lateinit var trackingChip: TextView
+    private lateinit var tracking: com.novacamera.s24.camera.SubjectTrackingSession
+    private var selectedTrackingEpoch = -1L
     private lateinit var lockChip: TextView
     private lateinit var evChip: TextView
     private lateinit var heatChip: TextView
@@ -180,6 +183,24 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         setContentView(root)
         preview.setScreenFlashWindow(window)
         camera = NovaCamera(this, preview, settings, this)
+        tracking = com.novacamera.s24.camera.SubjectTrackingSession(preview,
+            valid = { camera.ready && camera.subjectTracking && selectedTrackingEpoch == camera.trackingEpoch },
+            onResult = { target ->
+                if (overlay.trackedSubject == null) overlay.hideFocusRing()
+                overlay.trackedSubject = target
+                val uncertain = target.phase == com.novacamera.s24.core.SubjectTracker.Phase.UNCERTAIN
+                trackingChip.text = if (uncertain) "ASSUNTO INCERTO  ✕" else "RASTREANDO · ${camera.trackingControls}  ✕"
+                trackingChip.contentDescription = trackingChip.text.toString() + ". Toque para voltar ao automático"
+                trackingChip.visibility = View.VISIBLE
+                if (!uncertain && !camera.meterTrackedSubject(target.x, target.y, target.side))
+                    tracking.stop("Região de foco indisponível nesta câmera")
+            },
+            onStopped = { reason ->
+                camera.endSubjectTracking()
+                overlay.trackedSubject = null; overlay.hideFocusRing()
+                trackingChip.visibility = View.GONE
+                if (reason.isNotBlank() && !isDestroyed && !isFinishing) hint.show("Rastreamento encerrado: $reason", 2400)
+            })
         monitor = DeviceMonitor(this, ::onHeat)
         settingsSignature = signature()
         sound.load(MediaActionSound.SHUTTER_CLICK)
@@ -272,6 +293,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     backlightEv = camera.setBacklightEv(0f)
                 return
             }
+            // O assunto já tem AE prioritária; não copiar outra prévia para contraluz que não será aplicada.
+            if (camera.subjectTracking) { backlightEv = 0f; return }
             if (preview.previewStreamState.value != PreviewView.StreamState.STREAMING) return
             val bmp = runCatching { preview.bitmap }.getOrNull() ?: return
             backlightBusy = true
@@ -337,6 +360,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     camera.isRecording -> "${camera.mode.label} (gravando)"
                     else -> camera.mode.label
                 } + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
+                    (if (::tracking.isInitialized && tracking.active) " · rastreamento ativo" else " · sem rastreamento") +
                     (if (ProcessingQueue.pending > 0) " + processando" else "")
                 if (!performanceBusy) {
                     performanceBusy = true
@@ -384,6 +408,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
         cancelCountdown()
+        tracking.stop()
         camera.stopRecording()
         if (torchOn) { torchOn = false; camera.setTorch(false) }
         monitor.stop()
@@ -401,12 +426,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            if (::tracking.isInitialized) tracking.stop("Memória limitada")
             ProcessingQueue.trimModelMemory()
+        }
     }
 
     override fun onDestroy() {
         ProcessingQueue.removeListener(onProcessing)
+        tracking.close()
         camera.release()
         sound.release()
         io.shutdown()
@@ -486,6 +514,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         root.addView(recChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
 
         statusRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        trackingChip = statusChip(Nova.ACCENT_SOFT).apply {
+            text = "RASTREANDO  ✕"
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { tracking.stop() }
+        }
         lockChip = statusChip(Nova.LOCK).apply {
             text = "AE/AF BLOQUEADO  ✕"
             contentDescription = "Foco e exposição bloqueados. Toque para desbloquear"
@@ -500,7 +533,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 this@MainActivity.hint.show("Cancelando… o original fica salvo", 1600)
             }
         }
-        listOf(lockChip, evChip, heatChip, procChip).forEach {
+        listOf(trackingChip, lockChip, evChip, heatChip, procChip).forEach {
             it.visibility = View.GONE
             statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
         }
@@ -1033,6 +1066,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun unlockAll() {
+        if (::tracking.isInitialized) tracking.stop()
         camera.resetToAuto()
         overlay.hideFocusRing()
         lockChip.visibility = View.GONE
@@ -1078,6 +1112,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     // ------------------------------------------------------------------ CameraListener
 
     override fun onCameraState(state: CameraState) {
+        if (::tracking.isInitialized) tracking.stop()
         cameraState = state
         refreshStrip(state.mode)
         shutter.quickEnabled = state.support.canCapture && quickReturnMode == null &&
@@ -1156,6 +1191,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onFocusCleared() {
+        if (::tracking.isInitialized) tracking.stop("Enquadramento mudou; toque novamente no assunto")
         overlay.hideFocusRing()
         lockChip.visibility = View.GONE
     }
@@ -1182,6 +1218,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Lente física ativa informada pela câmera (ex.: troca para a tele 5× durante o zoom). */
     override fun onActiveLens(label: String?) {
+        if (::tracking.isInitialized) tracking.stop("Lente física mudou; toque novamente no assunto")
         if (label == null) return
         lensChip.text = label
         lensChip.alpha = 1f
@@ -1272,13 +1309,25 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onTap(x: Float, y: Float) {
         if (!camera.ready) return
+        tracking.stop()
         lockChip.visibility = View.GONE
         overlay.showFocusAt(x, y)
+        if (settings.videoSubjectTracking && (camera.mode == CaptureMode.VIDEO || camera.mode == CaptureMode.VIDEO_PRO)) {
+            if (camera.beginSubjectTracking()) {
+                selectedTrackingEpoch = camera.trackingEpoch
+                trackingChip.text = "SELECIONANDO ASSUNTO  ✕"
+                trackingChip.visibility = View.VISIBLE
+                tracking.select(x, y)
+                return
+            }
+            hint.show("Acompanhamento indisponível com estes controles; foco por toque", 2400)
+        }
         camera.focusAt(x, y, lock = false)
     }
 
     override fun onLongPress(x: Float, y: Float) {
         if (!camera.ready) return
+        tracking.stop()
         overlay.showFocusAt(x, y)
         camera.focusAt(x, y, lock = true)
     }
@@ -1319,6 +1368,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun onHeat(h: DeviceHeat) {
         camera.onHeat(h)
+        if (::tracking.isInitialized) {
+            tracking.thermal = h.thermalStatus; tracking.powerSave = h.powerSave
+            if (com.novacamera.s24.core.TrackingBudget.suspended(h.thermalStatus))
+                tracking.stop("Pausado pelo estado térmico; escolha de vídeo preservada")
+        }
         ProcessingQueue.heat = h
         heatChip.visibility = if (ThermalPolicy.showBadge(h)) View.VISIBLE else View.GONE
         heatChip.text = ThermalPolicy.badgeText(h)

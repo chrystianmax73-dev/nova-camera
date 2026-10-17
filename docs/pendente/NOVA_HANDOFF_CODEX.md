@@ -1,3 +1,21 @@
+# Continuidade — 0.22.0 em validação (17/10/2026)
+
+- Branch única de trabalho: `codex/video-estabilidade-0-20`; main e branch original preservadas. Novo pedido do dono autoriza rastreamento → profundidade → pós-processamento com medições e APK de teste após etapa estável.
+- Base remota 0.21.5 `6503e0388420ff48800a0a24d18017200c1e1c9e` aprovada no CI 39059803047 antes de alterações. Métricas 0.21.6 `19fd4f32e5868e3a761aefbb03567f5b7c8a0ea1` aprovadas no CI 39060797636.
+- 0.22.0 implementa etapa experimental de rastreamento visual de aparência, não semântico: `SubjectTracker`, `SubjectTrackingSession`, `TrackingMeterGate`, `TrackingMetering`, `TrackingLog`; integração MainActivity/NovaCamera/ViewfinderOverlay/settings. Não toca pipeline de gravação/assinatura/EGL, foto/HDR/Noturno/modelos.
+- Seleção somente em Vídeo/Vídeo Pro, inclusive gravação rápida após mudar para Vídeo. Uma análise em voo, snapshot PreviewView orientado/espelhado, lado maior 320 px, correlação normalizada, confiança/ambiguidade e perda limitada. Af contínuo com região e AE compatível respeitam manual. AF/AE em voo limitado; resultado antigo não alcança câmera nova (epoch/generation).
+- Suspende análise por ausência de assunto, transformação indisponível, lente/enquadramento alterado, pausa, leitura lenta, memória e calor severo; vídeo continua na qualidade escolhida. Buffer limitado e executor fechado. Captura pública da prévia tem custo de cópia/alocação medido, sem alegar economia comprovada. GPU não medida.
+- Testes automatizados novos: movimento/iluminação/oclusão/atrasos/textura/cadência, transformação espelho/rotação/recorte, cancelamento/fechamento/sessão inválida. Nesta entrada CI/APK 0.22.0 ainda pendentes; registrar resultados reais ao terminar.
+- Não há S24 conectado, vídeo novo, baseline controlado ou comparação física de consumo. Roteiro [RASTREAMENTO_S24_VALIDACAO.md](RASTREAMENTO_S24_VALIDACAO.md). Feedback anterior “Deu certo” não prova matriz completa.
+- Próximo passo exato: concluir CI completo, corrigir falhas reais, gerar APK assinado pelo workflow existente com publicação pulada nesta branch, restaurar gatilho após disparo único, confirmar modelos/certificado/artefato, registrar build/link. Depois validar no S24 antes de avançar na profundidade.
+- Cinematográfico (prévia e pixels MP4) e pós-processamento temporal/original preservado continuam pendentes; não expor controles simulados. Aproveitar arquitetura de profundidade existente, iniciar FHD/30 somente com escolha explícita, preservar vídeo comum.
+
+## Texto para continuar
+
+Continue Nova Camera em codex/video-estabilidade-0-20 pelo HEAD remoto atualizado. Leia este handoff inteiro, topo de STATUS e código citado antes de editar; confirme a validação Actions do HEAD. Preserve assinatura Android, fotos/HDR/Retrato/Noturno/zoom/SR, gravação/qualidade/assinatura de vídeo e main. Conclua primeiro a entrega e validação física do rastreamento 0.22.0. Em seguida implemente profundidade cinematográfica real na prévia e MP4, depois pós-processamento local opcional preservando original/áudio/metadados. Use medições reais, commits pequenos em português, teste/lint/compilação Actions e APK de teste assinado sem release definitivo automático. Não prometa validação S24, GPU ou autonomia sem evidência.
+
+---
+
 ## Próxima evolução autorizada — medições e rastreamento
 
 - Branch atual `codex/video-estabilidade-0-20`, HEAD conferido `6503e0388420ff48800a0a24d18017200c1e1c9e`; base Actions 39059803047 aprovada. Não alterar main.
