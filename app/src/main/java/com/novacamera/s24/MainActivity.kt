@@ -972,7 +972,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             camera.bind()
             return hint.show("1 quadro a cada ${TimelapsePlan.intervalLabel(plan.intervalMs)} · ${plan.speedup}× mais rápido", 1800)
         }
-        val options = s.videoFpsOptions.takeIf { it.size > 1 } ?: return hint.show("Esta câmera só oferece ${s.videoFps} fps aqui", 1600)
+        val options = s.videoFpsOptions.takeIf { it.isNotEmpty() }
+            ?: return hint.show("Nenhuma taxa disponível nesta combinação; escolha outra resolução", 1800)
+        if (options.size == 1 && s.videoFps in options)
+            return hint.show("Esta câmera só oferece ${options.single()} fps aqui", 1600)
         val next = options[(options.indexOf(s.videoFps) + 1) % options.size]
         if (s.mode == CaptureMode.CAMERA_LENTA) settings.slowMotionFps = next else settings.videoFps = next
         showTransition()
@@ -1065,6 +1068,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         zoomBar.stops = state.zoomStops
         zoomAvailable = state.zoomStops.size > 1 || state.zoomMax > state.zoomMin * 1.05f
         updateZoomVisibility()
+        infoCard.setOnClickListener(null)
         if (!state.support.canCapture) {
             infoCard.text = "${state.mode.label} indisponível neste aparelho\n\n${state.support.note}"
             infoCard.visibility = View.VISIBLE

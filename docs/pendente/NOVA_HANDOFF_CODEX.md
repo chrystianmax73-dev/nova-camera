@@ -1,3 +1,18 @@
+## Etapa preparada — 0.21.3, assinatura
+
+- Renderização inclui frontal espelhada, rotação/recorte e cache de textura; preserva o efeito durante recuperação do sensor. Fallback de assinatura é por perfil, com diagnóstico claro; geração de handler ignora falha antiga.
+- Novos testes gráficos reais (Robolectric/Skia) e confirmação explícita de alternativa UHD/30. CI ainda pendente.
+- Ainda não declarar 4K/60/5× funcional ou marca presente no MP4 sem teste do aparelho/arquivo; logs de textura são diagnóstico parcial.
+- Depois de CI aprovado, gerar APK assinado com os mesmos modelos/chave via nova-release. A publicação de release falhou 403 nos builds anteriores: o upload-artifact anterior à publicação preserva o APK. Não criar chaves nem solicitar segredos.
+
+## Próximas etapas após retorno físico desta atualização
+
+1. Primeiro obter diagnóstico/resultado do APK novo: 4K/60 em 1×/5×, alternativa 4K/30, Full HD/60, marca no MP4 (traseira/frontal espelhada), interrupções e temperatura. A seleção e a consulta CameraX não substituem metadados e reprodução do arquivo. Não enviar mídia pessoal ao repositório.
+2. Pós-processamento **opcional/local**, em commit/versão separados: preservar URI original; saída derivada e comparação; execução assíncrona com progresso/cancelamento e pausa térmica. Antes de adicionar filtros, verificar áudio/PTS/sincronismo, orientação, duração, resolução/FPS/codec; testar movimento e flicker com material sintético. A captura FHD/60 já elogiada pelo usuário deve permanecer como controle. Não prometer recuperar detalhe ausente nem ativar tratamento agressivo por padrão.
+3. Foco/rastreamento: ler os pontos de toque AE/AF, `FocusPolicy`, `DepthTap`, analisadores/máscaras atuais e câmera/lente ativa; implementar acompanhamento com confiança e retorno ao automático em perda/oclusão. Diferenciar visualmente AF, assunto acompanhado e bloqueio. Sem controle que apenas simule rastrear.
+4. Cinematográfico primeiro FHD/30: reaproveitar segmentação/profundidade/modelos offline existentes, análise adaptativa e estabilidade temporal; manter sujeito e bordas finas e aplicar o mesmo efeito na prévia e no encoder. Frente/trás, espelho e gravação rápida do Retrato precisam de testes. Não reduzir silenciosamente 4K/FHD60 nem iniciar profundidade pesada em vídeo comum.
+5. Cada etapa: baseline, regressões com evidências, nova seção no topo de STATUS e versionName; APK com a assinatura existente, sem release automático. Validação de desempenho, bordas e MP4 real depende do aparelho. Não declarar estas quatro etapas implementadas agora.
+
 ## Continuidade em andamento — 0.21.2
 
 - Branch: `codex/video-estabilidade-0-20`; base com feedback registrada em `d99bfd40932940ffc2ea3f37e212b4a739967817`.

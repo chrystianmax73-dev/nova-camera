@@ -108,7 +108,7 @@ object Signature {
      * codificador: recorte visível [crop] e rotação [rotationDegrees] que o player aplicará.
      * Devolve a matriz e o tamanho da área de pé.
      */
-    fun uprightToBuffer(crop: android.graphics.Rect, rotationDegrees: Int): Triple<android.graphics.Matrix, Int, Int> {
+    fun uprightToBuffer(crop: android.graphics.Rect, rotationDegrees: Int, mirrored: Boolean = false): Triple<android.graphics.Matrix, Int, Int> {
         val r = ((rotationDegrees % 360) + 360) % 360
         val uw = if (r % 180 == 0) crop.width() else crop.height()
         val uh = if (r % 180 == 0) crop.height() else crop.width()
@@ -117,6 +117,10 @@ object Signature {
         val bounds = android.graphics.RectF(0f, 0f, uw.toFloat(), uh.toFloat())
         m.mapRect(bounds)
         m.postTranslate(-bounds.left + crop.left, -bounds.top + crop.top)
+        // CameraX aplica recorte → rotação → espelho. Desfazemos o espelho no espaço
+        // de exibição antes da rotação inversa; o texto final permanece legível e no canto escolhido.
+        if (mirrored) m.preScale(-1f, 1f, uw / 2f, uh / 2f)
         return Triple(m, uw, uh)
     }
 }
+

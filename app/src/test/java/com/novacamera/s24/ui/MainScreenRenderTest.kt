@@ -31,6 +31,53 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi")
 class MainScreenRenderTest {
+    @Test
+    fun seletorPermiteEscolherATaxaUnicaQuandoAtualFoiRecusada() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.CAMERA)
+        val settings = com.novacamera.s24.settings.NovaSettings(app)
+        settings.videoQuality = com.novacamera.s24.settings.VideoQualityOption.UHD
+        settings.videoFps = 60
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        activity.onCameraState(state(CaptureMode.VIDEO).copy(videoFps = 60,
+            videoFpsOptions = listOf(30), videoCaptureProblem = "60 fps recusado"))
+        MainActivity::class.java.getDeclaredMethod("cycleFps").apply { isAccessible = true }.invoke(activity)
+        org.junit.Assert.assertEquals(30, settings.videoFps)
+        org.junit.Assert.assertEquals(com.novacamera.s24.settings.VideoQualityOption.UHD, settings.videoQuality)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun alternativaDeVideoSoMudaFpsComEscolhaExplicitaEPreservaUhd() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.CAMERA)
+        val settings = com.novacamera.s24.settings.NovaSettings(app)
+        settings.videoQuality = com.novacamera.s24.settings.VideoQualityOption.UHD
+        settings.videoFps = 60
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        activity.onCameraState(state(CaptureMode.VIDEO).copy(videoFps = 60,
+            videoCaptureProblem = "4K/60 fps não aceito pela sessão", videoSuggestedFps = 30))
+        val card = MainActivity::class.java.getDeclaredField("infoCard").apply { isAccessible = true }
+            .get(activity) as android.widget.TextView
+        val shutter = MainActivity::class.java.getDeclaredField("shutter").apply { isAccessible = true }
+            .get(activity) as View
+        org.junit.Assert.assertEquals(View.VISIBLE, card.visibility)
+        org.junit.Assert.assertFalse(shutter.isEnabled)
+        org.junit.Assert.assertEquals(60, settings.videoFps)
+        card.performClick()
+        org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+            .getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+        org.junit.Assert.assertEquals(60, settings.videoFps)
+        card.performClick()
+        org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+            .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+        org.junit.Assert.assertEquals(30, settings.videoFps)
+        org.junit.Assert.assertEquals(com.novacamera.s24.settings.VideoQualityOption.UHD, settings.videoQuality)
+        controller.pause().stop().destroy()
+    }
+
     private val caps = CameraCapabilities(
         cameraId = "0", isFront = false, manualSensor = true,
         isoRange = Range(50, 3200), exposureRangeNs = Range(100_000L, 500_000_000L),
@@ -105,3 +152,4 @@ class MainScreenRenderTest {
         assertTrue(File(out, "foto.png").length() > 0)
     }
 }
+

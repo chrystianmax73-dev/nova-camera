@@ -1,3 +1,15 @@
+# 0.21.3 — assinatura de vídeo e espelho (17/10/2026)
+
+- Assinatura deixa de ser removida por uma parada genérica da prévia. Falhas GL/combinações recusadas ficam isoladas no perfil afetado, preservando a preferência e outras resoluções/câmeras.
+- Assinatura no vídeo frontal espelhado: composição inversa de recorte, rotação e espelho, com texto legível no canto escolhido; removido o descarte de quadros de assinatura por `isMirroring`.
+- Textura da assinatura estática só é redesenhada quando muda a geometria/buffer, evitando bloqueio de Canvas a cada quadro de 60 fps.
+- Cada handler GL identifica sua geração; erros atrasados de uma ligação anterior não desligam o efeito da nova. Mantida liberação serial antes de criar o efeito seguinte e finalização antes de religar durante gravação.
+- Diagnóstico distingue assinatura solicitada, ativa e desenho na textura, além dos metadados reais do MP4. Desenho na textura não é prova de pixels presentes no MP4; confirmar visualmente no aparelho.
+- Consulta também verifica a faixa automática de FPS; se a sessão só aceitar 30 fixos, informa o recuo sem reduzir resolução. Alternativa de 30 fps fica disponível após recusa/fim das tentativas de recuperação.
+- Novos testes de pixels cobrem 0/90/180/270 graus e espelho, persistência de textura e mudanças de geometria. Teste da interface verifica que aceitar 30 fps exige confirmação e mantém UHD.
+- CI desta etapa pendente. Sem validação física da 0.21.3; UHD/60 em 5× e assinatura no MP4 final continuam exigindo teste no S24 Ultra. Não foi recebido MP4 pessoal nem enviado conteúdo pessoal ao repositório.
+- Pós-processamento opcional, rastreamento e profundidade cinematográfica ainda não implementados; aguardam estabilização física da captura para a próxima etapa.
+
 # 0.21.2 — negociação de vídeo e recuperação (17/10/2026)
 
 - Base 0.21.1 preservada; [compilação, testes unitários e lint da base aprovados](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39056484866), sem alterar o app antes dessa execução.
