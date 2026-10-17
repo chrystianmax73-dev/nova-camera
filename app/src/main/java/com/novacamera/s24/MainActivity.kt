@@ -373,7 +373,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     else -> camera.mode.label
                 } + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
                     (if (::tracking.isInitialized && tracking.active) " · rastreamento ativo" else " · sem rastreamento") +
-                    (if (camera.cinematicBound) " · cinematográfico ativo" else " · sem cinematográfico") +
+                    (" · " + camera.cinematicDiagnostic) +
                     (if (com.novacamera.s24.processing.VideoFinishJob.state.running) " + acabamento de vídeo" else "") +
                     (if (ProcessingQueue.pending > 0) " + processando" else "")
                 if (!performanceBusy) {
@@ -896,6 +896,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun startVideo() {
+        camera.cinematicUnavailableReason?.let { reason ->
+            com.novacamera.s24.ui.CinematicFallbackDialog.show(this,reason) {
+                if(camera.chooseCommonVideo()) hint.show("Preparando vídeo comum na mesma qualidade. Toque novamente para gravar",4500)
+            }
+            return
+        }
         // Timelapse e câmera lenta não gravam som: não pede o microfone à toa.
         val silent = camera.mode == CaptureMode.TIMELAPSE || camera.mode == CaptureMode.CAMERA_LENTA
         if (!silent && settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -911,6 +917,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun beginQuickRecording(): Boolean {
         if (!camera.ready || shutter.busy || countdown > 0 || quickReturnMode != null ||
             camera.mode !in setOf(CaptureMode.FOTO, CaptureMode.RETRATO)) return false
+        if (camera.cinematicThermallyBlocked) {
+            hint.show("Cinematográfico pausado pelo calor. No modo Vídeo, toque para escolher vídeo comum",4500)
+            return false
+        }
         if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
             // A permissão interrompe o gesto. Nunca começar vídeo tardio quando o diálogo voltar.
             audioStartPending = false

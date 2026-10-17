@@ -1,3 +1,12 @@
+# 0.24.4 — feedback térmico do S24 e escolha de vídeo comum (17/10/2026)
+
+- Base remota 1f49b39bd9037f1a3a1a34e655dcf667fa50f680 conferida; baseline Actions39071730931 aprovado antes de editar. Feedback real 0.24.3: calor severo3, carregando,42.7–43.6°C; potência indisponível. Rastreamento e máscara suspensos; esperar máscara não resolveria o calor. Sem mídia pessoal no Git.
+- O botão oferece escolha explícita de vídeo comum nesta sessão, conserva resolução/FPS/EIS e preferência cinematográfica; reconfiguração não começa arquivo, exige novo toque. Gesto rápido sob calor não fica aguardando máscara impossível. Proteções térmicas mantidas, sem inferência forçada. Diagnóstico distingue compositor ligado de máscara atual.
+- Diagnóstico do dono confirma MP4 comum1080×1920/AVC/29.97fps médios; não prova cinematográfico/marca nos pixels. Crashes listados são da0.20.0, não novos. CPU/PSS/cadência são amostras reais sem A/B controlado; não há prova de autonomia melhor. Profundidade fotográfica937ms não é medição do cinema.
+- CI desta alteração pendente. Próximo: corrigir vigia que usa metadados opcionais como sinal de vida e monitora sessões sem callback/prévia isolada; limitar mensagens/recuperações, testar e entregar APK assinado sem release. Investigar orientação da marca do compositor em etapa específica. Denoise temporal/qualidade avançada permanecem pendentes.
+
+---
+
 # 0.24.3 — preparação segura do vídeo rápido com profundidade (17/10/2026)
 
 - **APK de teste disponível: 0.24.3, build65 (1065).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070952578/artifacts/12114374400), até 16/11/2026. Fonte `aa580a42033fcf0cd2f8dad6469f6714bf389758`; mesmo certificado permanente, modelos NAFNet e Depth Anything incluídos. Nenhum release publicado.

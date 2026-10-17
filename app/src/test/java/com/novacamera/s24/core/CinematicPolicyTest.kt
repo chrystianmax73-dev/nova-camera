@@ -2,6 +2,13 @@ package com.novacamera.s24.core
 import org.junit.Assert.*
 import org.junit.Test
 class CinematicPolicyTest {
+    @Test fun calorNaoPrometeMascaraMesmoQuandoAAnteriorAindaEstaNoGl() {
+        assertNotNull(CinematicPolicy.unavailableReason(3,false,true))
+        assertNotNull(CinematicPolicy.unavailableReason(2,true,true))
+        assertNotNull(CinematicPolicy.unavailableReason(0,false,false))
+        assertNull(CinematicPolicy.unavailableReason(2,false,true))
+    }
+
     @Test fun perfilNaoReduzQualidadeSilenciosamente() {
         assertTrue(CinematicPolicy.profile(1080,1920,30))
         assertFalse(CinematicPolicy.profile(1080,1920,30,true))

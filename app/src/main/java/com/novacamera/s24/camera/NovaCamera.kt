@@ -523,7 +523,7 @@ class NovaCamera(
         if (freshSessionRequested) {
             freshSessionRequested = false
             liveBlurBlocked = false
-            cinematicFailed=false; cinematicTap=null
+            cinematicFailed=false; commonVideoChosen=false; cinematicTap=null
             referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
             failedPhysicalRoutes.clear()
@@ -576,7 +576,7 @@ class NovaCamera(
                              else AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
         val resolution = ResolutionSelector.Builder().setAspectRatioStrategy(aspectStrategy).build()
 
-        if (settings.cinematicVideo && (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) &&
+        if (cinematicRequested && (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) &&
             (!com.novacamera.s24.core.CinematicPolicy.profile(if(settings.videoQuality==VideoQualityOption.FHD)1920 else 0,1080,settings.videoFps,settings.videoStabilization)))
             videoBindingIssue="Cinematográfico requer Full HD/30 e EIS desligada, escolhidos por você. Ajuste esse perfil ou desative o efeito"
         val limitVideo = heat?.let(ThermalPolicy::limitVideo) ?: false
@@ -2164,7 +2164,31 @@ class NovaCamera(
 
     private var portraitEffect: PortraitPreviewEffect? = null
     var cinematicBound = false; private set
-    val cinematicReady get() = !cinematicBound || portraitEffect?.maskReady==true
+    private var commonVideoChosen = false
+    val cinematicRequested get() = settings.cinematicVideo && !commonVideoChosen
+    val cinematicUnavailableReason get() = if (!cinematicBound) null else
+        com.novacamera.s24.core.CinematicPolicy.unavailableReason(heat?.thermalStatus ?: 0,
+            com.novacamera.s24.processing.VideoFinishJob.state.running, portraitEffect?.maskReady==true)
+    val cinematicReady get() = !cinematicBound || cinematicUnavailableReason==null
+    val cinematicThermallyBlocked get() = cinematicRequested && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
+    val cinematicDiagnostic get() = when {
+        commonVideoChosen && settings.cinematicVideo -> "cinematográfico dispensado por escolha nesta sessão"
+        cinematicBound && cinematicUnavailableReason!=null -> "cinematográfico ligado, máscara suspensa/indisponível"
+        cinematicBound -> "cinematográfico com máscara atual"
+        else -> "sem cinematográfico"
+    }
+
+    /** Escolha explícita: mantém resolução/FPS/EIS e a preferência do efeito para a próxima sessão.
+     * Reconfigurar não inicia arquivo. O usuário toca novamente depois que a câmera estiver pronta.
+     */
+    fun chooseCommonVideo(): Boolean {
+        if(released || paused || isRecording || !cinematicBound) return false
+        commonVideoChosen=true
+        com.novacamera.s24.core.VideoLog.add(activity,"Vídeo comum escolhido pelo usuário nesta sessão; qualidade/FPS preservados")
+        listener.onPortraitPreview(null)
+        bind()
+        return true
+    }
     private var cinematicClosing = false
     private var cinematicFailed = false
     @Volatile private var cinematicTap: Pair<Float,Float>? = null
@@ -2207,7 +2231,7 @@ class NovaCamera(
      * efeitos — nelas não há estilo ao vivo (e a foto também não recebe estilo).
      */
     private fun portraitPreviewFor(support: ModeSupport, wide: Boolean, pinned: String?, extension: Int): Pair<PortraitPreviewEffect, ImageAnalysis?>? {
-        if (settings.cinematicVideo && !cinematicFailed && videoCapture != null &&
+        if (cinematicRequested && !cinematicFailed && videoCapture != null &&
             (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoBindingIssue==null) {
             val generation=videoEffectGeneration
             val effect=PortraitPreviewEffect.cinematic(signatureStyle()?.takeIf { settings.signatureVideo }) { e ->
@@ -2449,8 +2473,8 @@ class NovaCamera(
         val vc = videoCapture ?: return listener.onMessage("A câmera ainda não está pronta")
         if (recording != null || released || paused) return
         videoBindingIssue?.let { listener.onMessage(it); return }
-        if(cinematicBound && portraitEffect?.maskReady!=true) {
-            listener.onMessage("Aguarde uma máscara de profundidade atual antes de gravar; vídeo comum disponível ao desativar o efeito")
+        cinematicUnavailableReason?.let {
+            listener.onMessage(it)
             return
         }
         if (camera == null) return listener.onMessage("A câmera ainda não está vinculada")
