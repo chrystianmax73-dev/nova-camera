@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var camera: NovaCamera
     private lateinit var monitor: DeviceMonitor
     private val handler = Handler(Looper.getMainLooper())
+    private val quickVideoWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler)
     private val io = Executors.newSingleThreadExecutor()
     private val sound = MediaActionSound()
 
@@ -417,6 +418,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
+        quickVideoWarmup.cancel()
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -447,6 +449,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onDestroy() {
+        quickVideoWarmup.cancel()
         ProcessingQueue.removeListener(onProcessing)
         com.novacamera.s24.processing.VideoFinishJob.removeListener(onVideoFinish)
         tracking.close()
@@ -943,6 +946,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun restoreQuickMode() {
+        quickVideoWarmup.cancel()
         val previous = quickReturnMode ?: return
         quickReturnMode = null
         quickRecording.finished()
@@ -1191,14 +1195,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateEvChip(state.evIndex)
         updateTopBar()
         layoutAll(state.mode)
-        if (quickReturnMode != null && state.mode == CaptureMode.VIDEO) handler.post {
-            if (quickReturnMode != null && camera.mode == CaptureMode.VIDEO &&
-                state.videoCaptureProblem == null &&
-                quickRecording.ready() == com.novacamera.s24.core.QuickRecording.Action.START) {
-                camera.startRecording()
-                if (!camera.isRecording) { quickRecording.finished(); restoreQuickMode() }
-            }
+        quickVideoWarmup.cancel()
+        if(quickReturnMode!=null && state.mode==CaptureMode.VIDEO) {
+            if(camera.cinematicBound && !camera.cinematicReady)hint.show("Preparando profundidade · solte para cancelar",2500)
+            quickVideoWarmup.await(
+                valid={quickReturnMode!=null && camera.mode==CaptureMode.VIDEO && state.videoCaptureProblem==null},
+                ready={camera.ready && camera.cinematicReady},
+                start={
+                    if(quickRecording.ready()==com.novacamera.s24.core.QuickRecording.Action.START) {
+                        camera.startRecording()
+                        if(!camera.isRecording) { quickRecording.finished();restoreQuickMode() }
+                    }
+                },
+                expired={quickRecording.finished();restoreQuickMode();hint.show("Profundidade não ficou pronta; tente novamente ou desative o efeito",3000)})
         }
+
     }
 
     override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }

@@ -1,10 +1,8 @@
-# Entrega em andamento — 0.24.2 build 64 (1064 esperado)
+# Revisão final 0.24.3 — aguardar máscara na gravação rápida
 
-- Build assinado [39070544992](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070544992), job117507244005, em andamento; fonte `8bce82fe70ac054eedaaba2a9957c48f97509096`. Build63/39070326049 foi cancelado por esta revisão e não entregue; não reenviar como novo.
-- Gatilho de push restaurado em `cecf66f2c940cc2d188107677a19de7b78dd6ea3`; blob original a82bc113b2de207b7a3e9a9660cc19af520167ff. Sem release automático; guard de publicação preservado.
-- **Próximo passo exato:** aguardar build64, conferir testes/lint, NAFNet/Depth Anything, compileRelease, pesos no APK, certificado/versionCode e upload. Confirmar publicação skipped; registrar link real/bytes/digest/expiração e entregar. Não gerar duplicado enquanto ativo.
-- Cobre feedback de leitura lenta com PixelCopy assíncrono reduzido; cinematográfico experimental opcional FHD/30/EISoff, preview+VIDEO_CAPTURE e marca no mesmo renderer; primeiro acabamento opcional de sombras atéFHD/60/SDR/2min, original e amostras de áudio/PTS preservados por conferência real do arquivo exportado antes de publicar cópia. Denoise temporal avançado ainda pendente.
-- Roteiro físico VIDEO_EVOLUCAO_S24_VALIDACAO.md. Nenhum S24/MP4 pessoal novo nesta sessão; imagem anexada só foi vista localmente, não publicada. Não alegar qualidade de bordas/energia/MP4 validada por testes JVM. Histórico técnico e execuções anteriores abaixo.
+- Corrige integração importante: bind do Vídeo pode terminar antes de existir máscara; o fluxo rápido antigo chamava START imediatamente, era recusado e voltava ao Retrato. QuickVideoWarmup aguarda prontidão sem consumir START, por até8s; guarda geração/gesto e cancela ao soltar/restaurar/sair. Testes Handler/Looper cobrem início único, liberação antes da máscara, troca de sessão e timeout.
+- Build64/0.24.2 substituído por esta revisão; não entregar como versão final. Novo push autorizado gera build substituto com testes/lint antes do APK e guard de publicação skipped. Restaurar gatilho original após identificar nova execução; confirmar modelos/certificado/artefato real e registrar link.
+- Mantém todas as etapas anteriores (PixelCopy reduzido assíncrono, cinematográfico FHD/30/EISoff explícito, primeiro acabamento tonal opcional atéFHD/60/SDR/2min, original intacto e conferência de áudio/PTS). Denoise temporal avançado ainda pendente. S24/MP4/energia sem validação física nesta sessão.
 
 ---
 

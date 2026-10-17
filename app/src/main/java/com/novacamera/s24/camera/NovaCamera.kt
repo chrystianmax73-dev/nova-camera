@@ -2164,6 +2164,7 @@ class NovaCamera(
 
     private var portraitEffect: PortraitPreviewEffect? = null
     var cinematicBound = false; private set
+    val cinematicReady get() = !cinematicBound || portraitEffect?.maskReady==true
     private var cinematicClosing = false
     private var cinematicFailed = false
     @Volatile private var cinematicTap: Pair<Float,Float>? = null
