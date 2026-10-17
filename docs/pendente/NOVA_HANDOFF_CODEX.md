@@ -1,3 +1,20 @@
+# Entrega confirmada — Nova Camera 0.24.6 build66 (1066)
+
+- **APK assinado disponível:** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550/artifacts/12116148402), artefato12116148402, 132573776 bytes, digest **do ZIP** sha256:ddbbae52c218a8c72713bb10487bb89229c6e7588b8b61965fb2bc07de70b793; expira 2026-11-16T22:28:41Z. Atualização de teste com a chave permanente, sem release publicado.
+- [Actions39074742550](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550), job117519451049, concluído com sucesso. **244 testes aprovados, 5 locais dispensados, 0 falhas**; lint, JPEG sintético200MP, modelos NAFNet/DepthAnything, assembleRelease, pesos offline (profundidade=True), continuidade do certificado/versionCode e upload aprovados. Publicação skipped.
+- Fonte do app `da1e33b42a65c71a41c91e7235cc8745bd42d15d`, aprovada no CI39074393867. Fonte do APK `afcf41f1667ccec3abbf4982c9c242acdb45bf26`; código idêntico ao aprovado, só gatilho temporário diferente. Gatilho original restaurado em `25c8445411a2c930ca63b201de5048d6a19947c1`, blob a82bc113b2de207b7a3e9a9660cc19af520167ff. CIs da fonte assinada39074742577, restauração39074769248 e handoff39074823529 também aprovados. Buscar HEAD atualizado antes de continuar; docs posteriores não alteram aplicativo.
+- Corrigidos o fluxo de espera de máscara sob calor (escolha explícita de comum na mesma qualidade, sem início tardio), vigia por sessão independente de metadados opcionais e sem repetição em modos sem callback/prévia isolada, geometria da marca compartilhada e passes de desfoque sem análise útil. Notas antigas descartadas por geração. Sem mudar assinatura Android, INTERNET, dependências, Noturno ou motor fotográfico.
+- **Validação S24 ainda necessária:** rastreamento/cinematográfico são experimentais; teste frio/fora do carregador conforme VIDEO_EVOLUCAO_S24_VALIDACAO.md. Verificar foco/máscaras/contornos e marca de pé nos pixels do MP4, frente/trás/espelho, áudio, interrupções, fallback e dados reais de FPS/resolução. Diagnóstico0.24.3 confirmou comum1080×1920/AVC/29.97fps, não provou cinema/marca. Nenhum MP4 pessoal novo recebido ou enviado ao Git.
+- Calor severo3 do feedback suspendeu modelos; potência não foi medida enquanto carregava e não há A/B/GPU/autonomia comprovados. Próximo: tratar feedback desta entrega e separar renderer de CaptureResult se houver congelamento com resultados ainda avançando; depois refinar máscaras/consumo com evidência. **Denoise temporal avançado/compensação de movimento permanecem pendentes**; acabamento atual é apenas ajuste leve de sombras opcional, original preservado.
+
+## Texto para continuar
+
+Continue Nova Camera pela branch codex/video-estabilidade-0-20 no HEAD remoto atualizado. Leia este handoff inteiro e topo STATUS. Entrega0.24.6/build66(1066), APK no artefato12116148402 do run39074742550, fonteafcf41f1667ccec3abbf4982c9c242acdb45bf26; fonte appda1e33b42a65c71a41c91e7235cc8745bd42d15d, 244 testes aprovados/5 dispensados/lint/compilação/modelos/certificado/upload verificados, sem release. Gatilho original já restaurado25c8445411a2c930ca63b201de5048d6a19947c1. Trate meu feedback do S24 antes de prometer estabilidade/qualidade de cinema ou autonomia; protocolo VIDEO_EVOLUCAO_S24_VALIDACAO.md. Máscara/tracking pausam no calor severo; alternativa comum explícita preserva qualidade. Marca orientada e vigia corrigidos em código, pixels MP4 ainda requerem aparelho. Próximo denoise temporal real só com testes sintéticos/compensação de movimento, original e áudio/PTS preservados. Preserve chave permanente/main/fotos/HDR/Retrato/Noturno/zoom/SR, sem INTERNET ou mídia pessoal no Git.
+
+---
+
+## Histórico de preparação preservado — a entrega acima substitui os estados pendentes abaixo
+
 # Continuidade — 0.24.6 aprovada, APK66 em geração (17/10/2026)
 
 - Branch `codex/video-estabilidade-0-20`; base conferida1f49b39bd9037f1a3a1a34e655dcf667fa50f680 e baseline39071730931 aprovado. Main, branch original e APK65/0.24.3 preservados. Buscar HEAD remoto atualizado antes de continuar.
