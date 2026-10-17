@@ -1,3 +1,11 @@
+# 0.21.4 — prévia segura após esgotar a recuperação (17/10/2026)
+
+- Depois de finalizar o arquivo e esgotar o orçamento de recuperação, liga somente a prévia; não deixa ativa a sessão de gravação que parou. Obturador continua bloqueado até nova escolha explícita.
+- Esta prévia não reinicia o orçamento nem dispara ciclos de reabertura. Alternativa de FPS inferior na mesma resolução continua exigindo escolha do usuário.
+- Mantém as correções de negociação, EIS, assinatura e metadados da 0.21.2/0.21.3. Política térmica preservada: o estado moderado 2 do diagnóstico não bloqueia 4K isoladamente; o limite de vídeo exige estado severo ou economia ativa.
+- Testes da máquina de recuperação e da interface serão repetidos junto de compilação e lint. CI pendente; nenhuma validação física desta versão e nenhum APK novo disponível ainda.
+- Roteiro físico: [VIDEO_S24_VALIDACAO.md](pendente/VIDEO_S24_VALIDACAO.md). Rastreamento, pós-processamento opcional e profundidade permanecem próximos passos após estabilizar captura no aparelho.
+
 # 0.21.3 — assinatura de vídeo e espelho (17/10/2026)
 
 - Assinatura deixa de ser removida por uma parada genérica da prévia. Falhas GL/combinações recusadas ficam isoladas no perfil afetado, preservando a preferência e outras resoluções/câmeras.

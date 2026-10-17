@@ -1,3 +1,9 @@
+## 0.21.4 — último ajuste de recuperação
+
+- Após STOP do orçamento, religar somente prévia, sem vídeo/efeito, com obturador bloqueado e alternativa explícita. Se havia gravação, aguardar Finalize antes disso. Esta prévia não reinicia o watchdog/ciclo; usuário precisa alterar configuração.
+- Política térmica lida: `limitVideo = status >= SEVERE || powerSave`, moderado isolado não explica o relato. Nenhuma alteração térmica/Noturno/assinatura Android.
+- Aguardar CI da 0.21.4 (compile, unidade, lint). A correção do callback do teste da 0.21.3 roda em https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39058541277. APK deve sair somente após teste completo aprovado, como artefato assinado, sem criar release automático.
+
 ## Verificação da 0.21.3 — sincronização do teste
 
 - Código da etapa: `4bd28076420f1cfad1b1852e84380a14a50165ed`, branch `codex/video-estabilidade-0-20`.

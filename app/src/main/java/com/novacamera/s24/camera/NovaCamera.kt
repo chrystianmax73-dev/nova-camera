@@ -239,7 +239,10 @@ class NovaCamera(
                     listener.onMessage("A câmera parou; recuperando sem mudar resolução ou fps")
                     bind()
                 }
-                else -> blockVideoCapture("A câmera não se recuperou. Altere a configuração ou reabra a câmera")
+                else -> {
+                    blockVideoCapture("A câmera não se recuperou. Escolha outra combinação para gravar")
+                    if (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) bind()
+                }
             }
             return
         }
@@ -488,7 +491,9 @@ class NovaCamera(
         camera = null
         videoEffects.close()
         videoSignatureOverlay = null
-        videoBindingIssue = null
+        videoBindingIssue = if (videoRecovery.exhausted &&
+            (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO))
+            "A sessão de gravação parou repetidamente; prévia apenas. Escolha outra combinação" else null
         requestedVideoSize = null
         // Rajada do Noturno interrompida pela troca de câmera/modo: a sessão nova volta ao automático.
         nightOverride = null
@@ -760,7 +765,7 @@ class NovaCamera(
             } ?: listener.onPortraitPreview(null)
             val sig = signatureStyle()
             // O renderizador compensa recorte, rotação e espelho para manter o texto legível.
-            if (sig != null && settings.signatureVideo && !videoEffectFailed && videoCapture != null &&
+            if (sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) {
                 videoEffects.replace { signatureEffect(sig) }
             }
@@ -810,7 +815,7 @@ class NovaCamera(
                 videoBindingIssue = "${settings.videoQuality.label}/${settings.videoFps} fps não aceito pela sessão desta câmera"
                 suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(settings.videoFps, fpsOptions)
             }
-            if (videoBindingIssue != null && settings.videoFps !in fpsOptions && !limitVideo &&
+            if (videoBindingIssue != null && (videoRecovery.exhausted || settings.videoFps !in fpsOptions) && !limitVideo &&
                 settings.videoQuality in qualityOptions)
                 suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(settings.videoFps, fpsOptions)
             if (videoBindingIssue != null) {
@@ -837,7 +842,10 @@ class NovaCamera(
             camera = if (highSpeedConfig != null) p.bindToLifecycle(activity, selector, highSpeedConfig)
                      else p.bindToLifecycle(activity, selector, group!!)
             if (pinned != null) watchPinnedStart(camera, currentLens)
-            watchCamera = camera
+            // Após esgotar o orçamento só a prévia é religada. Não reinicia gravação nem
+            // continua o ciclo automático; uma escolha explícita renova o orçamento.
+            watchCamera = if (videoRecovery.exhausted &&
+                (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) null else camera
             watchdog.removeCallbacks(watchTick); watchdog.postDelayed(watchTick, 1000L)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao configurar $mode", e)
@@ -2346,9 +2354,10 @@ class NovaCamera(
                             "$captureContext · desenhos da assinatura na textura=${captureOverlay?.drawings ?: 0}")
                         val recovery = videoRecovery.finalized()
                         if (released) releaseCaptureResources()
-                        else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.STOP)
-                            blockVideoCapture("Vídeo finalizado. A câmera não se recuperou; escolha outra configuração")
-                        else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.REBIND ||
+                        else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.STOP) {
+                            blockVideoCapture("Vídeo finalizado. Escolha outra combinação para gravar")
+                            if (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) bind()
+                        } else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.REBIND ||
                             settingsChangedDuringRecording || freshSessionRequested) {
                             settingsChangedDuringRecording = false
                             if (!videoRecovery.exhausted) bind()
