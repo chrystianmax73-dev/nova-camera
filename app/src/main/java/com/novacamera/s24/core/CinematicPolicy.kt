@@ -12,6 +12,14 @@ object CinematicPolicy {
         !ready -> "A máscara ainda não está pronta ou perdeu validade"
         else -> null
     }
+    data class RenderWork(val copy:Boolean,val blur:Boolean)
+    /** Calibração sem máscara precisa de uma cópia, não dos quatro passes de desfoque.
+     * Sem análise disponível (ex.: pausa térmica), não há calibração para executar.
+     */
+    fun renderWork(enabled:Boolean,expiring:Boolean,ready:Boolean,blend:Float,calibrationPending:Boolean):RenderWork {
+        val blur=enabled && (!expiring || ready || blend>.001f)
+        return RenderWork(blur || (enabled && calibrationPending),blur)
+    }
     fun fresh(now:Long,at:Long) = at>0 && now>=at && now-at<750
     /** A inferência tem orçamento próprio; movimento invalida cache sem contornar esse limite. */
     fun depthInterval(thermal:Int,still:Boolean) = if(thermal>=2) 1500L else if(still) 2500L else 900L

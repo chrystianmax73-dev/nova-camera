@@ -114,9 +114,11 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private var surfaceTexture: SurfaceTexture? = null
     private var oesTex = 0
     private var inputSize = Size(0, 0)
+    private var signatureInput: com.novacamera.s24.processing.CinematicSignature.Input? = null
+    private var signatureRevision = 0L
     private var maskBlend=0f
     private var blendAt=0L
-    private class Out(val output: SurfaceOutput, val egl: EGLSurface, val size: Size, var logo: Int = 0)
+    private class Out(val output: SurfaceOutput, val egl: EGLSurface, val size: Size, var logo: Int = 0, var logoRevision: Long = -1)
     private val outputs = ArrayList<Out>()
 
     private var progCopy = 0; private var progBlur = 0; private var progFinal = 0
@@ -147,8 +149,17 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             surfaceTexture?.release(); if (oesTex != 0) GLES20.glDeleteTextures(1, intArrayOf(oesTex), 0)
             surfaceTexture = st; oesTex = tex; inputSize = request.resolution
             needsCalibration = true
+            signatureInput=null;signatureRevision++
+            request.setTransformationInfoListener(executor) { info ->
+                if(!released && surfaceTexture===st) {
+                    signatureInput=com.novacamera.s24.processing.CinematicSignature.Input(
+                        info.cropRect,info.rotationDegrees,info.isMirroring,info.sensorToBufferTransform)
+                    signatureRevision++
+                }
+            }
             st.setOnFrameAvailableListener({ onFrame() }, handler)
             request.provideSurface(surface, executor) {
+                request.clearTransformationInfoListener()
                 st.setOnFrameAvailableListener(null)
                 st.release(); surface.release()
                 if (surfaceTexture === st) { surfaceTexture = null; GLES20.glDeleteTextures(1, intArrayOf(tex), 0); oesTex = 0 }
@@ -241,13 +252,16 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         val target=if(blur && maskReady && s>0.01f)1f else 0f
         if(expireMasks) { maskBlend+=(target-maskBlend)*((now-blendAt).coerceIn(0L,100L)/180f).coerceIn(0f,1f); blendAt=now }
         else maskBlend=target
-        if (blur && (!expireMasks || maskBlend>0.001f || maskReady || needsCalibration)) {
+        val work=com.novacamera.s24.core.CinematicPolicy.renderWork(blur,expireMasks,maskReady,maskBlend,pendingCalibration!=null)
+        if (work.copy) {
             // 1) Cópia reduzida em coordenadas do buffer (as mesmas da máscara).
             drawTo(fbo[0], smallW, smallH) {
                 use(progCopy); bindOes(progCopy, "uCam", 0)
                 GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progCopy, "uTex"), 1, false, identity, 0)
             }
             pendingCalibration?.let { analysis -> pendingCalibration = null; calibrate(analysis) }
+        }
+        if (work.blur) {
             // 2) Desfoque separável (duas iterações), raio proporcional à intensidade e na escala da foto final.
             val radius = (5f + 18f * s) * maxOf(smallW, smallH) / 1000f
             repeat(2) {
@@ -272,17 +286,23 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uTone"), tone)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uWarmth"), warmth)
             val style=watermark?.takeIf { o.output.targets and androidx.camera.core.CameraEffect.VIDEO_CAPTURE != 0 }
-            if (style != null && o.logo==0) {
+            if (o.logo!=0 && o.logoRevision!=signatureRevision) {
+                GLES20.glDeleteTextures(1,intArrayOf(o.logo),0);o.logo=0
+            }
+            val geometry=signatureInput
+            if (style != null && geometry!=null && o.logo==0) {
                 val bmp=android.graphics.Bitmap.createBitmap(o.size.width,o.size.height,android.graphics.Bitmap.Config.ARGB_8888)
                 try {
-                    com.novacamera.s24.processing.Signature.draw(bmp,style)
+                    check(com.novacamera.s24.processing.CinematicSignature.draw(
+                        android.graphics.Canvas(bmp),geometry,o.output.sensorToBufferTransform,style)) { "Geometria da assinatura indisponível" }
+                    o.logoRevision=signatureRevision
                     o.logo=IntArray(1).also { GLES20.glGenTextures(1,it,0) }[0]
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,o.logo); texParams(GLES20.GL_TEXTURE_2D)
                     android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bmp,0)
                 } finally { bmp.recycle() }
             }
             bindTex(progFinal,"uLogo",3,if(o.logo!=0)o.logo else fboTex[0])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal,"uLogoOn"),if(style!=null)1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal,"uLogoOn"),if(style!=null && o.logo!=0)1f else 0f)
             drawQuad(progFinal)
             EGLExt.eglPresentationTimeANDROID(display, o.egl, st.timestamp)
             check(EGL14.eglSwapBuffers(display, o.egl)) { "Falha ao entregar quadro da composição" }

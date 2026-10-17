@@ -1,3 +1,12 @@
+# 0.24.6 — marca orientada no compositor e passes de desfoque sob demanda (17/10/2026)
+
+- A captura real mostra marca vertical. Compositor desenhava logo nas dimensões cruas da saída compartilhada PREVIEW|VIDEO_CAPTURE, ignorando rotação posterior. Agora usa TransformationInfo pública (recorte/rotação/espelho/sensor→entrada) e SurfaceOutput.sensorToBufferTransform para orientar marca junto da imagem; atualiza textura só quando muda geometria. Vídeo comum/OverlayEffect preservado, sem efeito adicional ou API interna.
+- A espera de calibração mantinha cópia reduzida e quatro passes de blur mesmo com máscara suspensa pelo calor. Calibração agora copia apenas quando recebe amostra; blur só trabalha com máscara ou transição visível. Proteções térmicas e validade mantidas; não é medição de autonomia/GPU.
+- Testes gráficos nativos com pixels em quatro rotações, espelho, recorte e saída compartilhada/já orientada; testes de orçamento cobrem pausa, primeira calibração, chegada/perda da máscara e Retrato fotográfico. CI ainda pendente; pixels do MP4 e temperaturas reais continuam exigindo S24. Inclui correções0.24.4/0.24.5.
+- Próximo: conferir Actions e corrigir falhas reais, entregar APK assinado de teste sem release automático. Denoise temporal avançado e contornos/rastreamento premium permanecem pendentes; não adicionar processamento pesado ao aparelho já severamente quente sem medições controladas.
+
+---
+
 # 0.24.5 — sinal de sessão e recuperação limitada (17/10/2026)
 
 - Sinal de atividade passa a contar todos os CaptureResults antes de ISO/exposição opcionais; callback por geração ignora resultados antigos. Aviso enfileirado só recupera se não chegou novo resultado nesse intervalo. Cadência diagnóstica também conta resultados sem campos opcionais; não mede apresentação na tela.
@@ -12,7 +21,7 @@
 - Base remota 1f49b39bd9037f1a3a1a34e655dcf667fa50f680 conferida; baseline Actions39071730931 aprovado antes de editar. Feedback real 0.24.3: calor severo3, carregando,42.7–43.6°C; potência indisponível. Rastreamento e máscara suspensos; esperar máscara não resolveria o calor. Sem mídia pessoal no Git.
 - O botão oferece escolha explícita de vídeo comum nesta sessão, conserva resolução/FPS/EIS e preferência cinematográfica; reconfiguração não começa arquivo, exige novo toque. Gesto rápido sob calor não fica aguardando máscara impossível. Proteções térmicas mantidas, sem inferência forçada. Diagnóstico distingue compositor ligado de máscara atual.
 - Diagnóstico do dono confirma MP4 comum1080×1920/AVC/29.97fps médios; não prova cinematográfico/marca nos pixels. Crashes listados são da0.20.0, não novos. CPU/PSS/cadência são amostras reais sem A/B controlado; não há prova de autonomia melhor. Profundidade fotográfica937ms não é medição do cinema.
-- CI desta alteração pendente. Próximo: corrigir vigia que usa metadados opcionais como sinal de vida e monitora sessões sem callback/prévia isolada; limitar mensagens/recuperações, testar e entregar APK assinado sem release. Investigar orientação da marca do compositor em etapa específica. Denoise temporal/qualidade avançada permanecem pendentes.
+- Compilação, testes unitários e lint0.24.4 aprovados no Actions39073650405 (fontef33a7815e003c4ac28082627f9a29c55d2eb1aa1). Próximo: corrigir vigia que usa metadados opcionais como sinal de vida e monitora sessões sem callback/prévia isolada; limitar mensagens/recuperações, testar e entregar APK assinado sem release. Investigar orientação da marca do compositor em etapa específica. Denoise temporal/qualidade avançada permanecem pendentes.
 
 ---
 
