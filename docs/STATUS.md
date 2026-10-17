@@ -1,6 +1,10 @@
-# 0.24.1 — troca serial dos efeitos e proteção por memória (17/10/2026)
+# 0.24.2 — drena também liberação GL já solicitada (17/10/2026)
 
-- APK assinado build 63 em execução [39070326049](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070326049), fonte `3b8dcbe8651b810beb2c137fcfec8fc46dfe2dec`, app `695e5d46d0a9b78e4eff74798265b947a2521295`. Ainda não declarar disponível. Gatilho original restaurado em `e9487a1272b82885eb0e089119f704642ceab300`; publicação de release será pulada nesta branch.
+- Revisão final cobre efeito já retirado do slot cujo cleanup ainda está enfileirado: marca de aposentadoria acompanha a fila, não apenas a referência atual. Novo teste cobre slot vazio com trabalho GL pendente; troca para cinematográfico continua aguardando a limpeza real. Perfis bloqueados deixam de criar efeito de assinatura que não será utilizado.
+- Inclui todas as etapas 0.22.1/0.23.0/0.24.0/0.24.1 abaixo, com grupos de energia separados por função. Núcleo anterior c4d4e8a aprovado em CI39069941647; execução assinada63 não será a entrega final, substituída por esta revisão com testes completos antes de gerar APK.
+- Próximo build de teste assinado com publicação skipped; ainda sem APK confirmado. Validação S24/MP4 e consumo permanecem pendentes, assim como denoise temporal avançado. Original, assinatura permanente e main preservados.
+
+# 0.24.1 — troca serial dos efeitos e proteção por memória (17/10/2026)
 
 - Revisão c4d4e8a09df5d0a70d401e4f68223f65f63e4428 aprovada em compilação/testes/lint no [Actions 39069941647](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069941647). Rótulos de diagnóstico agora distinguem cinematográfico/acabamento para comparações de consumo; nenhum ganho demonstrado. Roteiro: [VIDEO_EVOLUCAO_S24_VALIDACAO.md](pendente/VIDEO_EVOLUCAO_S24_VALIDACAO.md).
 

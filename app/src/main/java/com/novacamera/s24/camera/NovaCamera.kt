@@ -487,11 +487,11 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
-        if(settings.cinematicVideo && videoEffect!=null) {
+        if(settings.cinematicVideo && commonEffectPending) {
             cinematicClosing=true;invalidateSubjectTracking();watchCamera=null;watchGeneration++;videoEffectGeneration++
             p.unbindAll();camera=null
             EffectQueueBarrier.drain(Handler(effectThread.looper),main,{ videoEffects.close();videoSignatureOverlay=null }) {
-                cinematicClosing=false
+                commonEffectPending=false;cinematicClosing=false
                 if(!released && !paused)bind()
             }
             return
@@ -788,7 +788,7 @@ class NovaCamera(
             } ?: listener.onPortraitPreview(null)
             val sig = signatureStyle()
             // O renderizador compensa recorte, rotação e espelho para manter o texto legível.
-            if (!cinematicBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
+            if (videoBindingIssue==null && !cinematicBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) {
                 videoEffects.replace { signatureEffect(sig) }
             }
@@ -2268,6 +2268,7 @@ class NovaCamera(
     private val videoEffect get() = videoEffects.current
     /** Isola a configuração incompatível; trocar UHD/60 por FHD não perde a assinatura. */
     private var videoEffectFailed = false
+    private var commonEffectPending = false
     private val effectThread by lazy { android.os.HandlerThread("nova-video-signature").also { it.start() } }
     private val failedVideoEffectProfiles = mutableSetOf<String>()
     private var videoEffectGeneration = 0L
@@ -2296,6 +2297,7 @@ class NovaCamera(
 
     /** Desenha a assinatura em cada quadro gravado (não na pré-visualização). */
     private fun signatureEffect(style: com.novacamera.s24.processing.SignatureStyle): androidx.camera.effects.OverlayEffect {
+        commonEffectPending=true
         val generation = videoEffectGeneration
         // Cada handler identifica a geração que falhou, mesmo usando a mesma fila GL serial.
         val effectHandler = VideoEffectHandler(effectThread.looper) { onVideoEffectFailure(it, generation) }

@@ -25,4 +25,14 @@ class EffectQueueBarrierTest {
         main.single().run()
         assertEquals(listOf("close solicitado","EGL liberado","próximo contexto"),order)
     }
+    @Test fun slotJaFechadoAindaAguardaCleanupPendenteNaFilaAntiga() {
+        val owner=Handler(Looper.getMainLooper())
+        val order=mutableListOf<String>();val ready=mutableListOf<Runnable>()
+        owner.post { order+="cleanup anterior" }
+        EffectQueueBarrier.drain(owner,Executor { ready+=it },{}, { order+="novo renderizador" })
+        assertTrue(ready.isEmpty())
+        shadowOf(Looper.getMainLooper()).idle();ready.single().run()
+        assertEquals(listOf("cleanup anterior","novo renderizador"),order)
+    }
+
 }

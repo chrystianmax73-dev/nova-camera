@@ -1,10 +1,8 @@
-# Entrega em andamento — APK 0.24.1 build 63
+# Revisão 0.24.2 — build anterior não é entrega final
 
-- Build assinado [39070326049](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39070326049), job117506408597, iniciado; ainda sem artefato confirmado. Fonte `3b8dcbe8651b810beb2c137fcfec8fc46dfe2dec`, app `695e5d46d0a9b78e4eff74798265b947a2521295`, núcleo previamente aprovado `c4d4e8a09df5d0a70d401e4f68223f65f63e4428` no CI39069941647. Mudança posterior do app apenas rotula medições de energia/CPU/PSS por função.
-- Gatilho temporário de push restaurado em `e9487a1272b82885eb0e089119f704642ceab300`. Workflow original a82bc113b2de207b7a3e9a9660cc19af520167ff preservado, sem publicação para push desta branch. Não gerar build duplicado enquanto este estiver ativo.
-- Próximo passo: aguardar e verificar testes/lint, NAFNet e Depth Anything, assembleRelease, pesos no APK, continuidade do certificado/versionCode, upload real e publicação skipped. Então registrar link/bytes/digest/expiração e entregar APK. Se falhar, ler erro concreto e preservar original do usuário.
-- Contém correção da cópia reduzida assíncrona do rastreamento, caminho cinematográfico experimental na prévia/VIDEO_CAPTURE com composição de assinatura, perfil FHD/30/EISoff escolhido pelo usuário; e acabamento de sombras opcional via pressão longa da miniatura, atéFHD/60/SDR/2min, original preservado e conferência real de metadados/quadros/áudio antes de salvar. Denoise temporal avançado permanece pendente; não apresentá-lo pronto.
-- Nenhum S24 conectado ou MP4 real novo recebido; confirmar imagens/áudio/qualidade/foco/temperatura no aparelho conforme VIDEO_EVOLUCAO_S24_VALIDACAO.md. Captura de tela do dono não foi enviada ao Git. Fontes, tentativas e limitações detalhadas abaixo são histórico preservado.
+- Detectado caso adicional de troca GL: slot pode estar vazio mas cleanup anterior ainda estar na fila. commonEffectPending permanece marcado desde signatureEffect até a barreira confirmar drenagem; não confundir slot nulo com EGL já liberado. Teste cobre liberação já solicitada; perfis bloqueados não criam assinatura desnecessária.
+- Fonte anterior do build63 3b8dcbe8651b810beb2c137fcfec8fc46dfe2dec/0.24.1 não deve ser anunciada como entrega final. Novo push do workflow de teste na mesma branch inicia build substituto e a concurrency cancela o anterior se ainda ativo; nunca publicar release.
+- Próximo passo: identificar nova execução assinada, restaurar gatilho original assim que aparecer, verificar testes/lint/modelos/certificado/artefato e registrar APK0.24.2 real. Mantém cinematográfico experimental e primeiro acabamento, não denoise temporal. Nada foi validado fisicamente no S24 nesta sessão.
 
 ---
 
