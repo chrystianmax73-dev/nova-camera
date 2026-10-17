@@ -487,6 +487,15 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
+        if(settings.cinematicVideo && videoEffect!=null) {
+            cinematicClosing=true;invalidateSubjectTracking();watchCamera=null;watchGeneration++;videoEffectGeneration++
+            p.unbindAll();camera=null
+            EffectQueueBarrier.drain(Handler(effectThread.looper),main,{ videoEffects.close();videoSignatureOverlay=null }) {
+                cinematicClosing=false
+                if(!released && !paused)bind()
+            }
+            return
+        }
         if (portraitEffect != null && (cinematicBound || settings.cinematicVideo)) {
             val old=portraitEffect!!; portraitEffect=null; cinematicBound=false; cinematicClosing=true
             stopPortraitAnalysis(); p.unbindAll(); camera=null

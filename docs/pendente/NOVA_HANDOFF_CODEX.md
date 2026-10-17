@@ -1,3 +1,13 @@
+# 0.24.1 — revisão final e próximo APK
+
+- Branch codex/video-estabilidade-0-20. 0.24.0 passou no CI39069611401, app97ce062cb37539b4975fd9bcae6806514f80f7c8; inclui as etapas 0.22.1/0.23.0 descritas abaixo. Nenhum APK novo gerado ainda nesta etapa.
+- 0.24.1 acrescenta EffectQueueBarrier e teste: fechar OverlayEffect enfileira limpeza, portanto a fábrica do cinematográfico só executa depois de marcador na fila GL antiga. Fecha a corrida de troca de efeitos; não apenas captura exceção. Baixa memória cancela acabamento opcional. CI desta revisão pendente.
+- **Próximo passo imediato:** conferir CI0.24.1, corrigir falhas reais, gerar APK de teste pelo workflow existente, sem release (guard de push nesta branch), restaurar gatilho original assim que execução aparecer, confirmar testes/modelos/certificado/artefato. Atualizar STATUS/handoff com fonte, build e link real.
+- Orientar dono: testar rastreamento primeiro, depois ativar cinematográfico com FHD/30/EISoff escolhidos manualmente; aguardar máscara. Pressão longa na miniatura de vídeo oferece acabamento leve de sombras e comparação, original preservado; atéFHD/60/2min SDR. Pipeline depende de o processo permanecer vivo. Não há denoise temporal avançado nem prova de melhoria energética.
+- Validação S24: PixelCopy deve reduzir latência mas ainda não foi medido no aparelho; efeitos devem ser confirmados na prévia E nos pixels do MP4 (incluindo marca, áudio, rotação/espelho, atrás/frente, gravação rápida do Retrato e fallback). Máscaras/contornos/temperatura precisam de feedback real. Não declarar aprovação física com testes JVM.
+
+---
+
 # Etapa 0.24.0 — acabamento opcional em validação
 
 - Branch codex/video-estabilidade-0-20; não tocar main/assinatura. 0.22.1 (PixelCopy reduzido assíncrono) aprovada no CI39068644575; 0.23.0 cinematográfico aprovada no CI39069180455, app677b94522383a05b5c41b192ead61d7958540c00.

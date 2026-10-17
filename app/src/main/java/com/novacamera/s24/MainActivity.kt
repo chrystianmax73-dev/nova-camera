@@ -439,6 +439,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         super.onTrimMemory(level)
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             if (::tracking.isInitialized) tracking.stop("Memória limitada")
+            com.novacamera.s24.processing.VideoFinishJob.cancel("Memória limitada; acabamento cancelado e original preservado")
             ProcessingQueue.trimModelMemory()
         }
     }

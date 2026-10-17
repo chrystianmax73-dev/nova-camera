@@ -1,3 +1,11 @@
+# 0.24.1 — troca serial dos efeitos e proteção por memória (17/10/2026)
+
+- 0.24.0 aprovada em compilação, testes e lint no [Actions 39069611401](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069611401), app 97ce062cb37539b4975fd9bcae6806514f80f7c8.
+- Troca da assinatura comum para o cinematográfico aguarda também a limpeza GL que o close() do CameraX enfileirou. Barreira assíncrona na fila antiga antecede criação do contexto novo; sem bloquear UI ou sobrepor limpeza/criação. Teste ordena cleanup→callback→próximo contexto. Retorno ao comum já aguardava liberação do renderizador cinematográfico.
+- Pressão de memória encerra acabamento opcional preservando original, além das proteções de calor/captura existentes. Não altera qualidade da gravação para acomodar os recursos.
+- Inclui PixelCopy reduzido assíncrono, cinematográfico experimental opcional FHD/30/EISoff e primeiro acabamento de sombras opcional até FHD/60/2min. Recursos físicos, marcas no MP4, máscaras e consumo ainda exigem validação S24; denoise temporal avançado não implementado.
+- CI final e APK assinado desta versão pendentes nesta entrada. Assinatura Android, main, modelos e versão anterior preservados.
+
 # 0.24.0 — primeiro acabamento local opcional do vídeo (17/10/2026)
 
 - Base cinematográfica 0.23.0 aprovada em assembleDebug, testes unitários e lint no [Actions 39069180455](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39069180455), commit 677b94522383a05b5c41b192ead61d7958540c00. Primeira tentativa 39068951806 falhou no callback antigo de PortraitMaskAnalyzer após adicionar parâmetros opcionais; callback nomeado corrigiu a compatibilidade.
