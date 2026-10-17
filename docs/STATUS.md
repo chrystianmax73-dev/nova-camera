@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.19.1 — Alta resolução: 2× de fato e descrição correta no Retrato
+
+Caso real (0.19.0): planta no Retrato a 3× saiu com 4590×6120 (28 MP, 1,5×) — a guarda de memória
+exigia 2,2× o tamanho da foto livre e reduziu a escala; e a nota do Retrato apagava a da alta
+resolução (a redução não aparecia na descrição). Agora: folga de 1,6× (a saída já é escrita
+orientada e o resto trabalha por blocos) e notas somadas ("Alta resolução: … · Sem pessoa: …").
+Detalhe comparado com a 0.18 na mesma planta: bordas das folhas limpas, sem o contorno claro de
+nitidez exagerada.
+
 ## 0.19.0 — Alta resolução na tele (3× e 5×, Foto e Retrato)
 
 Opção **Ajustes › Foto Nova › Alta resolução na tele** (ligada). No zoom óptico da tele (≥ 2,5×

@@ -360,10 +360,12 @@ object ProcessingQueue {
                     session.saveMatte(subject.matte)
                     subject.blur?.let { runCatching { session.saveBlurMap(it) } }
                     session.hasPerson = true
-                    subject.note?.let { note = it }
+                    // Soma à nota da captura (ex.: alta resolução), em vez de apagá-la.
+                    subject.note?.let { note = if (note.isBlank()) it else "$note · $it" }
                 } else {
-                    note = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
-                           else "Nenhuma pessoa ou objeto destacado: foto salva sem desfoque"
+                    val why = if (seg == null) "Segmentação indisponível: foto salva sem desfoque"
+                              else "Nenhuma pessoa ou objeto destacado: foto salva sem desfoque"
+                    note = if (note.isBlank()) why else "$note · $why"
                 }
             }
             session.note = note
@@ -594,7 +596,9 @@ object ProcessingQueue {
         for (s in floatArrayOf(wanted, 1.5f, 1f)) {
             if (s > wanted) continue
             val bytes = (w * s).toLong() * (h * s).toLong() * 4
-            if (s <= 1f || free > bytes * 2.2) return s
+            // Folga de 1,6× a foto final: a saída é escrita já orientada (sem cópia girada) e as etapas
+            // seguintes trabalham por blocos. Com 2,2× a 0.19.0 caía para 1,5× (28 MP) no S24 Ultra.
+            if (s <= 1f || free > bytes * 1.6) return s
         }
         return 1f
     }
