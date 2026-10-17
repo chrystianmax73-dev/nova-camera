@@ -200,6 +200,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onStart() {
         super.onStart()
         monitor.start()
+        performanceGeneration++
+        com.novacamera.s24.core.SessionPerformance.boundary()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         lastInteraction = SystemClock.elapsedRealtime()
         handler.removeCallbacks(idleCheck)
@@ -325,13 +327,30 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     /** Amostra de energia/temperatura por atividade (diagnóstico de sessões longas). */
+    private var performanceGeneration = 0L
+    private var performanceBusy = false
     private val energyTick = object : Runnable {
         override fun run() {
             if (::camera.isInitialized) {
                 val activity = when {
+                    !camera.ready -> "Câmera inativa"
                     camera.isRecording -> "${camera.mode.label} (gravando)"
                     else -> camera.mode.label
-                } + if (ProcessingQueue.pending > 0) " + processando" else ""
+                } + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
+                    (if (ProcessingQueue.pending > 0) " + processando" else "")
+                if (!performanceBusy) {
+                    performanceBusy = true
+                    val generation = performanceGeneration
+                    val counts = synchronized(NovaCamera.telemetry) { NovaCamera.telemetry.frames to NovaCamera.telemetry.droppedFrames }
+                    io.execute {
+                        val sample = runCatching { monitor.performanceSample(activity, counts.first, counts.second) }.getOrNull()
+                        handler.post {
+                            performanceBusy = false
+                            if (generation == performanceGeneration && sample != null)
+                                com.novacamera.s24.core.SessionPerformance.add(sample)
+                        }
+                    }
+                }
                 com.novacamera.s24.core.EnergyLog.add(monitor.energySample(activity, SystemClock.elapsedRealtime()))
             }
             handler.postDelayed(this, ENERGY_EVERY_MS)
@@ -368,6 +387,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.stopRecording()
         if (torchOn) { torchOn = false; camera.setTorch(false) }
         monitor.stop()
+        performanceGeneration++
+        com.novacamera.s24.core.SessionPerformance.boundary()
         orientationListener.disable()
         handler.removeCallbacks(idleCheck)
         handler.removeCallbacks(energyTick)

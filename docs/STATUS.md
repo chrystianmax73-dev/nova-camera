@@ -1,3 +1,11 @@
+# 0.21.6 — referência de desempenho antes do rastreamento (17/10/2026)
+
+- Base atual `6503e0388420ff48800a0a24d18017200c1e1c9e`/0.21.5 aprovada em compilação, testes e lint no [Actions 39059803047](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059803047), antes de mudar o aplicativo.
+- Diagnóstico passa a medir CPU acumulada do processo, PSS, cadência de resultados de captura/perdas estimadas e custo da coleta, a cada ~10 s na fila de IO. Intervalos de atividades diferentes, pausas e contadores reiniciados não são misturados.
+- Energia/temperatura existentes preservadas; identificação de resolução/FPS alvo/EIS/frente-trás para sessões comparáveis. Potência é do aparelho inteiro; GPU não é medida e latência de cópia não será apresentada como ocupação de GPU.
+- Ainda não há comparação física controlada na 0.21.5/0.21.6, nem prova de melhoria de autonomia. O feedback “Deu certo” foi recebido, sem matriz detalhada de lente/FPS/MP4. Nova instrução do dono autoriza avançar nas próximas etapas.
+- CI desta alteração pendente. Próxima prioridade autorizada: rastreamento real, depois profundidade e pós-processamento, com eficiência integrada; preservar APK estável 0.21.5/build 61 e assinatura permanente.
+
 # 0.21.5 — prévia após sessão recusada pelo CameraX (17/10/2026)
 
 - **APK disponível: 0.21.5, build 61 (1061).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39059245337/artifacts/12110872722), até 16/11/2026. Mesmo certificado Android e modelos offline existentes; pode atualizar a instalação anterior.

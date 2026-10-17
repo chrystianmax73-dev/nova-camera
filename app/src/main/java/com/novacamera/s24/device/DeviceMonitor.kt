@@ -88,6 +88,15 @@ class DeviceMonitor(private val context: Context, private val onChange: (DeviceH
             h.charging, h.thermalStatus, headroom())
     }
 
+    /** Chamada na fila de IO, nunca na fila de captura/GL. Sem inferir ocupação da GPU. */
+    fun performanceSample(activity: String, frames: Int, dropped: Int): com.novacamera.s24.core.SessionPerformance.Sample {
+        val start = android.os.SystemClock.elapsedRealtimeNanos()
+        val pss = runCatching { android.os.Debug.getPss() }.getOrNull()?.takeIf { it > 0 }
+        return com.novacamera.s24.core.SessionPerformance.Sample(android.os.SystemClock.elapsedRealtime(),
+            android.os.Process.getElapsedCpuTime(), pss, activity, frames, dropped,
+            (android.os.SystemClock.elapsedRealtimeNanos() - start) / 1_000_000.0)
+    }
+
     private fun snapshot() = DeviceHeat(thermalStatus, batteryTempC, charging, power.isPowerSaveMode, batteryPercent)
 
     private fun publish() {

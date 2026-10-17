@@ -1,3 +1,11 @@
+## Próxima evolução autorizada — medições e rastreamento
+
+- Branch atual `codex/video-estabilidade-0-20`, HEAD conferido `6503e0388420ff48800a0a24d18017200c1e1c9e`; base Actions 39059803047 aprovada. Não alterar main.
+- Usuário relatou “Deu certo” e autorizou nova etapa: rastreamento → cinematográfico → pós-processamento. Não transformar esse retorno genérico em prova específica de 5×/4K60/assinatura. A autorização atual permite avançar sem aguardar a antiga pendência de matriz física completa.
+- 0.21.6 adiciona medições de CPU/PSS/cadência e custo da coleta no diagnóstico. Ainda não há referência A/B medida no S24; não afirmar economia. Próximo: implementar acompanhamento visual leve com confiança/perda e AF/AE contínuos, fila limitada e análise adaptativa; testes e APK assinado após etapa estável.
+- Sem stream extra de câmera/modelo pesado no vídeo nesta primeira etapa. Não alterar gravação/assinatura/EGL, resolução ou FPS para acomodar rastreamento. Medir custo da leitura da prévia, CPU e memória; GPU indisponível deve permanecer não medida.
+- Roteiro de referência e teste: `docs/pendente/RASTREAMENTO_S24_VALIDACAO.md`. Preservar tudo que já funciona; entregar um APK de teste com a chave existente e sem release automático.
+
 # Nova Camera — handoff após APK 0.21.5 (build 61)
 
 ## Estado atual e download
