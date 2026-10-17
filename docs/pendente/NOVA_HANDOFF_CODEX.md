@@ -1,3 +1,17 @@
+# Entrega confirmada — 0.22.0 build 62 (1062)
+
+- **APK assinado disponível:** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39067165320/artifacts/12113024414), expira em 2026-11-16T20:39:45Z. Artefato 12113024414, 131002791 bytes, sha256:4e5ed0f072cd4ff0b36cf268c19ae134b80ee7b9bb8584f3f1cd5687ddc5e7aa (digest do ZIP).
+- [Actions 39067165320](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39067165320), job 117497114240: concluído com sucesso. **219 testes aprovados, 5 locais dispensados, 0 falhas**; lint; JPEG sintético 200 MP; modelos NAFNet/Depth Anything; assembleRelease; pesos no APK (profundidade=True); continuidade de certificado/versionCode e upload aprovados. Publicação de release skipped.
+- Fonte do APK `ae2257698a67e4272234df23f758527026893bbd`; app `b4a97588ed4bff162b6a093e0d7d6aa40bffbbf0` aprovado no CI 39066797447 antes da geração. Gatilho original restaurado em `e869bdb182f478f41bc47a9ee15b130ccaffcc4e`; documentação posterior não muda o app.
+- Branch `codex/video-estabilidade-0-20`; buscar HEAD atualizado antes de continuar. Main, branch original, fotos/Noturno/HDR/Retrato/zoom/SR e certificado permanente preservados; nenhuma INTERNET, modelo novo pesado em vídeo ou alteração no pipeline de assinatura/gravação.
+- Entrega inclui rastreamento visual experimental e métricas CPU/PSS/cópia/análise, **não inclui cinematográfico nem pós-processamento de vídeo**. Toque em contorno com textura em Vídeo/Vídeo Pro; indicador encerra e volta ao automático. AF contínuo/AE respeitam capacidades/manuais; perda e enquadramento/lente/calor/memória encerram de forma controlada. Sem reconhecimento semântico/reidentificação após oclusão.
+- **Próximo passo exato:** testar APK no S24 conforme RASTREAMENTO_S24_VALIDACAO.md, confirmar movimento/AF/AE reais e MP4s, medir controle vs ativo nas mesmas condições. Nenhum S24/MP4 novo ou comparação controlada disponível nesta sessão. GPU/autonomia não medidos; não afirmar ganho energético. Depois avançar na etapa de profundidade descrita abaixo, inicialmente FHD/30 com escolha explícita, prévia e pixels MP4, mantendo vídeo comum.
+- Texto para nova sessão: “Continue Nova Camera pela branch codex/video-estabilidade-0-20 no HEAD remoto atualizado. Leia NOVA_HANDOFF_CODEX.md inteiro e topo de STATUS; verifique Actions antes de editar. O APK 0.22.0 build62 está no artefato 12113024414 do run39067165320; tracking experimental entregue, validação S24 pendente. Preserve a chave permanente e todos os recursos. Após feedback físico, prossiga com profundidade cinematográfica real na prévia e MP4, depois pós-processamento opcional com original preservado; medir energia, testar/compilar/lint via Actions e entregar APK assinado sem release automático.”
+
+---
+
+## Histórico da preparação (as pendências de geração abaixo foram concluídas)
+
 # Acompanhamento da entrega 0.22.0 — build 62 em execução
 
 - HEAD de trabalho após restaurar gatilho: `e869bdb182f478f41bc47a9ee15b130ccaffcc4e` (esta documentação pode avançá-lo). Código do app `b4a97588ed4bff162b6a093e0d7d6aa40bffbbf0` aprovado em assembleDebug/testDebugUnitTest/lintDebug no [39066797447](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39066797447).
