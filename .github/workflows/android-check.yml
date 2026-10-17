@@ -18,7 +18,15 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
-      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+      # O download do NDK às vezes chega corrompido ("Error reading Zip content"): até 4 tentativas.
+      - name: SDK, NDK e CMake (com novas tentativas)
+        run: |
+          for i in 1 2 3 4; do
+            sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1' && exit 0
+            echo "Tentativa $i falhou; nova tentativa em $((i * 10)) s" >&2
+            sleep $((i * 10))
+          done
+          exit 1
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
