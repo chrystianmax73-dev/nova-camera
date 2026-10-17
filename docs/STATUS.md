@@ -6,6 +6,15 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.21.1 — Finalização de vídeo após fechar a tela
+
+O controlador mantém a finalização do MP4 após solicitar parada. Se o callback chegar depois de
+destruir/encerrar a Activity, a interface não tenta reproduzir som já liberado nem carregar miniatura
+num executor encerrado. A medição do MP4 e a liberação do controlador continuam independentes da UI.
+
+**Testes:** regressão Robolectric com a Activity real destruída antes de receber Finalize;
+execução pendente no CI deste commit. **Compilação:** pendente no CI. **Aparelho:** não validado.
+
 ## 0.21.0 — Gravação rápida em Foto e Retrato
 
 - Toque continua fotografando. Pressão longa prepara vídeo usando o mesmo controlador e as mesmas
@@ -17,8 +26,10 @@ Legenda da coluna **Validação**:
   ao voltar do diálogo. O toque simples e a gravação normal continuam disponíveis.
 - O tempo de preparação depende da câmera; não há garantia de transição instantânea no S24.
 
-**Testes:** máquina de estados de preparo, soltura, bloqueio e interrupções adicionada; execução
-pendente no CI deste commit. **Compilação:** pendente no CI. **Aparelho:** não validado; testar
+**Testes:** máquina de estados de preparo, soltura, bloqueio e interrupções, mais gestos no botão
+real em Robolectric: aprovados junto com a suíte no Actions
+https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39052668646 .
+**Compilação:** assembleDebug e lintDebug aprovados nessa execução. **Aparelho:** não validado; testar
 Foto/Retrato, frontal/traseira, soltura rápida, bloqueio e interrupção antes de considerar pronto.
 **Próximas etapas:** acompanhamento visual do assunto e vídeo com profundidade ainda não implementados.
 

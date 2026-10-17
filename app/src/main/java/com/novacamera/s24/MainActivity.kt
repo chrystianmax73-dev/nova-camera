@@ -1188,6 +1188,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onRecording(phase: RecordingPhase, seconds: Long) {
+        if (isDestroyed || isFinishing) return
         val active = phase != RecordingPhase.IDLE
         shutter.recording = active
         recChip.visibility = if (active) View.VISIBLE else View.GONE
@@ -1207,6 +1208,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onRecordingFinished(uri: Uri?, error: String?) {
+        if (isDestroyed || isFinishing) {
+            quickRecording.finished()
+            quickReturnMode = null
+            return
+        }
         onRecording(RecordingPhase.IDLE, 0)
         if (settings.shutterSound) sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
         if (error != null) hint.show(error, 4000)
