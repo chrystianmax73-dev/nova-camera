@@ -19,7 +19,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PreviewFrameReaderTest {
     private fun view(): Pair<PreviewView,SurfaceView> {
-        val c=RuntimeEnvironment.getApplication<android.app.Application>()
+        val c=RuntimeEnvironment.getApplication()
         val preview=PreviewView(c); preview.layout(0,0,1080,1920)
         val surface=SurfaceView(c); preview.addView(surface); surface.layout(0,0,3840,2160)
         return preview to surface
