@@ -6,6 +6,18 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.17.4 — Tele no escuro: quadros iguais no lugar do HDR e clareamento contido
+
+Caso real (0.17.3): frasco a 5×, quarto escuro. Nova: tele real (115 mm, f/3,4), ISO 2056, 1/24 s,
+"Nova HDR · 2 de 2 exposições" — escura, mas com veio da madeira e etiqueta nítidos. Samsung: 23 mm
+(principal recortada, f/1,7 — 4× mais luz), clara mas com "aquarela".
+
+| Item | O que faz | Validação |
+|---|---|---|
+| HDR forçado ("Automático (Nova)") com pouca luz | ISO ≥ 1600, ou sem faixa dinâmica a recuperar com ISO ≥ 200: 4 quadros iguais somados (tele ou principal) em vez de exposições diferentes | Testes |
+| Clareamento em pouca luz (Foto, tele, HDR, Retrato) | Meios-tons sobem até a mediana 0,28 (Noturno: 0,42), até +1 EV, limitado pela folga das altas luzes; a partir do ISO 800, inteiro com 1600 | Testes; na foto real: +0,6 EV, branco do frasco sem estourar |
+| Sombras sem cor falsa | Faixa reduzida às sombras profundas (até 0,12; antes 0,25 acinzentava a madeira) | Testes; simulado na foto real |
+
 ## 0.17.3 — Retrato sem "retângulo" nas mudanças de desfoque
 
 Causa: o mapa de desfoque era alargado com janela **quadrada**; as regiões com níveis diferentes de

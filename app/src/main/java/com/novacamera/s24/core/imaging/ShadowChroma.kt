@@ -10,9 +10,12 @@ object ShadowChroma {
     /** Intensidade pelo ISO: nada até 800, máxima (0,8) a partir de 3200. */
     fun strengthFor(iso: Int?): Float = if (iso == null) 0f else ((iso - 800) / 2400f).coerceIn(0f, 1f) * 0.8f
 
-    /** Peso pela luminância (0..1, sRGB): sombra profunda inteira, some até 0,25. */
+    /**
+     * Peso pela luminância (0..1, sRGB): sombra profunda inteira até 0,04, some até 0,12. (Até 0,25
+     * acinzentava a madeira numa foto escura, onde o conteúdo vive entre 0,15 e 0,25.)
+     */
     private fun weight(y: Float): Float {
-        val t = ((0.25f - y) / (0.25f - 0.08f)).coerceIn(0f, 1f)
+        val t = ((0.12f - y) / (0.12f - 0.04f)).coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
     }
 

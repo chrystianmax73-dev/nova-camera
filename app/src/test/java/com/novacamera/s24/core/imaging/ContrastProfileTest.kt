@@ -34,3 +34,23 @@ class ContrastProfileTest {
         assertEquals(0f, ToneParams.contrastProfile(0.3f, medianLuma = 0.10f).lumaBlack, 0f)
     }
 }
+
+class LowLightLiftTest {
+    @org.junit.Test fun clareiaSoComIsoAltoECenaEscura() {
+        // Frasco 5×: ISO 2056, mediana 0,18, p95 0,26 → ~+0,6 EV.
+        val p = ToneParams.lowLightLift(2056, 0.184f, 0.258f)!!
+        org.junit.Assert.assertEquals(0.6f, p.midLiftEv, 0.05f)
+        // Luz boa (ISO baixo) ou cena já clara: nada.
+        org.junit.Assert.assertNull(ToneParams.lowLightLift(400, 0.18f, 0.26f))
+        org.junit.Assert.assertNull(ToneParams.lowLightLift(2056, 0.30f, 0.6f))
+        // Altas luzes perto do limite: o clareamento não estoura (folga das altas luzes).
+        org.junit.Assert.assertTrue((ToneParams.lowLightLift(3200, 0.10f, 0.85f)?.midLiftEv ?: 0f) < 0.1f)
+    }
+
+    @org.junit.Test fun hdrForcadoComPoucaLuzViraQuadrosIguais() {
+        org.junit.Assert.assertEquals(4, com.novacamera.s24.core.AutoPhotoPolicy.hdrAsMerge(2056, 2))
+        org.junit.Assert.assertEquals(4, com.novacamera.s24.core.AutoPhotoPolicy.hdrAsMerge(800, 1))
+        org.junit.Assert.assertEquals(0, com.novacamera.s24.core.AutoPhotoPolicy.hdrAsMerge(400, 3))
+        org.junit.Assert.assertEquals(0, com.novacamera.s24.core.AutoPhotoPolicy.hdrAsMerge(100, 1))
+    }
+}

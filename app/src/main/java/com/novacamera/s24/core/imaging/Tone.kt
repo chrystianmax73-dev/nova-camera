@@ -83,6 +83,26 @@ data class ToneParams(
          * referências vivo X300 Pro, iPhone 18 Pro e Pixel 10 Pro (preto p2 0,7–3,9 e contraste local
          * 6–14, contra 6–19 e 4–7 no Nova). Aplicado depois do tom automático; não clareia nada.
          */
+        /** Mediana-alvo da foto comum com pouca luz (o Noturno vai a 0,42; aqui mais contido). */
+        const val LOW_LIGHT_TARGET = 0.28f
+        private const val LOW_LIGHT_MAX_EV = 1.0f
+
+        /**
+         * Foto comum (Foto, tele, HDR, Retrato) com ISO alto e cena escura: clareia os meios-tons como o
+         * Noturno, mais contido — o automático da câmera para em ~ISO 3200 e a foto sai escura (frasco 5×,
+         * ISO 2056, mediana ~0,15). Limitado pela folga das altas luzes (não estoura) e só a partir do
+         * ISO 800, inteiro a partir de 1600 (luz boa: nada). Pretos profundos e claros ficam (pesos do midLift).
+         */
+        fun lowLightLift(iso: Int?, p50: Float, p95: Float): ToneParams? {
+            if (iso == null || iso < 800) return null
+            val fade = ((iso - 800) / 800f).coerceIn(0f, 1f)
+            val need = ln(LOW_LIGHT_TARGET / max(p50, 0.02f)) / ln(2f)
+            val headroom = ln(0.9f / max(p95, 0.05f)) / ln(2f)
+            val lift = min(min(need, headroom), LOW_LIGHT_MAX_EV) * fade
+            if (lift < 0.1f) return null
+            return ToneParams(shadowLiftEv = 0f, highlightCompression = 0f, blackLevel = 0f, midLiftEv = lift)
+        }
+
         fun contrastProfile(darkChannel: Float, medianLuma: Float = 0.5f): ToneParams {
             // Cena escura (mediana baixa): o preto firme escureceria o ambiente inteiro (quarto a 1×
             // descia de 26 para 21 na mediana); entra aos poucos entre 0,15 e 0,35.

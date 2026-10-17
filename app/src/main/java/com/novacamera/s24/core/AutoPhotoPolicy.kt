@@ -24,6 +24,20 @@ object AutoPhotoPolicy {
      * [allowFusion] falso (HDR desligado nos ajustes): só a redução de ruído da tele com mesma
      * exposição — nem exposições diferentes (HDR) nem o caminho de pouca luz da principal.
      */
+    /** ISO a partir do qual o HDR de exposições diferentes perde para quadros iguais somados. */
+    const val HDR_LOW_LIGHT_ISO = 1600
+
+    /**
+     * HDR forçado: quantos quadros iguais usar no lugar do bracketing (0 = manter o HDR). Com pouca
+     * luz sempre; sem faixa dinâmica a recuperar ([keptSteps] = 1), a partir do ISO da luz média.
+     */
+    fun hdrAsMerge(iso: Int?, keptSteps: Int): Int = when {
+        iso == null -> 0
+        iso >= HDR_LOW_LIGHT_ISO -> MERGE_FRAMES
+        keptSteps <= 1 && iso >= MERGE_MIN_ISO -> MERGE_FRAMES
+        else -> 0
+    }
+
     fun choose(iso: Int?, exposureNs: Long?, clipped: Float, deep: Float, hot: Boolean, zoom: Float = 1f, allowFusion: Boolean = true): Path = when {
         hot -> Path.SINGLE
         allowFusion && iso!=null && exposureNs!=null && iso>=1000 && exposureNs>=25_000_000L && deep>=0.08f -> Path.NIGHT

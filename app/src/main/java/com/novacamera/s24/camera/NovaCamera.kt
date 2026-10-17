@@ -1678,6 +1678,18 @@ class NovaCamera(
                                 val (clip, deep) = frameStats(bytes)
                                 val (keep, note) = CaptureDecision.hdrSteps(steps, clip, deep)
                                 steps = keep; captureNote = note
+                                // Pouca luz (ISO alto) ou sem faixa dinâmica a recuperar: exposições diferentes não
+                                // ajudam — a escura é só ruído e a clara treme. Quadros iguais somados, como o HDR+
+                                // (frasco 5× com HDR forçado, ISO 2056: saía escuro e com ruído).
+                                val iso = captureFacts.iso ?: latestStats?.iso
+                                val sameExposure = com.novacamera.s24.core.AutoPhotoPolicy.hdrAsMerge(iso, keep.size)
+                                if (sameExposure > 1) {
+                                    val tele = equivalent(zoomOnLens) >= com.novacamera.s24.core.AutoPhotoPolicy.ZOOM_FROM
+                                    kind = if (tele) JobKind.ZOOM else JobKind.PHOTO
+                                    steps = List(sameExposure) { 0 }
+                                    captureNote = if (keep.size > 1) "Pouca luz: $sameExposure quadros iguais em vez de exposições diferentes"
+                                        else "Sem faixa dinâmica a recuperar: $sameExposure quadros iguais (menos ruído)"
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "quadro $i inválido", e)

@@ -7,7 +7,7 @@ import kotlin.math.abs
 
 class ShadowChromaTest {
     @Test fun roxoNoEscuroComIsoAltoViraNeutro() {
-        val px = intArrayOf(Px.argb(40, 18, 52), Px.argb(200, 120, 60))
+        val px = intArrayOf(Px.argb(22, 8, 30), Px.argb(200, 120, 60))
         ShadowChroma.applyTile(px, ShadowChroma.strengthFor(3069))
         val d = px[0]
         assertTrue("sombra roxa deveria perder cor: ${Px.r(d)},${Px.g(d)},${Px.b(d)}", abs(Px.b(d) - Px.g(d)) < 12)
@@ -18,8 +18,8 @@ class ShadowChromaTest {
     @Test fun isoBaixoNaoMexe() {
         assertEquals(0f, ShadowChroma.strengthFor(400), 0f)
         assertEquals(0f, ShadowChroma.strengthFor(null), 0f)
-        val px = intArrayOf(Px.argb(40, 18, 52))
+        val px = intArrayOf(Px.argb(22, 8, 30))
         ShadowChroma.applyTile(px, ShadowChroma.strengthFor(400))
-        assertEquals(Px.argb(40, 18, 52), px[0])
+        assertEquals(Px.argb(22, 8, 30), px[0])
     }
 }

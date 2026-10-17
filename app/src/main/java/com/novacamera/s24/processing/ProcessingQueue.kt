@@ -563,6 +563,9 @@ object ProcessingQueue {
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
             Engine.detailInPlace(bmp, session.zoom, cancel)
         Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
+        // Pouca luz na foto comum (o Noturno tem o próprio clareamento; Food fica como está).
+        if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
+            Engine.lowLightInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)
         // ISO alto: sombras sem manchas roxas/azuis de ruído de cor — antes do desfoque do retrato,
         // que transformaria essas manchas em "aquarela". Food fica com a cor que tem.
         if (kind != JobKind.FOOD) Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)

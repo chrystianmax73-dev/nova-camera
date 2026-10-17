@@ -452,6 +452,16 @@ object Engine {
         }
     }
 
+    /** Pouca luz na foto comum: clareia meios-tons (ver [ToneParams.lowLightLift]). Devolve o EV aplicado. */
+    fun lowLightInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken): Float {
+        val (px, w, h) = preview(bmp)
+        val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
+        val params = ToneParams.lowLightLift(iso, com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f),
+            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.95f)) ?: return 0f
+        toneInPlace(bmp, com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), null, "pouca luz"), 1f, false, cancel) {}
+        return params.midLiftEv
+    }
+
     /** Sombras sem cor falsa de ruído (ver [com.novacamera.s24.core.imaging.ShadowChroma]). */
     fun shadowChromaInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken) {
         val k = com.novacamera.s24.core.imaging.ShadowChroma.strengthFor(iso)
