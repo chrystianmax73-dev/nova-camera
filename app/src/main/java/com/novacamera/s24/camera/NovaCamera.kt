@@ -498,6 +498,7 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
+        if (!settings.cinematicVideo) commonVideoChosen=false
         if(settings.cinematicVideo && commonEffectPending) {
             cinematicClosing=true;invalidateSubjectTracking();watchCamera=null;watchGeneration++;videoEffectGeneration++
             p.unbindAll();camera=null
@@ -2273,7 +2274,9 @@ class NovaCamera(
                     .setResolutionStrategy(ResolutionStrategy(android.util.Size(640,360),ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)).build())
                 .setTargetRotation(targetRotation).build()
             val analyzer=PortraitMaskAnalyzer(activity,effect,{heat},
-                { note -> handler.post { listener.onPortraitPreview(note) } },true,{cinematicTap})
+                { note -> handler.post {
+                    if(generation==videoEffectGeneration && cinematicBound && !released && !paused) listener.onPortraitPreview(note)
+                } },true,{cinematicTap})
             a.setAnalyzer(portraitExecutor,analyzer); portraitAnalyzer=analyzer; cinematicBound=true
             return effect to a
         }
