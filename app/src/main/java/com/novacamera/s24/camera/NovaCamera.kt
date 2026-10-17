@@ -486,6 +486,13 @@ class NovaCamera(
     fun bind() {
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
+        if (cinematicClosing) return
+        if (portraitEffect != null && (cinematicBound || settings.cinematicVideo)) {
+            val old=portraitEffect!!; portraitEffect=null; cinematicBound=false; cinematicClosing=true
+            stopPortraitAnalysis(); p.unbindAll(); camera=null
+            old.releaseThen { handler.post { cinematicClosing=false; if(!released && !paused) bind() } }
+            return
+        }
         invalidateSubjectTracking()
         watchCamera = null
         watchGeneration++
@@ -507,6 +514,7 @@ class NovaCamera(
         if (freshSessionRequested) {
             freshSessionRequested = false
             liveBlurBlocked = false
+            cinematicFailed=false; cinematicTap=null
             referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
             failedPhysicalRoutes.clear()
@@ -544,7 +552,7 @@ class NovaCamera(
             return
         }
         val info = runCatching { p.getCameraInfo(baseSelector) }.getOrNull() ?: return
-        val profile = "${Camera2CameraInfo.from(info).cameraId}/${settings.videoQuality}/${settings.videoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}"
+        val profile = "${Camera2CameraInfo.from(info).cameraId}/${settings.videoQuality}/${settings.videoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}/${settings.cinematicVideo}"
         if (profile != videoProfile) {
             videoProfile = profile; videoStabilizationBlocked = false
             videoEffectFailed = profile in failedVideoEffectProfiles
@@ -559,6 +567,9 @@ class NovaCamera(
                              else AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
         val resolution = ResolutionSelector.Builder().setAspectRatioStrategy(aspectStrategy).build()
 
+        if (settings.cinematicVideo && (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) &&
+            (!com.novacamera.s24.core.CinematicPolicy.profile(if(settings.videoQuality==VideoQualityOption.FHD)1920 else 0,1080,settings.videoFps,settings.videoStabilization)))
+            videoBindingIssue="Cinematográfico requer Full HD/30 e EIS desligada, escolhidos por você. Ajuste esse perfil ou desative o efeito"
         val limitVideo = heat?.let(ThermalPolicy::limitVideo) ?: false
         val previewBuilder = Preview.Builder().setResolutionSelector(resolution)
         pinned?.let { Camera2Interop.Extender(previewBuilder).setPhysicalCameraId(it) }
@@ -768,7 +779,7 @@ class NovaCamera(
             } ?: listener.onPortraitPreview(null)
             val sig = signatureStyle()
             // O renderizador compensa recorte, rotação e espelho para manter o texto legível.
-            if (sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
+            if (!cinematicBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) {
                 videoEffects.replace { signatureEffect(sig) }
             }
@@ -799,7 +810,7 @@ class NovaCamera(
             }
             fpsOptions = com.novacamera.s24.core.VideoSessionSupport.fps(fpsOptions, ranges)
             com.novacamera.s24.core.VideoLog.add(activity,
-                "Sessão ${videoProfile} · zoom=${equivalent(pendingZoomOnLens ?: zoomOnLens)}× · EIS=$stabilization · assinatura=${videoEffect != null} · FPS da sessão=${ranges ?: "consulta indisponível"}")
+                "Sessão ${videoProfile} · zoom=${equivalent(pendingZoomOnLens ?: zoomOnLens)}× · EIS=$stabilization · assinatura=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · cinematográfico=$cinematicBound · FPS da sessão=${ranges ?: "consulta indisponível"}")
             if (settings.videoFps !in fpsOptions && videoBindingIssue == null) {
                 if (stabilization) {
                     videoStabilizationBlocked = true
@@ -825,6 +836,7 @@ class NovaCamera(
                 // A combinação recusada não deve congelar a câmera. Apenas prévia; nenhum MP4
                 // de qualidade inferior será produzido. Uma alternativa exige escolha explícita.
                 videoEffects.close()
+                if(cinematicBound) { stopPortraitAnalysis(); portraitEffect?.release(); portraitEffect=null; cinematicBound=false }
                 val preview = useCases.filterIsInstance<Preview>().single()
                 group = UseCaseGroup.Builder().addUseCase(preview).apply {
                     previewView.viewPort?.let(::setViewPort)
@@ -1281,6 +1293,7 @@ class NovaCamera(
             android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return false
         val region = TrackingMetering.region(transform, sensor, previewView.width, previewView.height, x, y, side) ?: return false
         if (!trackingGate.accept(x, y, SystemClock.elapsedRealtime())) return true
+        selectCinematicSubject(x*previewView.width,y*previewView.height)
         trackedRegion = region
         trackingBusy = true
         trackingBusySince = SystemClock.elapsedRealtime()
@@ -1332,7 +1345,16 @@ class NovaCamera(
         return (if (isFront && !mirror) 1f - t.first else t.first) to t.second
     }
 
+    fun selectCinematicSubject(x:Float,y:Float) {
+        val inverse=android.graphics.Matrix()
+        val transform=previewView.sensorToViewTransform ?: return
+        if(transform.invert(inverse)) {
+            val p=floatArrayOf(x,y); inverse.mapPoints(p); cinematicTap=p[0] to p[1]
+        }
+    }
+
     fun focusAt(x: Float, y: Float, lock: Boolean) {
+        selectCinematicSubject(x,y)
         endSubjectTracking()
         val cam = camera ?: return
         val token = ++focusToken
@@ -2131,6 +2153,10 @@ class NovaCamera(
     // ------------------------------------------------------------------ prévia do Retrato
 
     private var portraitEffect: PortraitPreviewEffect? = null
+    var cinematicBound = false; private set
+    private var cinematicClosing = false
+    private var cinematicFailed = false
+    @Volatile private var cinematicTap: Pair<Float,Float>? = null
     private var retiredPortraitEffect: PortraitPreviewEffect? = null
     private var portraitAnalysis: ImageAnalysis? = null
     private var portraitAnalyzer: PortraitMaskAnalyzer? = null
@@ -2170,6 +2196,28 @@ class NovaCamera(
      * efeitos — nelas não há estilo ao vivo (e a foto também não recebe estilo).
      */
     private fun portraitPreviewFor(support: ModeSupport, wide: Boolean, pinned: String?, extension: Int): Pair<PortraitPreviewEffect, ImageAnalysis?>? {
+        if (settings.cinematicVideo && !cinematicFailed && videoCapture != null &&
+            (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoBindingIssue==null) {
+            val generation=videoEffectGeneration
+            val effect=PortraitPreviewEffect.cinematic(signatureStyle()?.takeIf { settings.signatureVideo }) { e ->
+                if(generation==videoEffectGeneration && !released) {
+                Log.w(TAG,"Cinematográfico indisponível",e); cinematicFailed=true
+                listener.onMessage("Cinematográfico falhou; próximo vídeo comum. Original/gravação serão finalizados")
+                if(isRecording) { settingsChangedDuringRecording=true; stopRecording() }
+                else handler.post { bind() }
+                }
+            }.apply { strength=settings.portraitBlur; blurEnabled=true }
+            val a=ImageAnalysis.Builder().setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                    .setResolutionStrategy(ResolutionStrategy(android.util.Size(640,360),ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)).build())
+                .setTargetRotation(targetRotation).build()
+            val analyzer=PortraitMaskAnalyzer(activity,effect,{heat},
+                { note -> handler.post { listener.onPortraitPreview(note) } },true,{cinematicTap})
+            a.setAnalyzer(portraitExecutor,analyzer); portraitAnalyzer=analyzer; cinematicBound=true
+            return effect to a
+        }
+        cinematicBound=false
         if (portraitPreviewFailed || extension != ExtensionMode.NONE || !support.canCapture) return null
         val portrait = mode == CaptureMode.RETRATO && processingKind(support) == JobKind.PORTRAIT && settings.portraitLivePreview
         val styleMode = settings.liveControls && (mode == CaptureMode.FOTO ||
@@ -2387,6 +2435,10 @@ class NovaCamera(
         val vc = videoCapture ?: return listener.onMessage("A câmera ainda não está pronta")
         if (recording != null || released || paused) return
         videoBindingIssue?.let { listener.onMessage(it); return }
+        if(cinematicBound && portraitEffect?.maskReady!=true) {
+            listener.onMessage("Aguarde uma máscara de profundidade atual antes de gravar; vídeo comum disponível ao desativar o efeito")
+            return
+        }
         if (camera == null) return listener.onMessage("A câmera ainda não está vinculada")
         val normalVideo = mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO
         val request = VideoContract.Request(requestedVideoSize, state?.videoFps ?: settings.videoFps, autoFpsApplied)
@@ -2395,7 +2447,7 @@ class NovaCamera(
             if (request.size?.sameFrame(VideoContract.Size(crop.width(), crop.height())) == false)
                 return listener.onMessage("Resolução vinculada diferente da selecionada; gravação bloqueada")
         }
-        val captureContext = "${mode.label} · ${if (isFront) "frontal" else "traseira"} · ${request.size ?: "AUTO"}/${request.fps} fps alvo · assinatura solicitada=${settings.signatureEnabled && settings.signatureVideo}, ativa=${videoEffect != null}"
+        val captureContext = "${mode.label} · ${if (isFront) "frontal" else "traseira"} · ${request.size ?: "AUTO"}/${request.fps} fps alvo · assinatura solicitada=${settings.signatureEnabled && settings.signatureVideo}, ativa=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · cinematográfico=$cinematicBound"
         val captureOverlay = videoSignatureOverlay
         val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
         if (free < MIN_FREE_BYTES) return listener.onMessage("Pouco espaço livre para gravar")

@@ -172,6 +172,10 @@ class SettingsActivity : NovaScreen() {
             listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
         switch("Quadros automáticos com pouca luz", "A 30 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 5× e 10×). Com luz boa continua em 30 fps.",
             { settings.videoAutoFps }, { settings.videoAutoFps = it })
+        switch("Vídeo cinematográfico (experimental)", "Profundidade estimada na prévia e no MP4, frontal/traseira. " +
+            "Selecione Full HD, 30 fps e desligue Estabilização explicitamente; outras qualidades continuam no vídeo comum ao desativar. " +
+            "Aguarde a máscara antes de gravar. Na perda ou no calor, o desfoque pausa com aviso; não reduz a qualidade do vídeo.",
+            { settings.cinematicVideo }, { settings.cinematicVideo = it })
         switch("Estabilização", "Usa a estabilização anunciada pela câmera (pode recortar levemente as bordas).",
             { settings.videoStabilization }, { settings.videoStabilization = it })
         switch("Espelhar vídeo da câmera frontal", "Grava como na pré-visualização. Desative para gravar textos legíveis.",

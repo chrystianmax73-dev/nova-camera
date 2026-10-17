@@ -1,3 +1,13 @@
+# 0.23.0 — cinematográfico experimental em prévia e saída de vídeo (17/10/2026)
+
+- Correção 0.22.1 aprovada no [Actions 39068644575](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39068644575), commit 451576d90d0de11f75fd208269558a11d6cac1bd, antes desta etapa. Primeira tentativa 39068369838 compilou o app mas falhou ao compilar um teste (tipo desnecessário em RuntimeEnvironment.getApplication), corrigido.
+- Efeito existente do Retrato passa a ter fábrica cinematográfica com alvos PREVIEW|VIDEO_CAPTURE. Composição e marca compartilham um renderizador, sem dois efeitos disputando VIDEO_CAPTURE; assinatura comum preservada fora do cinematográfico.
+- Ativação opcional nas configurações; exige Full HD/30 e EIS desligada escolhidos explicitamente. Outros perfis ficam bloqueados com explicação, sem reduzir resolução/FPS ou alterar preferências. Vídeo comum mantém suas opções ao desativar. EIS foi restringida nesta etapa para evitar máscara de análise não estabilizada sobre vídeo estabilizado.
+- Reutiliza PersonSegmenter, DepthEstimator e DepthPortrait.plan com seleção por toque; coordenadas visor→sensor→análise/rotação. Análise KEEP_ONLY_LATEST reduzida, profundidade com orçamento próprio. Movimento/seleção descartam histórico inadequado, sem contornar o intervalo de inferência. Máscara vence em 750 ms; análise atrasada/calor severo suspende desfoque e informa vídeo comum.
+- Desfoque ajustável ao vivo; gravação rápida de Retrato/Foto usa o perfil Vídeo e pode utilizar o efeito se o usuário o ativar. Início aguarda máscara atual; indisponibilidade é informada. Falha GL finaliza gravação antes de religar; erro antigo de outra geração não afeta sessão nova. Encerramento aguarda liberação anterior antes de criar o próximo contexto.
+- **Ainda não validado no S24:** correspondência de máscara, cabelos/folhas, transições, marca/orientação/espelho nos pixels MP4, desempenho e temperatura. Segmentação de pessoa sem profundidade é identificada como tal; não há profundidade métrica nem prova de qualidade premium. Não afirmar que alterar targets prova o resultado físico.
+- Novos testes cobrem perfil sem redução silenciosa, validade temporal e descarte por movimento/toque. CI desta versão pendente; pós-processamento local é a etapa seguinte.
+
 # 0.22.1 — leitura assíncrona reduzida para rastreamento (17/10/2026)
 
 - Feedback físico 0.22.0: captura de tela mostra encerramento por leitura lenta da prévia, Vídeo/4K/faixa 15–30 alvo. A imagem não comprova FPS/dimensões do arquivo nem foco/consumo; mídia pessoal não enviada ao Git.

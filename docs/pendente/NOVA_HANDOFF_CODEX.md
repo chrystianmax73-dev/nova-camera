@@ -1,3 +1,12 @@
+# Em implementação — 0.23.0 cinematográfico experimental
+
+- Rastreamento/PixelCopy 0.22.1: CI 39068644575 aprovado, app 451576d90d0de11f75fd208269558a11d6cac1bd. Corrige a cópia full-size bloqueante mostrada no feedback do S24; nova latência ainda não medida fisicamente.
+- 0.23.0: PortraitPreviewEffect.cinematic usa PREVIEW|VIDEO_CAPTURE; assinatura composta na saída de vídeo, máscara com validade, seleção sensor→análise via ImageInfo e reaproveitamento de profundidade/segmentação. Perfil opcional exige FHD/30 e EIS off explicitamente. Vídeo comum, fotos e chave preservados. Testes/CI desta etapa ainda pendentes.
+- Atenção técnica: validar máscara/GL/assinatura nos MP4 reais antes de declarar funcional no S24. Perda/calor volta à composição sem desfoque com aviso, sem reduzir qualidade. Semântica/reidentificação e qualidade premium de bordas não comprovadas.
+- Próximo passo: concluir CI desta etapa, implementar primeiro acabamento local opcional com original preservado e metadados/áudio verificados, depois gerar APK assinado final. Redução temporal de ruído e refinamentos avançados devem ser progressivos e declarados conforme evidência; não simular controles.
+
+---
+
 # Nova etapa autorizada — feedback de leitura lenta e pendências
 
 - HEAD inicial conferido 725195ae9ab74d845b9a4096387298837769e949 na branch codex/video-estabilidade-0-20; baseline Actions 39067748469 aprovado antes de editar.

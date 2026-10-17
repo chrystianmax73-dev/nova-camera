@@ -35,6 +35,8 @@ class PortraitMaskAnalyzer(
     private val heat: () -> DeviceHeat?,
     /** Texto curto para a interface (null = tudo certo). Chamado na thread da análise. */
     private val onState: (String?) -> Unit,
+    private val cinematic: Boolean = false,
+    private val tapSensor: () -> Pair<Float,Float>? = { null },
 ) : ImageAnalysis.Analyzer, java.io.Closeable {
     private val app = context.applicationContext
     private var segmenter: PersonSegmenter.Live? = null
@@ -42,6 +44,7 @@ class PortraitMaskAnalyzer(
     private var depthFailed = false
     private var lastSeg = 0L
     private var lastDepth = 0L
+    private val sceneGuard=com.novacamera.s24.core.CinematicSceneGuard()
     private var depthN: Plane? = null
     private var prevSubject: FloatArray? = null
     private var prevAmount: FloatArray? = null
@@ -56,7 +59,9 @@ class PortraitMaskAnalyzer(
             val now = SystemClock.uptimeMillis()
             val status = heat()?.thermalStatus ?: 0
             if (status >= ThermalPolicy.SEVERE) {
-                effect.clearMask(); state("Prévia do desfoque pausada: aparelho quente"); return
+                if(lastState!="Prévia do desfoque pausada: aparelho quente") effect.clearMask()
+                if(cinematic) { depth?.close();depth=null; segmenter?.close();segmenter=null; depthN=null;prevSubject=null;prevAmount=null }
+                state("Prévia do desfoque pausada: aparelho quente"); return
             }
             // Cena parada: a máscara não muda, então 3 Hz bastam (economia de CPU/GPU); qualquer
             // movimento volta a 10 Hz no quadro seguinte.
@@ -74,12 +79,17 @@ class PortraitMaskAnalyzer(
             val upright = if (rot % 360 == 0) small else
                 Bitmap.createBitmap(small, 0, 0, small.width, small.height, Matrix().apply { postRotate(rot.toFloat()) }, true)
 
+            if (cinematic) {
+                if(sceneGuard.moved(lumaGrid(upright),tapInImage(image,rot))) {
+                    depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
+                }
+            }
             val seg = segmenter ?: PersonSegmenter.Live(app).also { segmenter = it }
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
 
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
             val depthEvery = when {
-                status >= ThermalPolicy.MODERATE -> Long.MAX_VALUE
+                status >= ThermalPolicy.MODERATE -> if(cinematic) 1500L else Long.MAX_VALUE
                 still -> 2500L
                 else -> 900L
             }
@@ -93,7 +103,7 @@ class PortraitMaskAnalyzer(
 
             val d = depthN?.takeIf { it.w == mw && it.h == mh }
             val (subject, amount) = when {
-                d != null -> DepthPortrait.plan(d, person).let { it.subject to it.blur }
+                d != null -> DepthPortrait.plan(d, person, if(cinematic) tapInImage(image,rot) else null).let { it.subject to it.blur }
                 person != null -> Planes.resize(person, mw, mh).let { p -> p to Plane(mw, mh, FloatArray(mw * mh) { 1f }) }
                 else -> { effect.clearMask(); state("Retrato: aproxime-se de uma pessoa ou objeto"); return }
             }
@@ -105,6 +115,9 @@ class PortraitMaskAnalyzer(
             // Suaviza no tempo: sem tremulação na borda entre quadros.
             val sub = smooth(subject.data, prevSubject).also { prevSubject = it }
             val amt = smooth(amount.data, prevAmount).also { prevAmount = it }
+            if(cinematic && (SystemClock.uptimeMillis()-now>650 || (heat()?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE)) {
+                effect.clearMask(); state("Desfoque pausado: análise atrasada ou temperatura; vídeo comum mantido"); return
+            }
             // De volta à orientação do buffer da câmera (inverso da rotação da análise).
             val back = (360 - rot % 360) % 360
             val bs = Plane(mw, mh, sub).oriented(back, false)
@@ -115,12 +128,18 @@ class PortraitMaskAnalyzer(
                 bytes[2 * i + 1] = (ba.data[i].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
             }
             effect.updateMask(bytes, bs.w, bs.h)
-            state(if (effect.needsCalibration) "Ajustando a prévia do desfoque…" else null)
+            state(if (effect.needsCalibration) "Ajustando a prévia do desfoque…" else if(cinematic) if(d!=null) "Cinematográfico experimental · profundidade estimada" else "Cinematográfico · máscara de pessoa, sem profundidade" else null)
         } catch (e: Throwable) {
             Log.w(TAG, "máscara da prévia falhou", e)
         } finally {
             image.close()
         }
+    }
+
+    private fun tapInImage(image:ImageProxy,rot:Int):Pair<Float,Float>? = tapSensor()?.let { (x,y) ->
+        val point=floatArrayOf(x,y); image.imageInfo.sensorToBufferTransformMatrix.mapPoints(point)
+        val nx=(point[0]/image.width).coerceIn(0f,1f);val ny=(point[1]/image.height).coerceIn(0f,1f)
+        when(rot%360) {90->1f-ny to nx;180->1f-nx to 1f-ny;270->ny to 1f-nx;else->nx to ny}
     }
 
     private fun smooth(now: FloatArray, prev: FloatArray?): FloatArray =

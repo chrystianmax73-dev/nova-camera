@@ -39,7 +39,8 @@ import java.util.concurrent.Executor
 class PortraitPreviewEffect private constructor(
     private val processor: PortraitGlProcessor,
     onError: Consumer<Throwable>,
-) : CameraEffect(PREVIEW, processor.executor, processor, onError) {
+    targets: Int = PREVIEW,
+) : CameraEffect(targets, processor.executor, processor, onError) {
 
     /** 0..1, a mesma escala do desfoque final. */
     var strength: Float
@@ -66,9 +67,19 @@ class PortraitPreviewEffect private constructor(
     /** Sem máscara (aquecimento, sem assunto): prévia sem desfoque. */
     fun clearMask() = processor.postMask(null, 0, 0)
 
+    val maskReady get() = processor.maskReady
     fun release() = processor.release()
+    fun releaseThen(done: () -> Unit) = processor.release(done)
 
     companion object {
+        fun cinematic(style: com.novacamera.s24.processing.SignatureStyle?, onError: (Throwable) -> Unit): PortraitPreviewEffect {
+            val main = Handler(android.os.Looper.getMainLooper())
+            var reported = false
+            val fail: (Throwable) -> Unit = { e -> main.post { if (!reported) { reported=true; onError(e) } } }
+            val processor=PortraitGlProcessor(fail).apply { watermark=style; expireMasks=true }
+            return PortraitPreviewEffect(processor,Consumer { e -> processor.release(); fail(e) },PREVIEW or VIDEO_CAPTURE)
+        }
+
         /** [onError] chega na thread principal, uma única vez; o efeito já foi liberado. */
         fun create(onError: (Throwable) -> Unit): PortraitPreviewEffect {
             val main = Handler(android.os.Looper.getMainLooper())
@@ -85,6 +96,10 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private val handler = Handler(thread.looper)
     val executor = Executor { r -> handler.post(r) }
 
+    @Volatile var watermark: com.novacamera.s24.processing.SignatureStyle? = null
+    @Volatile var expireMasks = false
+    @Volatile private var maskAt = 0L
+    val maskReady get() = hasMask && (!expireMasks || com.novacamera.s24.core.CinematicPolicy.fresh(android.os.SystemClock.elapsedRealtime(),maskAt))
     @Volatile var strength = 0.6f
     @Volatile var blurEnabled = false
     @Volatile var tone = 0f
@@ -99,13 +114,15 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private var surfaceTexture: SurfaceTexture? = null
     private var oesTex = 0
     private var inputSize = Size(0, 0)
-    private class Out(val output: SurfaceOutput, val egl: EGLSurface, val size: Size)
+    private var maskBlend=0f
+    private var blendAt=0L
+    private class Out(val output: SurfaceOutput, val egl: EGLSurface, val size: Size, var logo: Int = 0)
     private val outputs = ArrayList<Out>()
 
     private var progCopy = 0; private var progBlur = 0; private var progFinal = 0
     private val fbo = IntArray(3); private val fboTex = IntArray(3)
     private var smallW = 0; private var smallH = 0
-    private var maskTex = 0; private var hasMask = false
+    private var maskTex = 0; @Volatile private var hasMask = false
     private var maskFlipX = 0f; private var maskFlipY = 0f
 
     @Volatile var needsCalibration = true
@@ -147,7 +164,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         try { ensureEgl() } catch (e: Exception) { surfaceOutput.close(); fatal(e); return }
         val surface = surfaceOutput.getSurface(executor) { event ->
             if (event.eventCode == SurfaceOutput.Event.EVENT_REQUEST_CLOSE) {
-                outputs.removeAll { o -> (o.output === event.surfaceOutput).also { if (it) EGL14.eglDestroySurface(display, o.egl) } }
+                outputs.removeAll { o -> (o.output === event.surfaceOutput).also { if (it) { if(o.logo!=0) GLES20.glDeleteTextures(1,intArrayOf(o.logo),0); EGL14.eglDestroySurface(display, o.egl) } } }
                 event.surfaceOutput.close()
             }
         }
@@ -168,17 +185,24 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE_ALPHA, w, h, 0,
             GLES20.GL_LUMINANCE_ALPHA, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(mask))
         hasMask = !needsCalibration
+        maskAt = android.os.SystemClock.elapsedRealtime()
     }
 
     fun offerCalibration(luma: FloatArray) = handler.post { if (!released && needsCalibration) pendingCalibration = luma }
 
-    fun release() {
-        if (released) return
-        released = true
+    private val releaseLock=Any()
+    private var releaseComplete=false
+    private val releaseCallbacks=mutableListOf<() -> Unit>()
+    fun release(done: (() -> Unit)? = null) {
+        synchronized(releaseLock) {
+            if(done!=null) { if(releaseComplete) { done(); return }; releaseCallbacks+=done }
+            if(released) return
+            released=true
+        }
         handler.post {
             runCatching {
                 surfaceTexture?.release(); surfaceTexture = null
-                outputs.forEach { EGL14.eglDestroySurface(display, it.egl); it.output.close() }; outputs.clear()
+                outputs.forEach { if(it.logo!=0) GLES20.glDeleteTextures(1,intArrayOf(it.logo),0); EGL14.eglDestroySurface(display, it.egl); it.output.close() }; outputs.clear()
                 if (display != EGL14.EGL_NO_DISPLAY) {
                     EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
                     if (pbuffer != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, pbuffer)
@@ -186,6 +210,8 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                 }
             }
             thread.quitSafely()
+            val callbacks=synchronized(releaseLock) { releaseComplete=true; releaseCallbacks.toList().also { releaseCallbacks.clear() } }
+            callbacks.forEach { it() }
         }
     }
 
@@ -211,7 +237,11 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         ensureFbos()
         val s = strength
         val blur = blurEnabled
-        if (blur) {
+        val now=android.os.SystemClock.elapsedRealtime()
+        val target=if(blur && maskReady && s>0.01f)1f else 0f
+        if(expireMasks) { maskBlend+=(target-maskBlend)*((now-blendAt).coerceIn(0L,100L)/180f).coerceIn(0f,1f); blendAt=now }
+        else maskBlend=target
+        if (blur && (!expireMasks || maskBlend>0.001f || maskReady || needsCalibration)) {
             // 1) Cópia reduzida em coordenadas do buffer (as mesmas da máscara).
             drawTo(fbo[0], smallW, smallH) {
                 use(progCopy); bindOes(progCopy, "uCam", 0)
@@ -238,12 +268,24 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             bindTex(progFinal, "uMask", 2, if (maskTex != 0) maskTex else fboTex[2])
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progFinal, "uTex"), 1, false, texMatrix, 0)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(progFinal, "uFlip"), maskFlipX, maskFlipY)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uOn"), if (blur && hasMask && s > 0.01f) 1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uOn"), maskBlend)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uTone"), tone)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uWarmth"), warmth)
+            val style=watermark?.takeIf { o.output.targets and androidx.camera.core.CameraEffect.VIDEO_CAPTURE != 0 }
+            if (style != null && o.logo==0) {
+                val bmp=android.graphics.Bitmap.createBitmap(o.size.width,o.size.height,android.graphics.Bitmap.Config.ARGB_8888)
+                try {
+                    com.novacamera.s24.processing.Signature.draw(bmp,style)
+                    o.logo=IntArray(1).also { GLES20.glGenTextures(1,it,0) }[0]
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,o.logo); texParams(GLES20.GL_TEXTURE_2D)
+                    android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bmp,0)
+                } finally { bmp.recycle() }
+            }
+            bindTex(progFinal,"uLogo",3,if(o.logo!=0)o.logo else fboTex[0])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal,"uLogoOn"),if(style!=null)1f else 0f)
             drawQuad(progFinal)
             EGLExt.eglPresentationTimeANDROID(display, o.egl, st.timestamp)
-            EGL14.eglSwapBuffers(display, o.egl)
+            check(EGL14.eglSwapBuffers(display, o.egl)) { "Falha ao entregar quadro da composição" }
         }
         checkGl()
     }
@@ -392,18 +434,24 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             #extension GL_OES_EGL_image_external : require
             precision highp float;
             uniform samplerExternalOES uCam; uniform sampler2D uBlur; uniform sampler2D uMask;
+            uniform sampler2D uLogo; uniform float uLogoOn;
             uniform mat4 uTex; uniform vec2 uFlip; uniform float uOn; varying vec2 vUv;
             ${com.novacamera.s24.core.imaging.PhotoStyle.GLSL}
             void main() {
                 vec2 b = (uTex * vec4(vUv, 0.0, 1.0)).xy;
                 vec4 sharp = texture2D(uCam, b);
                 vec4 c = sharp;
-                if (uOn > 0.5) {
+                if (uOn > 0.001) {
                     vec4 m = texture2D(uMask, mix(b, vec2(1.0) - b, uFlip));
-                    float w = (1.0 - m.r) * smoothstep(0.0, 0.35, m.a);
+                    float w = (1.0 - m.r) * smoothstep(0.0, 0.35, m.a) * uOn;
                     c = mix(sharp, texture2D(uBlur, b), w);
                 }
-                gl_FragColor = vec4(applyStyle(c.rgb), 1.0);
+                vec3 rgb=applyStyle(c.rgb);
+                if(uLogoOn>0.5) {
+                    vec4 logo=texture2D(uLogo,vec2(vUv.x,1.0-vUv.y));
+                    rgb=rgb*(1.0-logo.a)+logo.rgb;
+                }
+                gl_FragColor = vec4(rgb, 1.0);
             }"""
     }
 }

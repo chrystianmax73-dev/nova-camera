@@ -447,7 +447,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.start()
     }
 
-    private fun signature() = listOf(settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
+    private fun signature() = listOf(settings.cinematicVideo, settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
         settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
         settings.signatureEnabled, settings.signatureVideo, settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
         settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
@@ -1156,7 +1156,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             if (camera.styleActive && settings.liveControls && !state.mode.isVideo) {
                 add(com.novacamera.s24.ui.LiveControls.Kind.TONE); add(com.novacamera.s24.ui.LiveControls.Kind.WARMTH)
             }
-            if (portrait) add(com.novacamera.s24.ui.LiveControls.Kind.BLUR)
+            if (portrait || camera.cinematicBound) add(com.novacamera.s24.ui.LiveControls.Kind.BLUR)
         }
         liveControls.configure(kinds, settings.portraitBlur, settings.styleTone, settings.styleWarmth,
             state.evIndex, state.evMin, state.evMax, state.evStepNum, state.evStepDen)
@@ -1310,6 +1310,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onTap(x: Float, y: Float) {
         if (!camera.ready) return
         tracking.stop()
+        camera.selectCinematicSubject(x,y)
         lockChip.visibility = View.GONE
         overlay.showFocusAt(x, y)
         if (settings.videoSubjectTracking && (camera.mode == CaptureMode.VIDEO || camera.mode == CaptureMode.VIDEO_PRO)) {
