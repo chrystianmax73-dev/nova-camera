@@ -91,4 +91,22 @@ class SuperResAndroidTest {
         val (out, n) = Engine.superRes(sources, Engine.align(sources, CancelToken()) {}, 1f, 2f, 90, false, CancelToken()) {}
         assertTrue(out.width == h * 2 && out.height == w * 2 && n >= 3)
     }
+    @Test fun liberarMapasNaoUsadosPreservaAlinhamentoEOitoQuadrosSR() {
+        val rnd = Random(23)
+        val sources = List(8) { BitmapSource(frame(it * 0.4, it * 0.2, rnd)) }
+        val retained = Engine.align(sources, CancelToken()) {}
+        val lean = Engine.align(sources, CancelToken(), retainReliability = false) {}
+        org.junit.Assert.assertEquals(retained.unsafe, lean.unsafe)
+        org.junit.Assert.assertEquals(retained.usedFrames, lean.usedFrames)
+        assertTrue(retained.reliability.drop(1).all { it != null })
+        assertTrue(lean.reliability.all { it == null })
+        val (a,na) = Engine.superRes(sources, retained, 1f, 2f, 90, false, CancelToken()) {}
+        val (b,nb) = Engine.superRes(sources, lean, 1f, 2f, 90, false, CancelToken()) {}
+        org.junit.Assert.assertEquals(na, nb)
+        val px=IntArray(a.width*a.height);val qx=IntArray(px.size)
+        a.getPixels(px,0,a.width,0,0,a.width,a.height);b.getPixels(qx,0,b.width,0,0,b.width,b.height)
+        org.junit.Assert.assertArrayEquals(px,qx)
+        a.recycle();b.recycle();sources.forEach{it.bitmap.recycle()}
+    }
+
 }

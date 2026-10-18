@@ -226,7 +226,17 @@ object ProcessingQueue {
 
     private inline fun <T> timed(job:Job,name:String,block:()->T):T {
         val t=android.os.SystemClock.elapsedRealtimeNanos()
-        try { return block() } finally { job.trace?.mark("$name concluído (${(android.os.SystemClock.elapsedRealtimeNanos()-t)/1_000_000}ms)") }
+        memorySnapshot(job, "$name entrada")
+        try { return block() } finally {
+            job.trace?.mark("$name concluído (${(android.os.SystemClock.elapsedRealtimeNanos()-t)/1_000_000}ms)")
+            memorySnapshot(job, "$name saída")
+        }
+    }
+
+    private fun memorySnapshot(job:Job, label:String) {
+        if(job.trace==null)return
+        val rt=Runtime.getRuntime()
+        job.trace.mark("$label heap=${(rt.totalMemory()-rt.freeMemory())/1048576}MiB/${rt.maxMemory()/1048576}MiB · nativo=${android.os.Debug.getNativeHeapAllocatedSize()/1048576}MiB (não PSS/pico)")
     }
 
     private fun run(context: Context, job: Job) {
@@ -296,9 +306,9 @@ object ProcessingQueue {
                 try {
                     val a = if (sources.size > 1) {
                         progress(0.05f, "Alinhando ${frames.size} quadros")
-                        timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
+                        timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel, retainReliability = false) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     } else null
-                    // Alta resolução só com memória folgada (a foto de 48 MP ocupa ~190 MB); senão 1,5× ou normal.
+                    // Não trocar a resolução selecionada por 1,5× conforme o lixo ainda não coletado.
                     val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
                     val (out, n) = timed(job,"super-resolução") { Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
                         progress(0.2f + 0.45f * it, "Super-resolução")
@@ -313,7 +323,7 @@ object ProcessingQueue {
                         job.srFactor > 1.05f -> "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
                         else -> "Alta resolução: $n de ${frames.size} quadros, $mp MP"
                     } + if (scale < job.outScale - 0.01f) " · memória curta: resolução reduzida" else ""
-                } finally { sources.forEach { it.close() } }
+                } finally { job.trace?.mark(sources.mapIndexed { i,s -> "JPEG${i+1}: ${s.cacheReport()}" }.joinToString("; ")); sources.forEach { it.close() } }
             } else if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
@@ -334,7 +344,7 @@ object ProcessingQueue {
                                else "$n de ${frames.size} exposições combinadas (só onde coincidem)"
                     }
                     session.meta.setProperty("unsafe", a.unsafe.joinToString { "%.2f".format(java.util.Locale.US, it) })
-                } finally { sources.forEach { it.close() } }
+                } finally { job.trace?.mark(sources.mapIndexed { i,s -> "JPEG${i+1}: ${s.cacheReport()}" }.joinToString("; ")); sources.forEach { it.close() } }
                 base = Engine.orient(base, frame0.rotationDegrees, job.mirror)
                 hdrScene?.let { runCatching { session.saveHdr(it.oriented(frame0.rotationDegrees, job.mirror)) } }
             } else {
@@ -379,7 +389,7 @@ object ProcessingQueue {
             session.save()
 
             // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
-            timed(job,"tom/detalhe/desfoque") { render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") } }
+            timed(job,"tom/detalhe/desfoque") { render(session, base, session.tone, session.blur, job.cancel, job.trace) { progress(0.7f + 0.25f * it, "Ajustando tons") } }
             job.signature?.let { Signature.draw(base, it.withExif(session.exif)) }
             UltraHdr.attach(session, base)
             progress(0.96f, "Salvando")
@@ -395,6 +405,9 @@ object ProcessingQueue {
             if (aiLater) synchronized(refines) { refines.remove(session.id); refines.addLast(session.id) }
         } catch (e: CancelledException) {
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Cancelado · original salvo")
+        } catch (e: SelectedResolutionUnavailable) {
+            finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job),
+                "A resolução escolhida não coube na memória: somente original salvo, sem gerar uma versão reduzida")
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "sem memória", e)
             finish(job, session, null, originalUri ?: saveOriginalFallback(context, session, name, job), "Memória insuficiente: salvo só o original")
@@ -596,22 +609,20 @@ object ProcessingQueue {
      * Acabamento sobre a "base" (orientação real), no lugar. Também usado pela revisão para
      * reaplicar com outra intensidade — sempre a partir da base, nunca acumulando.
      */
-    /** Escala da alta resolução que cabe na memória livre (folga para a foto e as etapas seguintes). */
+    /** Preserva a escala pedida. Recolhe temporários uma vez, só sob pressão, fora da UI. */
     private fun safeOutScale(wanted: Float, w: Int, h: Int): Float {
-        if (wanted <= 1f) return 1f
+        if (wanted <= 1f) return wanted
         val rt = Runtime.getRuntime()
-        val free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
-        for (s in floatArrayOf(wanted, 1.5f, 1f)) {
-            if (s > wanted) continue
-            val bytes = (w * s).toLong() * (h * s).toLong() * 4
-            // Folga de 1,6× a foto final: a saída é escrita já orientada (sem cópia girada) e as etapas
-            // seguintes trabalham por blocos. Com 2,2× a 0.19.0 caía para 1,5× (28 MP) no S24 Ultra.
-            if (s <= 1f || free > bytes * 1.6) return s
-        }
-        return 1f
+        val required = (w * wanted).toLong() * (h * wanted).toLong() * 4L * 1.6
+        fun free() = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
+        if (free() < required) { System.gc() }
+        if (free() < required) throw SelectedResolutionUnavailable()
+        return wanted
     }
+    private class SelectedResolutionUnavailable : RuntimeException()
 
-    fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, progress: (Float) -> Unit) {
+    fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, trace: com.novacamera.s24.core.PhotoTrace? = null, progress: (Float) -> Unit) {
+        fun step(name:String, block:()->Unit) { if(trace==null)block() else trace.measure(name,block) }
         val kind = session.kind
         val plan = if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
@@ -620,20 +631,20 @@ object ProcessingQueue {
         // Tele (3×/5×/10×): detalhe fino antes do tom (o tom não realça o que foi recuperado). Também no
         // HDR e no Retrato (foto real: cacto 5× pelo HDR saía sem o realce). Noturno não (ruído).
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
-            Engine.detailInPlace(bmp, session.zoom, cancel)
-        Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) }
+            step("acabamento/detalhes") { Engine.detailInPlace(bmp, session.zoom, cancel) }
+        step("acabamento/tons") { Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) } }
         // Pouca luz na foto comum (o Noturno tem o próprio clareamento; Food fica como está).
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
-            Engine.lowLightInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)
+            step("acabamento/pouca luz") { Engine.lowLightInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
         // ISO alto: sombras sem manchas roxas/azuis de ruído de cor — antes do desfoque do retrato,
         // que transformaria essas manchas em "aquarela". Food fica com a cor que tem.
-        if (kind != JobKind.FOOD) Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel)
+        if (kind != JobKind.FOOD) step("acabamento/crominância") { Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
         // Perfil "Contraste": não no Noturno (tom do Noturno mantido por decisão do usuário) nem no Food.
         if (session.meta.getProperty("profile") == "contrast" && kind != JobKind.NIGHT && kind != JobKind.FOOD)
             Engine.profileInPlace(bmp, cancel)
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
-            if (matte != null) Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) }
+            if (matte != null) step("acabamento/desfoque") { Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) } }
         }
         // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
         Engine.styleInPlace(bmp, session.style, cancel)

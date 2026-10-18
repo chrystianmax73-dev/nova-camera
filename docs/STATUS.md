@@ -1,3 +1,12 @@
+# 0.26.1 — memória da super-resolução e diagnóstico do acabamento
+
+- SR deixa de reter sete mapas de confiabilidade que não consulta: a confiabilidade continua calculada para selecionar quadros, campos subpixel e fusão não mudam. Em 4080×3060/fator2, ~83,3 MiB deixam de permanecer retidos durante SR. Isto é contagem de buffers, não PSS medido no aparelho. Outros caminhos mantêm seus mapas.
+- Sai a troca automática 2×→1,5× por memória livre instantânea. Sob pressão recolhe temporários uma vez; se não houver folga para a escala selecionada, preserva o original e informa que a versão de alta resolução não foi produzida. OOM continua protegido. Não prometer 49 MP em toda situação de recursos insuficientes.
+- Tempos individuais de detalhe, tons, pouca luz, crominância e desfoque no diagnóstico, além do total. Limite de eventos por foto128, registros8. Regressão compara pixels SR/seleção de oito quadros com/sem retenção; CI pendente. Qualidade real, latência, PSS e temperatura exigem S24.
+- 0.26.0 CI39088522688 falhou em C++ com exceções desabilitadas; corrigido apenas no novo fonte. Busca SSD e suavização SR também portadas com testes de equivalência. Nenhum ganho físico declarado.
+
+---
+
 # 0.26.0 — P0 etapa2: cálculos nativos equivalentes
 
 - Align.search, SuperRes.mergeTile eDetail.applyBand ganham laçosC++ na biblioteca já existente, Kotlin mantido como fallback/referência. Mesmos oitoquadros, posições/pesos/núcleo/rejeição de movimento/cores/pele/limites; semfast-math/FMA, sem modelo novo ou GPU presumida. SR cacheia mínimo/máximo3x3 da referência em vez de repetir por amostra; buffers limitados ao bloco. JNIsearch copia apenas região+busca, não plano inteiro por célula.

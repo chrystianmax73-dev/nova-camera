@@ -72,6 +72,10 @@ class JpegSource(frame: CapturedFrame) : FrameSource {
     override val width = crop.width()
     override val height = crop.height()
     private var band: Bitmap? = null
+    private var decodes = 0L
+    private var decodeNs = 0L
+    private var maxBandBytes = 0L
+    fun cacheReport() = "faixas=$decodes · decode=${decodeNs/1_000_000}ms · cache pico=$maxBandBytes bytes"
     private var bandY0 = 0
     private var bandY1 = 0
     private val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
@@ -83,8 +87,11 @@ class JpegSource(frame: CapturedFrame) : FrameSource {
             // Faixa com margem para os deslocamentos de alinhamento (lida uma vez por fileira de blocos).
             bandY0 = max(0, sy - BAND_MARGIN)
             bandY1 = min(height, sy + h + BAND_MARGIN + Engine.TILE)
+            val at = System.nanoTime()
             band = decoder.decodeRegion(Rect(crop.left, crop.top + bandY0, crop.right, crop.top + bandY1), opts)
                 ?: error("falha ao decodificar faixa")
+            decodes++; decodeNs += System.nanoTime()-at
+            maxBandBytes = maxOf(maxBandBytes, band!!.allocationByteCount.toLong())
         }
         band!!.getPixels(buf, 0, w, sx, sy - bandY0, w, h)
     }
@@ -163,7 +170,7 @@ object Engine {
      * deslocamento global hierárquico e campo por regiões (12×16, absorve rotação leve da mão).
      * Em seguida mede, pixel a pixel, se cada quadro alinhado "bate" com a referência.
      */
-    fun align(frames: List<FrameSource>, cancel: CancelToken, subpixel: Boolean = true, progress: (Float) -> Unit): Alignment {
+    fun align(frames: List<FrameSource>, cancel: CancelToken, subpixel: Boolean = true, retainReliability: Boolean = true, progress: (Float) -> Unit): Alignment {
         val factor = max(2, max(frames[0].width, frames[0].height) / 2000)
         val ref = frames[0].luma(factor)
         val noise = Consistency.noiseOf(ref)
@@ -183,7 +190,7 @@ object Engine {
             val global = Align.globalShift(ref, movN, maxShift = max(ref.w, ref.h) / 20)
             val field = Align.tileShifts(ref, movN, global, gx, gy, radius = 3)
             val r = Consistency.reliability(ref, mov, field, gx, gy, lut, noise)
-            fields += field; luts += lut; rel += r; unsafe += Consistency.unsafeFraction(r, ref)
+            fields += field; luts += lut; rel += if (retainReliability) r else null; unsafe += Consistency.unsafeFraction(r, ref)
             if (subpixel) fieldsF += Align.refineField(ref, movN, field, global, gx, gy)
             progress(i.toFloat() / frames.size)
         }

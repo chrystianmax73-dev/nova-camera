@@ -13,12 +13,12 @@ class PhotoTrace(val label:String, private val clock:()->Long = { System.nanoTim
     private var sensorFrames=0
     @Synchronized fun mark(name:String) {
         val now=clock()
-        if(events.size<80)events += "$name@${ms(now-start)}ms(+${ms(now-previous)})"
+        if(events.size<128)events += "$name@${ms(now-start)}ms(+${ms(now-previous)})"
         previous=now
     }
     @Synchronized fun sensor(timestampNs:Long) {
         val old=previousSensor;sensorFrames++;previousSensor=timestampNs
-        if(events.size<80)events += "timestamp buffer$sensorFrames: intervalo="+
+        if(events.size<128)events += "timestamp buffer$sensorFrames: intervalo="+
             (if(old!=null && timestampNs>old) ms(timestampNs-old)+"ms" else "não comparável/primeiro")
     }
     fun <T> measure(name:String,block:()->T):T {
@@ -26,7 +26,7 @@ class PhotoTrace(val label:String, private val clock:()->Long = { System.nanoTim
         try { return block() } finally { duration(name,clock()-at) }
     }
     @Synchronized private fun duration(name:String,ns:Long) {
-        if(events.size<80)events += "$name=${ms(ns)}ms"
+        if(events.size<128)events += "$name=${ms(ns)}ms"
     }
     @Synchronized fun publish(state:String) {
         val entry="#$id $label · $state · total=${ms(clock()-start)}ms\n  "+events.joinToString(" · ")
