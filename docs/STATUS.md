@@ -17,6 +17,9 @@
   2. `LivePortraitPolicy.lowPower` (economia de energia ou bateria ≤ 15% fora do carregador): análise a ≤ 3 Hz e profundidade só por mudança de cena ou a cada 60 s (normal 15 s).
   3. `core/DenoiseSkip` + `NcnnDenoiser`: depois de uma projeção que não coube no orçamento (12 MP: 192 × 353 ms ≈ 68 s > 60 s), o mesmo tamanho/orçamento é dispensado **sem carregar o modelo** por 30 min (antes: 2,2 s de carga + 3 blocos + ~44 MB em toda foto para desistir).
 - Estimativa (não medida): Retrato com pessoa parado ~54% (−8%), após toque ~57% (−21%); por Retrato com IA ligada ~27% menos trabalho. Planta/objeto sem mudança.
+- **Resultado 0.26.14 (diagnóstico build81; parte com câmera frontal, aparelho frio 30–32 °C, térmico 0 — não é A/B limpo):** Retrato com desfoque **33,7%** (0.26.13: 58,4%; 0.26.7: 128%). Profundidade dispensada em **323 de 325** quadros (pessoa sem toque); `nova-portrait-m` 8,3% → **2,3%** (≈ −6 pontos atribuíveis a esta mudança; o resto da queda vem de câmera frontal/aparelho frio: CameraX 6,8% → 2,0%, efeito GL 8,8% → 3,5%). IA: "dispensada sem carregar" na 2ª foto (confirmado). Retrato 7,4 s (profundidade recarregada, 2,4 s, após > 60 s sem uso) e **5,1 s**.
+- Parada de prévia em +164 s (StallLog 15:48:10, efeito=false análise=false) logo após as fotos, quando a foto recarregou a profundidade — compatível com a hipótese do 0.26.15, mas a parada sem efeito/análise ativos indica que não é só o efeito GL. O 0.26.15 registra qual carga estava em curso.
+- **Frente de bateria encerrada.**
 
 ---
 
