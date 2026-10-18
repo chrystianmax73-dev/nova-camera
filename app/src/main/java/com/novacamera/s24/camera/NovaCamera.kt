@@ -2080,7 +2080,10 @@ class NovaCamera(
                             val jpegFocal=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH,0.0).toFloat().takeIf{it>0f}
                             val jpegEq=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,0.0).toFloat().takeIf{it>0f}
                             val sensor=synchronized(stillResults){stillResults.remove(imageTimestamp)}
-                            val audit=com.novacamera.s24.core.CaptureOptics.evaluate(captureZoom,captureRoute,jpegFocal,jpegEq,sensor,captureLenses)
+                            val jpegIso=exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,0).takeIf{it>0}
+                            val jpegExposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
+                                .takeIf{it.isFinite() && it>0 && it<60}?.let{(it*1_000_000_000).toLong()}
+                            val audit=com.novacamera.s24.core.CaptureOptics.evaluate(captureZoom,captureRoute,jpegFocal,jpegEq,sensor,captureLenses,jpegIso,jpegExposureNs)
                             val frame=CapturedFrame(snapshot.jpeg,snapshot.rotationDegrees,snapshot.crop,snapshot.evIndex,audit)
                             trace.mark("quadro${i+1}: ${audit.report()}")
                             trace.mark("metadados quadro${i+1}: ${(android.os.SystemClock.elapsedRealtimeNanos()-metadataAt)/1_000_000}ms")
@@ -2096,9 +2099,7 @@ class NovaCamera(
                                     sensorWidthMm=captureFacts.sensorWidthMm.takeIf{capturedPhysical!=null && capturedPhysical==captureFacts.physicalId},
                                     sensorHeightMm=captureFacts.sensorHeightMm.takeIf{capturedPhysical!=null && capturedPhysical==captureFacts.physicalId},
                                     captureVerified=audit.confirmed,
-                                    iso=exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,0).takeIf { it>0 },
-                                    exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
-                                        .takeIf { it.isFinite() && it>0 && it<60 }?.let { (it*1_000_000_000).toLong() })
+                                    iso=audit.iso,exposureNs=audit.exposureNs)
                             }
                             if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f && outScale <= 1f) {
                                 val (clip,deep)=frameStats(bytes)

@@ -10,17 +10,23 @@ object CaptureOptics {
         val iso:Int?,val exposureNs:Long?,val af:Int?,val ae:Int?,val awb:Int?)
     data class Evidence(val requestedZoom:Float,val requestedRoute:String?,val jpegFocalMm:Float?,
         val jpegEquivalentMm:Float?,val sensor:Sensor?,val compatibleId:String?,
-        val opticalZoom:Float?,val confirmed:Boolean,val conflict:Boolean) {
+        val opticalZoom:Float?,val confirmed:Boolean,val conflict:Boolean,
+        val jpegIso:Int?=null,val jpegExposureNs:Long?=null) {
+        // JPEG da própria imagem, não ISO da prévia ou do plano manual solicitado.
+        val iso get()=jpegIso ?: sensor?.iso
+        val exposureNs get()=jpegExposureNs ?: sensor?.exposureNs
         val digitalRatio get()=opticalZoom?.takeIf{it>0f}?.let { max(1f,requestedZoom/it) }
         fun report():String = "Óptica da foto: alvo=${fmt(requestedZoom)}× · rota solicitada=$requestedRoute"+
             " · físico no resultado=${sensor?.physicalId ?: "não informado"}"+
             " · ID confirmado=$confirmed · JPEG focal=${jpegFocalMm ?: "ausente"}mm/${jpegEquivalentMm ?: "ausente"}mm eq."+
             " · ${if(conflict) "CONFLITO entre JPEG e resultado; óptica não confirmada" else if(opticalZoom!=null) "${if(confirmed) "óptica" else "focal compatível com óptica"} ${fmt(opticalZoom)}× (ID $compatibleId), razão alvo/óptica≈${fmt(digitalRatio!!)}×" else "óptica não identificada"}"+
-            " · ISO=${sensor?.iso} · exposição=${sensor?.exposureNs}ns · AF/AE/AWB=${sensor?.af}/${sensor?.ae}/${sensor?.awb}"
+            " · ISO=$iso (origem=${if(jpegIso!=null) "JPEG" else if(sensor?.iso!=null) "Camera2" else "ausente"})"+
+            " · exposição=${exposureNs}ns (origem=${if(jpegExposureNs!=null) "JPEG" else if(sensor?.exposureNs!=null) "Camera2" else "ausente"})"+
+            " · Camera2 ISO/exposição=${sensor?.iso}/${sensor?.exposureNs}ns · AF/AE/AWB=${sensor?.af}/${sensor?.ae}/${sensor?.awb}"
         private fun fmt(v:Float)=String.format(Locale.US,"%.2f",v)
     }
     fun evaluate(requestedZoom:Float,requestedRoute:String?,jpegFocalMm:Float?,jpegEquivalentMm:Float?,
-        sensor:Sensor?,lenses:List<LensOption>):Evidence {
+        sensor:Sensor?,lenses:List<LensOption>,jpegIso:Int?=null,jpegExposureNs:Long?=null):Evidence {
         val jpeg=jpegFocalMm?.takeIf{it.isFinite()&&it>0f}
         val actual=sensor?.focalMm?.takeIf{it.isFinite()&&it>0f}
         fun agrees(a:Float,b:Float)=abs(a-b)<=max(.05f,b*.025f)
@@ -31,6 +37,6 @@ object CaptureOptics {
         val chosen=if(conflict)null else byId ?: candidates.singleOrNull()
         val confirmed=!conflict && byId!=null && (jpeg==null || byId.focalMm?.let{agrees(jpeg,it)}!=false)
         return Evidence(requestedZoom,requestedRoute,jpeg,jpegEquivalentMm,sensor,chosen?.physicalCameraId ?: chosen?.cameraId,
-            chosen?.intrinsic,confirmed,conflict)
+            chosen?.intrinsic,confirmed,conflict,jpegIso?.takeIf{it>0},jpegExposureNs?.takeIf{it>0})
     }
 }

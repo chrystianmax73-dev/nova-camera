@@ -1,3 +1,12 @@
+# 0.26.4 — qualidade fotográfica: exposição da referência e eficiência tonal (em desenvolvimento)
+
+- Base cf6f617/CI39123476501 aprovada antes das mudanças. Baseline físico e análise individual das três fotos em [QUALIDADE_0263_BASELINE.md](pendente/QUALIDADE_0263_BASELINE.md); fotos pessoais1280×960 semEXIF preservadas foraGit.
+- Diagnóstico do dono: 49MP com8/8 em39,89–41,52s; Noturno5/5 em15,27s. CompatibilidadeJPEG18,6mm com5x, ID não confirmado. Nada disso prova ganho controlado de qualidade/autonomia.
+- ISO/exposição do JPEG passam a aparecer por quadro com origem explícita e dadosCamera2 separados. Acabamento usa metadados da referência escolhida, sem herdar ISO da primeira imagem quando ela muda. Compatibilidade não vira confirmação óptica.
+- Próxima alteração limitada: acelerar cálculo tonal preservando pixels e parâmetros; testes e APK ainda pendentes. Nenhum ganho físico ou correção geral de prévia declarado.
+
+---
+
 # 0.26.3 — APK de teste entregue: ruído temporal e óptica auditável
 
 - **[Baixar ZIP com APK assinado — build 71 (1071)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061/artifacts/12134983449)**. Extrair e instalar app-release.apk. Artefato 12134983449, 132625602 bytes, SHA-256 do ZIP cb1cb622e0b162bd12c8c8ba1e02f7834ad2af26a79f8e253a6ac84157ee5f70; expira 2026-11-17T11:28:36Z. Mesma assinatura permanente; nenhum release criado.

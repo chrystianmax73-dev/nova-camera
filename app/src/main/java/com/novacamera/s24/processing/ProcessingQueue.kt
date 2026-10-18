@@ -273,7 +273,10 @@ object ProcessingQueue {
         var originalUri: Uri? = null
         fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
 
-        job.imagingFacts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
+        // A seleção por nitidez pode trocar a referência. Não usar ISO da primeira imagem para
+        // ajustar outra; sem evidência nova conserva o comportamento das sessões antigas.
+        val facts=frame0.optics?.let{audit->job.imagingFacts.copy(iso=audit.iso,exposureNs=audit.exposureNs)} ?: job.imagingFacts
+        facts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
         session.zoom = job.zoom
         session.signature = job.signature
         try {
