@@ -1,3 +1,11 @@
+# 0.26.12 — bateria/tempo: um só modelo de profundidade para a prévia e a foto (Claude; fonte em validação; inclui 0.26.11)
+
+- **Diagnóstico 0.26.10 + relato do dono (1º Retrato com prévia do desfoque ligada, 2º sem):** 1º Retrato 10,7 s com carga de profundidade 3277 ms; 2º 7,3 s com 635 ms (reaproveitado). Causa: a prévia ao vivo abria a **sua própria** sessão de Depth Anything e a foto outra — modelo duas vezes na memória (PSS ~760 MB) e o 1º Retrato pagava a carga mesmo com o modelo já carregado pela prévia.
+- **Correção:** `DepthEstimator.shared(context)` — a análise ao vivo e a foto usam a mesma sessão. A prévia não fecha mais a sessão; ao sair do Retrato agenda a liberação por ociosidade (60 s, `ProcessingQueue.scheduleDepthRelease`); calor SEVERO libera na hora. `Session.run`/`close` sincronizados: sessão liberada no meio devolve null (a prévia busca de novo no próximo cálculo).
+- Esperado (não comprovado): 1º Retrato com prévia ligada ~2,5 s mais rápido e uma cópia a menos do modelo na memória. Sem mudança de imagem.
+
+---
+
 # 0.26.11 — bateria: profundidade ao vivo só quando a cena muda (Claude; fonte em validação)
 
 - **Diagnóstico 0.26.10 (prévia do desfoque ativa, parado, térmico 0):** Retrato **95% → 65%** do processo; thread da análise **60% → 27%** (fim da espera ativa do OpenMP confirmado). Por etapa (CPU da própria thread): cópia 1,4%, segmentação 0,9%, **profundidade 6,3% + ~17% em threads auxiliares OpenMP** (27,3% − 10,7% das etapas), máscara 2,1%. Profundidade: 23 cálculos em 93 s, ~0,9 s de CPU e 0,87 s de parede cada.

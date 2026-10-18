@@ -65,6 +65,19 @@ object DepthEstimator {
     @Synchronized
     fun release() { cached?.close(); cached = null }
 
+    /**
+     * Mesma sessão para a prévia ao vivo do Retrato e para a foto: antes cada uma carregava a sua
+     * (modelo duas vezes na memória e o 1º Retrato pagava ~2,5 s de carga com a prévia já ligada).
+     * O chamador não fecha a sessão; quem libera é [release]/[releaseIfIdle].
+     */
+    @Synchronized
+    fun shared(context: Context): Session? {
+        if (!available(context)) return null
+        val session = cached ?: Session.open(context)?.also { cached = it } ?: return null
+        lastUsedMs = SystemClock.elapsedRealtime()
+        return session
+    }
+
     @Synchronized
     fun releaseIfIdle(nowMs: Long) { if (cached != null && nowMs - lastUsedMs >= IDLE_MS) release() }
 

@@ -81,14 +81,14 @@ class PortraitMaskAnalyzer(
             }
             if(cinematic && com.novacamera.s24.processing.VideoFinishJob.state.running) {
                 if(lastState!="Desfoque pausado durante acabamento local")effect.clearMask()
-                depth?.close();depth=null;depthN=null;prevSubject=null;prevAmount=null
+                depth=null;depthN=null;prevSubject=null;prevAmount=null
                 state("Desfoque pausado durante acabamento local");return
             }
             val now = SystemClock.uptimeMillis()
             val status = heat()?.thermalStatus ?: 0
             if (status >= ThermalPolicy.SEVERE) {
                 if(lastState!="Prévia do desfoque pausada: aparelho quente") effect.clearMask()
-                depth?.close();depth=null; segmenter?.close();segmenter=null; depthN=null;prevSubject=null;prevAmount=null
+                depth=null; DepthEstimator.release(); segmenter?.close();segmenter=null; depthN=null;prevSubject=null;prevAmount=null
                 state("Prévia do desfoque pausada: aparelho quente"); return
             }
             // Cena parada: a máscara não muda, então 3 Hz bastam (economia de CPU/GPU); qualquer
@@ -150,7 +150,8 @@ class PortraitMaskAnalyzer(
                 if (!cinematic) depthRefresh.done(now, sceneLuma ?: lumaGrid(upright), selectedTap)
                 val started=SystemClock.uptimeMillis()
                 val depthCpu0=SystemClock.currentThreadTimeMillis()
-                val session = depth ?: DepthEstimator.Session.open(app).also { if (it == null) depthFailed = true; depth = it }
+                // Sessão compartilhada com a foto; buscada a cada uso porque a fila pode tê-la liberado.
+                val session = DepthEstimator.shared(app).also { if (it == null) depthFailed = true; depth = it }
                 try { session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) } }
                 finally {
                     depthBudget.completed(started,SystemClock.uptimeMillis())
@@ -242,7 +243,9 @@ class PortraitMaskAnalyzer(
     override fun close() {
         closed = true
         runCatching { segmenter?.close() }; segmenter = null
-        runCatching { depth?.close() }; depth = null
+        // A sessão de profundidade é compartilhada com a foto: não fecha aqui, só agenda a liberação por ociosidade.
+        if (depth != null) ProcessingQueue.scheduleDepthRelease()
+        depth = null
         depthN=null;prevSubject=null;prevAmount=null
         if(metricsToken==metricsGeneration.get())report="Análise ao vivo do Retrato: inativa · modelos liberados"
     }

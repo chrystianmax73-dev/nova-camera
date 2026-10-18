@@ -214,7 +214,7 @@ object ProcessingQueue {
     fun releaseDepthModel() { executor.execute { DepthEstimator.release() } }
 
     /** Modelo de profundidade fica carregado entre Retratos; liberado com calor ou depois de 1 min sem uso. */
-    private fun releaseDepthLater() {
+    fun scheduleDepthRelease() {
         if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { DepthEstimator.release(); return }
         main.postDelayed({ executor.execute {
             if (pending == 0) DepthEstimator.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
@@ -398,7 +398,7 @@ object ProcessingQueue {
                 // crescendo com a distância até ele.
                 progress(0.69f, "Estimando profundidade")
                 val depth = runCatching { timed(job,"profundidade/carga") { DepthEstimator.estimate(context, base) } }
-                    .also { releaseDepthLater() }
+                    .also { scheduleDepthRelease() }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
                 val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint,
                     report={job.trace?.mark(it)}) } }

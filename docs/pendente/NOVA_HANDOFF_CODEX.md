@@ -1,3 +1,10 @@
+# Etapa 0.26.12 (Claude) — sessão de profundidade compartilhada prévia/foto; fonte em validação
+
+- `DepthEstimator.shared()`; `PortraitMaskAnalyzer` não abre nem fecha sessão própria (calor SEVERO → `DepthEstimator.release()`; `close()` → `ProcessingQueue.scheduleDepthRelease()`). Motivo: 1º Retrato com prévia ligada pagava 3,3 s de carga e o modelo ficava duplicado na memória (diagnóstico 0.26.10).
+- **Codex:** se mexer na profundidade da prévia/cinematográfico, não volte a usar `Session.open` direto no analisador; use `DepthEstimator.shared`.
+
+---
+
 # Etapa 0.26.11 (Claude) — profundidade ao vivo só com cena nova; fonte em validação
 
 - `core/DepthRefreshPolicy` + `PortraitMaskAnalyzer` (só `!cinematic`): recalcula profundidade se luminância por bloco mudou > 0,045 desde o último cálculo, se o toque mudou (> 0,04) ou após 15 s. Motivo medido: profundidade era ~23% de um núcleo com a câmera parada (diagnóstico 0.26.10).
