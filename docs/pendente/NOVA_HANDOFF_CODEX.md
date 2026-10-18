@@ -1,3 +1,22 @@
+# Entrega P0 etapa 2 — Nova Camera 0.26.2 / build 69 (1069)
+
+- **APK assinado confirmado:** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39089635870/artifacts/12122029001). Artefato12122029001,132619077 bytes, digest **do ZIP** sha256:ba236736aac0688b8fd9f6eb317fb945f610a4c0ad6baa63568ed3f380d9ec80. Expira2026-11-17T02:26:55Z. Extrair ZIP e instalar app-release.apk sobre a versão anterior; assinatura permanente preservada.
+- [Actions39089635870](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39089635870), job117563423216: **277 aprovados,5 dispensados,0 falhas**, lint, codec JPEG sintético200MP (RSS host49868KiB), NAFNet/Depth Anything, assembleRelease, pesos offline (Depth=True), continuidade do certificado/versionCode e upload aprovados. Publicação **skipped**; nenhum release criado. Run_number69 e fórmula versionCode1000+run_number=1069, versionName0.26.2 na fonte.
+- Fonte app `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b`, CI39089312391 aprovado. Fonte APK `3cad7b111e164e7b395cfc111b26dc342be79b34`; nenhum app alterado após aprovação. Gatilho original restaurado em `0b82310fb281f03b044a440529aee3c228ac5439`, blob`a82bc113b2de207b7a3e9a9660cc19af520167ff`, conferido no HEAD37214a1. Main/assinatura/modelos/permissões preservados. Buscar HEAD atualizado antes de continuar; só documentação muda nesta entrega.
+- **P0 permanece aberta.** Equivalência e microbenchmarks Linux executados, memória de buffers calculada; ainda sem comparação física nova de velocidade, aquisição, PSS, térmica, autonomia ou qualidade no S24. Diagnóstico completo e fotos anunciados ainda não anexados nesta etapa. Os estados “APK pendente” abaixo são histórico superado.
+
+## Próximo passo para Claude
+
+Receber e comparar os testes físicos da0.26.2 com o baseline0.25.3 de P0_ETAPA2.md, seguindo P0_ETAPA2_VALIDACAO.md. Priorizar intervalos pedido/início/entrega da rajada de oito quadros, congelamentos fora da rajada e escala energética. Não gerar outro APK nem declarar otimização completa sem necessidade/evidência. Não enfileirar oito JPEGs simultaneamente nem reativar ZSL às cegas. Usar subtimings para escolher o próximo gargalo do acabamento. O código e as pendências detalhadas permanecem no handoff abaixo.
+
+## Texto pronto para enviar ao Claude
+
+Continue a Nova Camera em github.com/chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, pelo HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topo de docs/STATUS.md, docs/pendente/P0_ETAPA2.md e P0_ETAPA2_VALIDACAO.md. A etapa de código0.26.2/build69(1069) foi entregue assinada no Actions39089635870, artefato12122029001;277 testes aprovados/5 dispensados, lint, modelos offline e certificado verificados, release skipped. Fonte appbeb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b. Kernels JNI equivalentes, mapas SR liberados e foco/rajada protegidos; não há melhora física comprovada. Priorize os testes reais no S24 e investigue os7,4–9,1s de aquisição, congelamentos sem efeitos, memória e escala de corrente. Preserve oito quadros, resolução/fusão/qualidade, main, modelos, chave permanente, tom do Noturno e fotos pessoais fora do Git. Faça commits pequenos e testes/compilação/lint pelo Actions; não publique release definitivo automaticamente. Documente limites e atualize o handoff antes de encerrar.
+
+---
+
+## Histórico preservado — estados de geração abaixo foram superados
+
 # APK de teste 0.26.2 em geração — build69 (1069 esperado)
 
 - Fonte app `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b` aprovada no CI39089312391. Fonte APK `3cad7b111e164e7b395cfc111b26dc342be79b34`; nenhum app alterado depois.

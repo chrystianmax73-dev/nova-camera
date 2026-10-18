@@ -1,3 +1,12 @@
+# 0.26.2 — APK de teste entregue; P0 física ainda aberta
+
+- **[Baixar ZIP com APK assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39089635870/artifacts/12122029001): versão0.26.2/build69 (1069).** Artefato12122029001,132619077 bytes; sha256 do ZIP ba236736aac0688b8fd9f6eb317fb945f610a4c0ad6baa63568ed3f380d9ec80; expira2026-11-17T02:26:55Z. Extrair e instalar app-release.apk. Mesma chave permanente; nenhum release criado.
+- Actions39089635870/job117563423216 aprovado: **277 testes aprovados/5 dispensados/0 falhas**, lint, JPEG sintético200MP, NAFNet, Depth Anything, assembleRelease, pesos offline/profundidade=True, certificado/versionCode/upload. Publicação skipped. Fonteappbeb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b (CI39089312391 aprovado), fonteAPK3cad7b111e164e7b395cfc111b26dc342be79b34. Gatilho original já restaurado0b82310fb281f03b044a440529aee3c228ac5439/bloba82bc113b2de207b7a3e9a9660cc19af520167ff.
+- Núcleos nativos preservam pixels nos testes host; SR deixa de reter~83,3MiB de mapas não consultados na geometria do baseline. Não reduz2×→1,5× automaticamente: se não couber, preserva original e informa impossibilidade da alta resolução. AF exige sucesso real, rajada tem proteção limitada contra vigia, callbacks antigos isolados. Tempos de acabamento e memória/JPEG mais detalhados. Funções e código existentes preservados.
+- **Sem ganho físico S24 comprovado ainda.** Não encerrada P0 de aquisição7,4–9,1s/congelamentos fora da rajada/temperatura/memória/qualidade. Potência não confiável até confirmar escala, sem multiplicação1000 por magnitude. Evidências antes/depois do microbenchmark Linux e protocolo em P0_ETAPA2_VALIDACAO.md. Handoff completo e texto para Claude atualizados. Fotos e diagnóstico completo anunciados ainda não anexados nesta etapa. Estados pendentes abaixo são histórico.
+
+---
+
 # 0.26.2 — foco honesto e proteção limitada da rajada
 
 - Foco por toque só fica marcado como confirmado se CameraX retornar sucesso AF. Antes, bastava o callback existir ou solicitar FLAG_AF. Razões distintas para AF dispensado (manual/bloqueio/ponto confirmado/OEM/contínuo) e pedido não suportado/rejeitado. Mantém foco automático e não inventa foco no ponto.
