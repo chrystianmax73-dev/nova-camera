@@ -1,3 +1,12 @@
+# APK de teste 0.26.2 em geração — build69 (1069 esperado)
+
+- Fonte app `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b` aprovada no CI39089312391. Fonte APK `3cad7b111e164e7b395cfc111b26dc342be79b34`; nenhum app alterado depois.
+- Run assinado: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39089635870 , build69, job117563423216. APK ainda NÃO confirmado. Próximo passo: conferir job inteiro, testes/lint/JPEG200MP/modelos/assembleRelease/offline Depth=True/certificado-versionCode/upload, publicação skipped; depois registrar artefato real e avisar o dono.
+- Workflow original já restaurado em `0b82310fb281f03b044a440529aee3c228ac5439`, blob `a82bc113b2de207b7a3e9a9660cc19af520167ff`. Não disparar outro build, workflow_dispatch ou release. Confirmar resultado do run existente.
+- P0 ainda exige S24: nenhuma melhora física de aquisição, PSS, térmica, autonomia ou qualidade comparativa declarada. Detalhes e texto para Claude abaixo. Estados antigos superados por este registro.
+
+---
+
 # Atualização: fonte 0.26.2 aprovada; APK ainda não confirmado
 
 Fonte app `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b`, CI final39089312391 aprovado em assembleDebug/testDebugUnitTest/lintDebug. CIs intermediários39089067201 e39089230751 aprovados. Nenhuma alteração de app posterior. Preparar apenas APK assinado para teste pelo fluxo autorizado, mantendo publicação skipped; ainda não informar APK disponível. Handoff completo e texto para Claude logo abaixo, com estados antigos de CI superados por esta atualização. P0 física continua aberta.
