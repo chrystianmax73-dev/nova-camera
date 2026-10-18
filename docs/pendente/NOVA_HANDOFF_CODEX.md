@@ -1,3 +1,14 @@
+# 0.26.4 — APK de teste build 72 em geração (1072 esperado)
+
+- Fonte de app **142c648dde009250527b3525d807e4625078f8c2**, aprovada em compilação, testes e lint no CI **39126725397**. Alternativa Kotlin anterior 96848c1/39126506961 também aprovada. Nenhuma alteração de app após aprovação.
+- Fonte do APK **e8ae0037892a171fa74d24a47edb9e5ce02e86cf**, run **39127091262**, job **117674387380**, número real de build **72**. Link: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262 . **APK ainda NÃO confirmado neste registro.** VersionName0.26.4; versionCode esperado1072 conforme fórmula do projeto, verificar no job.
+- Workflow original já restaurado em **8842d6faafe2472e5ef6c8fb73c6581caf863b34**, blob **a82bc113b2de207b7a3e9a9660cc19af520167ff**. Não iniciar outro build, workflow_dispatch ou release. Publicação deste push deve ficar skipped.
+- **Próximo passo:** acompanhar o run existente. Conferir testes/lint, resumo real dos testes, codec JPEG200MP, NAFNet/DepthAnything offline, assembleRelease, continuidade da assinatura/versionCode e upload. Só depois registrar artefato real, link, digest do ZIP, tamanho e expiração, atualizar STATUS e avisar o dono. Se falhar, ler erros concretos e preservar este handoff.
+- Resultado do código: metadadosJPEG/referência corrigidos; tom permanece Kotlin, com reuso de geometria/faixa64 e dispensa de cópias neutras preservandoFood/cancelamento; plano/perfil/estilo medidos. Experimento tonalJNI foi descartado. Cinco pares no CI final: medianas154,589/125,825ms, quatro favoráveis; ensaio anterior129,884/110,713ms. Apenas microbenchmarks no servidor. Sem ganho físico de qualidade, autonomia ou velocidade total comprovado; prévia ainda pendente.
+- Baseline e análise das três fotos em QUALIDADE_0263_BASELINE.md. Preservar8quadros/49MP, Night/WB, modelos, main, assinatura e mídia pessoal foraGit. Texto completo para Claude e detalhes abaixo; estados de CI pendente da fonte abaixo foram superados, não os limites físicos.
+
+---
+
 # Etapa atual 0.26.4 — Kotlin preservado; validação e APK pendentes
 
 Trabalhar somente em `codex/video-estabilidade-0-20`. Buscar HEAD remoto atualizado. A fonte de app mais recente é **142c648dde009250527b3525d807e4625078f8c2**. A versão continua 0.26.4; ainda NÃO há APK dessa versão neste registro. O APK confirmado anterior é 0.26.3, build 71 (1071), no histórico abaixo.

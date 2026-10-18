@@ -1,11 +1,11 @@
-# 0.26.4 — qualidade fotográfica: exposição da referência e eficiência tonal (fonte aprovada; APK pendente)
+# 0.26.4 — qualidade fotográfica: exposição da referência e eficiência tonal (APK de teste 72 em geração)
 
 - Base cf6f617/CI39123476501 aprovada antes das mudanças. Baseline físico e análise individual das três fotos em [QUALIDADE_0263_BASELINE.md](pendente/QUALIDADE_0263_BASELINE.md); fotos pessoais1280×960 semEXIF preservadas foraGit.
 - Diagnóstico do dono: 49MP com8/8 em39,89–41,52s; Noturno5/5 em15,27s. CompatibilidadeJPEG18,6mm com5x, ID não confirmado. Nada disso prova ganho controlado de qualidade/autonomia.
 - ISO/exposição do JPEG passam a aparecer por quadro com origem explícita e dadosCamera2 separados. Acabamento usa metadados da referência escolhida, sem herdar ISO da primeira imagem quando ela muda. Compatibilidade não vira confirmação óptica.
 - Port tonalJNI experimental foi testado e descartado antes do APK: CI39126084412 passou, mas cinco pares não mostraram vantagem (medianas Kotlin133,877ms/JNI162,440ms). Biblioteca nativa voltou ao conteúdo anterior; kernelsSR/alinhamento/detalhes existentes preservados.
 - Fonte96848c1 aprovada noCI39126506961 em compilação/testes/lint: coordenadas bilinearesKotlin e faixa64linhas reutilizável, pixels exatos contra fórmula anterior. Cinco pares nohost: mediana129,884→110,713ms, quatro favoráveis; não é ganho físicoS24. Cronometra plano tonal/perfil/estilo.
-- Fonte final142c648dde009250527b3525d807e4625078f8c2 aprovada noCI39126725397: compilação/testes/lint, incluindo plano neutro/Food/cancelamento. Segundo ensaiohost: mediana154,589→125,825ms, quatro de cinco pares favoráveis. APK ainda pendente; não declarar ganho físico nem correção geral de prévia.
+- Fonte final142c648dde009250527b3525d807e4625078f8c2 aprovada noCI39126725397: compilação/testes/lint, incluindo plano neutro/Food/cancelamento. Segundo ensaiohost: mediana154,589→125,825ms, quatro de cinco pares favoráveis. APK de teste build72 em geração noActions39127091262/job117674387380 (versionCode1072 esperado), fonteAPKe8ae0037892a171fa74d24a47edb9e5ce02e86cf. Ainda não confirmado. Gatilho original já restaurado8842d6faafe2472e5ef6c8fb73c6581caf863b34; publicação deve ser skipped. Não declarar ganho físico nem correção geral de prévia.
 
 ---
 
