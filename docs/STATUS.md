@@ -1,3 +1,14 @@
+# 0.27.0 — Interface Nova, etapa 1 (Claude; branch `claude/nova-interface`; fonte)
+
+- **Proposta aprovada pelo dono** (canvas de mockups, 8 telas). Etapa 1 = organização da tela principal, sem mexer na câmera nem no processamento.
+- **Topo enxuto:** só flash (esquerda) e Ferramentas (direita); no vídeo, resolução e fps também à direita. Centro livre (câmera frontal do S24 fica no meio).
+- **Painel Ferramentas** (`ui/ToolsPanel.kt`): Timer, Proporção, Resolução, HDR, RAW, Mais modos, Ajustes. São os **mesmos botões** de antes (mesma ação/estado); só mudaram de lugar e ganharam rótulo. O que não se aplica ao modo/lente some.
+- **Faixa de modos:** Retrato · Foto · Vídeo · Noturno · Pro (+ MAIS / modo extra ativo). Noturno e Pro saíram do MAIS. "Cinema" ainda não é modo (o cinematográfico continua em Ajustes › Vídeo).
+- Ícones novos desenhados no mesmo padrão (`TOOLS`, `MODES`). Render da tela (Robolectric, `MainScreenRenderTest`) ganhou o caso "ferramentas".
+- Limitação conhecida do render de teste (já existia antes): a barra de zoom aparece sobre a faixa de modos no PNG; no aparelho ela fica na faixa entre a prévia e os controles.
+
+---
+
 # 0.26.15 — travamento da prévia ao abrir o Retrato: vigia espera a carga do modelo (Claude; APK de teste build82 entregue)
 
 - **[Baixar ZIP com app-release.apk — build82 (1082)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39155946626/artifacts/12147286475)**. Mesma assinatura permanente. Artefato 12147286475, 132854397 bytes; digest do ZIP sha256:8b276082e602fc8b140d790b5ea2a86827df71dcc80da4a0bc672b46eab7aaee; expira 2026-11-17T18:57:49Z. [Actions 39155946626](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39155946626) com sucesso; publicação skipped. Fonte do app 42f2f4e (CI 39154941357 aprovado) + docs; fonte do APK 6d1140d; gatilho restaurado em 05990ca (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

@@ -108,6 +108,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var rawChip: TextChip
     private lateinit var lensChip: TextView
     private lateinit var modeGrid: ModeGrid
+    private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
+    private lateinit var toolsButton: NovaIconView
     private lateinit var recChip: TextView
     private lateinit var statusRow: LinearLayout
     private lateinit var trackingChip: TextView
@@ -544,12 +546,32 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
         resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, qualityChip, fpsChip, hdrChip, rawChip).forEach { v ->
-            val cell = FrameLayout(this)
-            cell.addView(v, FrameLayout.LayoutParams(if (v is NovaIconView) dpi(48) else -2, if (v is NovaIconView) dpi(48) else -2, Gravity.CENTER))
-            topBar.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
+        // Topo enxuto: flash à esquerda; formato do vídeo e ferramentas à direita. O centro fica livre
+        // (câmera frontal do S24 no meio da tela). O resto foi para o painel de ferramentas.
+        toolsButton = icon(Icon.TOOLS) { if (toolsPanel.visibility == View.VISIBLE) hideTools() else showTools() }.apply {
+            background = Nova.pill(0x33000000, dp(24f))
         }
+        flashButton.background = Nova.pill(0x33000000, dp(24f))
+        topBar.setPadding(dpi(12), 0, dpi(12), 0)
+        topBar.addView(flashButton, LinearLayout.LayoutParams(dpi(48), dpi(48)))
+        topBar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        listOf<View>(qualityChip, fpsChip).forEach { v ->
+            val cell = FrameLayout(this)
+            cell.addView(v, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+            topBar.addView(cell, LinearLayout.LayoutParams(-2, -1).apply { marginEnd = dpi(4) })
+        }
+        topBar.addView(toolsButton, LinearLayout.LayoutParams(dpi(48), dpi(48)))
         root.addView(topBar, FrameLayout.LayoutParams(-1, dpi(TOP_BAR_DP), Gravity.TOP))
+        toolsPanel = com.novacamera.s24.ui.ToolsPanel(this).apply {
+            visibility = View.GONE
+            add("Timer", timerButton)
+            add("Proporção", ratioChip)
+            add("Resolução", resChip)
+            add("HDR", hdrChip)
+            add("RAW", rawChip)
+            add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
+            add("Ajustes", settingsButton)
+        }
 
         recChip = TextView(this).apply {
             setTextColor(Nova.TEXT); textSize = 14f; typeface = Nova.MEDIUM
@@ -688,6 +710,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
+        root.addView(toolsPanel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
 
         idleOverlay = TextView(this).apply {
             text = "Câmera pausada para poupar bateria\n\nToque para continuar"
@@ -783,6 +806,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
             (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
         (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
+        (toolsPanel.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
         bottomScrim.visibility = if (pTop + pHeight > h - bottom.measuredHeight - insetBottom) View.VISIBLE else View.GONE
         topBar.setBackgroundColor(if (aspect == AspectRatioOption.FULL) 0x59000000 else 0)
@@ -805,7 +829,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.orientation = deg
         zoomBar.orientation = deg
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, hdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -843,7 +867,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Faixa principal: RETRATO · FOTO · VÍDEO · (modo extra ativo ou MAIS). */
     private fun refreshStrip(mode: CaptureMode, animate: Boolean = true) {
-        val extra = if (mode.primary) "MAIS" else mode.label
+        val extra = if (mode in PRIMARY_MODES) "MAIS" else mode.label
         modeStrip.labels = PRIMARY_MODES.map { it.label } + extra
         val index = PRIMARY_MODES.indexOf(mode).takeIf { it >= 0 } ?: PRIMARY_MODES.size
         if (animate) modeStrip.selectedIndex = index else modeStrip.jumpTo(index)
@@ -857,8 +881,28 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         } else if (modeGrid.visibility == View.VISIBLE) hideGrid() else showGrid()
     }
 
+    private fun showTools() {
+        if (camera.isRecording) return
+        hideGrid()
+        updateTopBar()
+        toolsPanel.alpha = 0f
+        toolsPanel.translationY = dp(16f)
+        toolsPanel.visibility = View.VISIBLE
+        zoomBar.animate().alpha(0f).setDuration(Nova.FAST).start()
+        handler.removeCallbacks(hideLens); lensChip.visibility = View.GONE
+        Haptics.tick(toolsButton)
+        toolsPanel.animate().alpha(1f).translationY(0f).setDuration(Nova.NORMAL).setInterpolator(Nova.EASE).start()
+    }
+
+    private fun hideTools() {
+        if (toolsPanel.visibility != View.VISIBLE) return
+        zoomBar.animate().alpha(1f).setDuration(Nova.NORMAL).start()
+        toolsPanel.animate().alpha(0f).translationY(dp(12f)).setDuration(Nova.FAST).withEndAction { toolsPanel.visibility = View.GONE }.start()
+    }
+
     private fun showGrid() {
         if (camera.isRecording) return
+        hideTools()
         modeGrid.bind(EXTRA_MODES.map { it to camera.supportFor(it) }, camera.mode)
         modeGrid.alpha = 0f
         modeGrid.translationY = dp(16f)
@@ -877,6 +921,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun selectMode(m: CaptureMode) {
         if (camera.isRecording || countdown > 0 || quickReturnMode != null) return
+        hideTools()
         refreshStrip(m)
         showTransition()
         overlay.hideFocusRing()
@@ -1192,6 +1237,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
         listOf<View>(hdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        toolsPanel.sync()
     }
 
     // ------------------------------------------------------------------ CameraListener
@@ -1594,8 +1640,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     companion object {
         private const val TAG = "NovaCamera"
         private const val TOP_BAR_DP = 52
-        private val PRIMARY_MODES = CaptureMode.entries.filter { it.primary }
-        private val EXTRA_MODES = CaptureMode.entries.filterNot { it.primary }
+        /** Faixa principal (proposta de interface aprovada): Retrato · Foto · Vídeo · Noturno · Pro. */
+        private val PRIMARY_MODES = listOf(CaptureMode.RETRATO, CaptureMode.FOTO, CaptureMode.VIDEO, CaptureMode.NOITE, CaptureMode.PRO)
+        private val EXTRA_MODES = CaptureMode.entries.filterNot { it in PRIMARY_MODES }
         private const val IDLE_CHECK_MS = 10_000L
         private const val ENERGY_EVERY_MS = 10_000L
         /** Auxílios do visor: 2 medições por segundo; 1 por segundo se copiar a prévia ficar caro. */

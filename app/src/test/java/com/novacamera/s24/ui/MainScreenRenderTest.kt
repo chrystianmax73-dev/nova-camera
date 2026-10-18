@@ -123,6 +123,7 @@ class MainScreenRenderTest {
             "pro" to state(CaptureMode.PRO),
             "video-pro" to state(CaptureMode.VIDEO_PRO),
             "mais" to state(CaptureMode.FOTO),
+            "ferramentas" to state(CaptureMode.FOTO),
             "retrato-nova" to state(CaptureMode.RETRATO, ModeEngine.NOVA,
                 com.novacamera.s24.core.ModeResolver.resolve(CaptureMode.RETRATO, com.novacamera.s24.core.DeviceModeFacts(true, true, 10)).note),
             "noturno-processando" to state(CaptureMode.NOITE, ModeEngine.NOVA),
@@ -135,6 +136,7 @@ class MainScreenRenderTest {
             if (name == "video") activity.onRecording(RecordingPhase.RECORDING, 83)
             if (name == "video-pro") activity.onActiveLens("Tele 5×")
             if (name == "mais") MainActivity::class.java.getDeclaredMethod("showGrid").apply { isAccessible = true }.invoke(activity)
+            if (name == "ferramentas") MainActivity::class.java.getDeclaredMethod("showTools").apply { isAccessible = true }.invoke(activity)
             if (name == "noturno-processando") MainActivity::class.java
                 .getDeclaredMethod("onProcessingProgress", com.novacamera.s24.processing.JobProgress::class.java)
                 .apply { isAccessible = true }
@@ -150,6 +152,7 @@ class MainScreenRenderTest {
             File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
             if (name == "video") activity.onRecording(RecordingPhase.IDLE, 0)
             if (name == "mais") MainActivity::class.java.getDeclaredMethod("hideGrid").apply { isAccessible = true }.invoke(activity)
+            if (name == "ferramentas") MainActivity::class.java.getDeclaredMethod("hideTools").apply { isAccessible = true }.invoke(activity)
         }
         assertTrue(File(out, "foto.png").length() > 0)
     }

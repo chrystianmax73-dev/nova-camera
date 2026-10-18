@@ -14,6 +14,7 @@ class NovaIconView(context: Context, icon: Icon) : View(context) {
     enum class Icon {
         FLASH_OFF, FLASH_AUTO, FLASH_ON, TIMER_OFF, TIMER_3, TIMER_10, SETTINGS, FLIP, PAUSE, RESUME, CLOSE,
         MODE_PRO, MODE_VIDEO_PRO, MODE_NIGHT, MODE_SLOWMO, MODE_PANORAMA, MODE_TIMELAPSE, MODE_FOOD, MODE_PORTRAIT_VIDEO,
+        TOOLS, MODES,
     }
 
     var icon: Icon = icon
@@ -52,6 +53,8 @@ class NovaIconView(context: Context, icon: Icon) : View(context) {
         Icon.PAUSE -> "Pausar gravação"
         Icon.RESUME -> "Retomar gravação"
         Icon.CLOSE -> "Fechar"
+        Icon.TOOLS -> "Ferramentas"
+        Icon.MODES -> "Mais modos"
         else -> ""
     }
 
@@ -112,6 +115,8 @@ class NovaIconView(context: Context, icon: Icon) : View(context) {
             }
             Icon.RESUME -> { fill.color = Nova.REC; canvas.drawCircle(12f, 12f, 6.5f, fill) }
             Icon.CLOSE -> { canvas.drawLine(6f, 6f, 18f, 18f, stroke); canvas.drawLine(18f, 6f, 6f, 18f, stroke) }
+            Icon.TOOLS -> for (y in listOf(8f, 16f)) for (x in listOf(6f, 12f, 18f)) canvas.drawCircle(x, y, 1.7f, fill)
+            Icon.MODES -> for (y in listOf(4f, 13f)) for (x in listOf(4f, 13f)) { rect.set(x, y, x + 7f, y + 7f); canvas.drawRoundRect(rect, 2f, 2f, stroke) }
             Icon.MODE_PRO -> aperture(canvas)
             Icon.MODE_VIDEO_PRO -> {
                 rect.set(3f, 7f, 15.5f, 17f); canvas.drawRoundRect(rect, 2.5f, 2.5f, stroke)

@@ -1,12 +1,13 @@
 package com.novacamera.s24.core
 
 /**
- * Modos da câmera. Os quatro primeiros ficam na faixa principal; os demais no painel MAIS.
+ * Modos da câmera. [primary] = faixa principal (Retrato · Foto · Vídeo · Noturno · Pro; a ordem da faixa
+ * está em MainActivity.PRIMARY_MODES); os demais ficam no painel MAIS / Ferramentas › Mais modos.
  * Um modo só captura quando há implementação real no aparelho (ver [ModeResolver]).
  */
 enum class CaptureMode(val label: String, val primary: Boolean = false) {
     RETRATO("RETRATO", true), FOTO("FOTO", true), VIDEO("VÍDEO", true),
-    PRO("PRO"), VIDEO_PRO("VÍDEO PRO"), NOITE("NOTURNO"), CAMERA_LENTA("CÂMERA LENTA"),
+    PRO("PRO", true), VIDEO_PRO("VÍDEO PRO"), NOITE("NOTURNO", true), CAMERA_LENTA("CÂMERA LENTA"),
     PANORAMA("PANORÂMICA"), TIMELAPSE("TIMELAPSE"), FOOD("FOOD"), VIDEO_RETRATO("VÍDEO RETRATO");
 
     val isVideo get() = this == VIDEO || this == VIDEO_PRO || this == CAMERA_LENTA || this == VIDEO_RETRATO || this == TIMELAPSE
