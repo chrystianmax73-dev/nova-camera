@@ -1,3 +1,13 @@
+# 0.26.4 — APK de teste entregue: eficiência tonal e metadados da captura
+
+- **[Baixar ZIP com app-release.apk — build72 (1072)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262/artifacts/12137010846)**. Mesma assinatura permanente, instalação sobre a anterior. Artefato12137010846, 132627982 bytes; SHA-256 doZIP 6e926a82da4b8416857580d20b68adbe99c76e1bee108166c2291be0393d8907; expira2026-11-17T12:30:40Z. Nenhum release criado.
+- [Actions39127091262](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262), job117674387380: **295 aprovados / 5 dispensados / 0 falhas**, lint, JPEG sintético200MP, modelos NAFNet/DepthAnything, assembleRelease, profundidade offline=True, continuidade da assinatura/versionCode e upload aprovados. Publicação skipped. Fonteapp142c648dde009250527b3525d807e4625078f8c2/CI39126725397; fonteAPKe8ae0037892a171fa74d24a47edb9e5ce02e86cf; gatilho restaurado8842d6faafe2472e5ef6c8fb73c6581caf863b34/blob a82bc113b2de207b7a3e9a9660cc19af520167ff. Nenhum app alterado após aprovação.
+- ISO/exposiçãoJPEG por quadro e referência correta no acabamento, fontesCamera2/JPEG distintas; compatibilidade focal não vira ID confirmado. Coordenadas bilineares e faixa64linhas reutilizadas emKotlin, planos neutros sem cópia integral, Food/cancelamento/proteção de cor preservados. Cronômetros de plano/perfil/estilo. Testes exigem mesmos pixels; tom Noturno, oito quadros, resolução, modelos e recursos preservados.
+- Experimento tonalJNI descartado por falta de vantagem consistente; bibliotecas nativas anteriores intactas. Três ensaios Kotlin com cinco pares mostraram medianas129,884→110,713ms,154,589→125,825ms e105,011→83,409ms. São microbenchmarks no servidor, **não velocidade total/energia/PSS noS24**. Não há novo filtro de ruído/nitidez nem detalhe físico novo comprovado nesta etapa.
+- Análise individual das três fotos e diagnóstico físico0.26.3 em [QUALIDADE_0263_BASELINE.md](pendente/QUALIDADE_0263_BASELINE.md). Cópias1280×960 semEXIF foraGit. Baseline49MP8/8≈40–42s, Noturno5/5≈15,27s; focais compatíveis, ID não confirmado. **P0 física segue aberta**: testarAPK72, textura/grão/foco/cores, tempos, PSS/térmica e prévia. Congelamentos, evolução fina de qualidade e escala energética ainda pendentes. Handoff e mensagem para Claude atualizados.
+
+---
+
 # 0.26.4 — qualidade fotográfica: exposição da referência e eficiência tonal (APK de teste 72 em geração)
 
 - Base cf6f617/CI39123476501 aprovada antes das mudanças. Baseline físico e análise individual das três fotos em [QUALIDADE_0263_BASELINE.md](pendente/QUALIDADE_0263_BASELINE.md); fotos pessoais1280×960 semEXIF preservadas foraGit.

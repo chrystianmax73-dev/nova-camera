@@ -69,3 +69,19 @@ Fonte final142c648 acrescenta saída sem cópias para planos queToneMap já trat
 Fonte142c648dde009250527b3525d807e4625078f8c2, Actions39126725397/job117673304753: assembleDebug, testes e lint aprovados. Plano neutro/Food/cancelamento também passaram. Segundo ensaioAB/BA, grupos3x: referência[135,464;206,844;154,589;141,051;176,168]ms, coordenadas reutilizadas[125,825;126,244;158,417;119,638;116,313]ms; medianas154,589/125,825ms. Quatro de cinco pares favoráveis, cerca de18,6% nesse microbenchmark. Variabilidade entre runs preservada; não extrapolar para tempo total, energia ou S24. Nenhuma alteração de app posterior à aprovação.
 
 Auditoria da árvore confirmou photo_kernels.cpp e PhotoKernels.kt idênticos à0.26.3. Não há alterações de manifesto/permissões/modelos/assinatura. A geração de APK de teste ainda precisa ser acompanhada até artefato real e verificação da chave.
+
+
+## Roteiro físico da 0.26.4
+
+Antes de instalar, se a0.26.3 ainda estiver no aparelho, registrar a referência nela; não desinstalar nem apagar dados para fazer downgrade depois. Preservar JPEGs originais e diagnósticos localmente. Atualizar com o APK assinado quando a entrega for confirmada.
+
+Comparar Foto3x e5x com alta resolução, eNoturno5x apoiado. Mesma cena estática com tecidos/estampas, luz, distância, foco escolhido, resolução, brilho de tela e temperatura inicial semelhantes; aparelho fora do carregador. Fazer cinco capturas por condição, deixando retornar à temperatura inicial; separar primeiro uso de estado aquecido. Registrar dimensão, oito quadros/quadros usados, ISO/exposição de cada JPEG e eventual troca de referência. O ID físico pode continuar desconhecido: não transformar compatibilidade em confirmação.
+
+Separar aquisição, alinhamento, SR/fusão, planejamento tonal, aplicação tonal, detalhes, crominância e gravação. Inspecionar recortes na mesma escala nativa, especialmente flores/borboletas/costuras, bordas de tecido, sombras e parede; comparar cor ambiente, grão, halos e fantasmas. Fotografias em enquadramentos diferentes não são comparação direta de resolução de detalhes. Anotar tempo de retorno da prévia e qualquer congelamento. Registrar PSS/CPU e temperatura, mas não tratar corrente sem escala confirmada como potência real. Sem esse ensaio, a otimização física e a evolução de qualidade fina permanecem abertas.
+
+
+## Entrega para teste físico
+
+APK0.26.4/build72/versionCode1072 confirmado noActions39127091262, artefato12137010846. Fonteapp142c648dde009250527b3525d807e4625078f8c2, fonteAPKe8ae0037892a171fa74d24a47edb9e5ce02e86cf, sem alterações deapp após aprovação. 295 testes aprovados/5 dispensados/0falhas, lint, JPEG200MP, modelos offline/profundidade=True, certificado/versionCode e upload aprovados; publicação skipped. Gatilho original restaurado. Link de download, digest doZIP e expiração no topoSTATUS/handoff.
+
+Terceiro microbenchmark no run assinado: referência[98,945;102,381;105,011;114,873;108,557]ms, coordenadas reutilizadas[81,115;83,409;86,801;80,792;84,626]ms, medianas105,011/83,409ms. Todos os cinco pares desse run favoreceram reuso, sem extrapolação paraS24 ou autonomia. CIs anteriores e variação preservados acima. P0 física, congelamentos e qualidade fina não concluídos.

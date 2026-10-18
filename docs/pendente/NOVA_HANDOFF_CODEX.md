@@ -1,3 +1,31 @@
+# Entrega 0.26.4 — APK de teste build 72 (1072)
+
+- **[Baixar ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262/artifacts/12137010846)**. Extrair e instalar sobre a versão anterior. Artefato **12137010846**, 132627982 bytes; SHA-256 **do ZIP**: **6e926a82da4b8416857580d20b68adbe99c76e1bee108166c2291be0393d8907**. Expira em **2026-11-17T12:30:40Z**. Chave permanente preservada; nenhum release criado.
+- [Actions 39127091262](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262), job **117674387380**, concluído com sucesso: **295 testes aprovados, 5 dispensados, 0 falhas**, lint, codec JPEG sintético 200 MP (RSS host 49916 KiB), NAFNet e Depth Anything, assembleRelease, profundidade offline=True, continuidade da assinatura/versionCode e upload. Publicação **skipped**. Build real72; versionName0.26.4; versionCode1072 pela fórmula1000+run_number, com verificação do APK aprovada. Testes Android de host usam Robolectric, não execução no S24/API37.
+- Fonte de app **142c648dde009250527b3525d807e4625078f8c2**, aprovada no CI **39126725397**; alternativa Kotlin anterior 96848c1/39126506961 também aprovada. Fonte APK **e8ae0037892a171fa74d24a47edb9e5ce02e86cf**. Nenhuma alteração de app depois da aprovação. Gatilho original já restaurado em **8842d6faafe2472e5ef6c8fb73c6581caf863b34**, blob **a82bc113b2de207b7a3e9a9660cc19af520167ff**; não disparar outro build ou workflow_dispatch.
+
+## O que foi entregue e o que continua aberto
+
+1. ISO/exposição JPEG por quadro, com origem separada de Camera2; acabamento usa a referência efetivamente escolhida. Focal compatível continua diferente de ID físico confirmado. Sem espera extra na aquisição.
+2. Cálculo tonal permanece Kotlin: reutilização de coordenadas bilineares e faixa64linhas; planos neutros deixam de copiar a foto inteira. Food, proteção cromática, cancelamento, parâmetros, amostras e arredondamentos preservados; testes exigem pixels iguais. Plano tonal, perfil e estilo agora aparecem separados nos tempos. Não há novo filtro de ruído, nitidez ou mudança de tom Noturno.
+3. Experimento tonalJNI foi testado e descartado antes do APK por falta de vantagem consistente; arquivos nativos foram restaurados à0.26.3. Kernels rápidos anteriores de alinhamento/SR/detalhes permanecem intactos. Não reativar esse experimento com base apenas em igualdade de pixels.
+4. Microbenchmarks Kotlin, cinco pares com aquecimento: CI39126506961 medianas129,884→110,713ms; CI39126725397 154,589→125,825ms; run assinado39127091262 105,011→83,409ms. Há variação do servidor; são grupos de três faixas8160×64 com planos1024×768. **Não medem tempo total49MP, energia, PSS ou autonomia no S24.** Menos buffers é consequência do código, não medição física de memória.
+5. Três fotos reais e diagnóstico0.26.3 analisados individualmente em **QUALIDADE_0263_BASELINE.md**; cópias1280×960 sem EXIF, pessoais foraGit. Diagnóstico informa8/8 e49MP em39,89–41,52s, Noturno5/5 em15,27s. FocaisJPEG18,6mm/7,9mm compatíveis com5x/3x, ID não confirmado. Nada disso valida melhora física desta atualização.
+
+## Próximo passo exato
+
+O dono deve testar o APK72 no S24 em Foto3x/5x alta resolução e Noturno5x apoiado, mesmas cena/luz/foco/temperatura inicial e cinco repetições, seguindo o roteiro no baseline. Antes de atualizar, se ainda estiver na0.26.3, guardar referência sem desinstalar/apagar dados. Conferir ISO/exposição por quadro, dimensão, quadros usados, tempo de aquisição/alinhamento/SR/plano/tons/gravação, grão/texturas/bordas/cor/halos/fantasmas, PSS/térmica e retorno da prévia. Sem esse ensaio, eficiência e qualidade física continuam abertas.
+
+Depois, investigar os gargalos ainda medidos de alinhamento/SR/fusão/planejamento e os congelamentos fora da rajada. Não remover oito quadros, reduzir resolução silenciosamente, clarear Noturno ou forçar rotas físicas/ZSL que já travaram. Ruído fino, foco real e texturas ainda precisam de evolução com originais/burst e evidência; esta entrega preserva a matemática visual e melhora a eficiência/diagnóstico, não comprova detalhe novo. NAFNet anterior abortou3/192blocos, não tratá-lo como refinamento concluído. Escala energética ainda não confirmada; nenhuma economia de bateria demonstrada. Main, modelos, assinatura, recursos e histórico preservados.
+
+## Mensagem pronta para Claude
+
+Continue a Nova Camera em chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, pelo HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topo de docs/STATUS.md e QUALIDADE_0263_BASELINE.md. APK de teste0.26.4/build72/1072 entregue no Actions39127091262/artefato12137010846, 295 testes aprovados/5 dispensados, lint/modelos/assinatura/upload reais e publicação skipped. Fonte app142c648dde009250527b3525d807e4625078f8c2. Tom permanece Kotlin, com coordenadas/faixas reutilizadas e dispensa de cópias neutras, pixels iguais nos testes; experimento tonalJNI descartado por falta de ganho. Metadados JPEG/referência e cronômetros corrigidos. Próximo passo é feedback físico do APK72 comparando3x/5x/Noturno, qualidade, tempo por etapa, PSS e temperatura. Ainda não há ganho físico comprovado; ruído/texturas/foco, aquisição/alinhamento/SR e congelamentos continuam abertos. Preserve oito quadros/resolução, tom Noturno, main/modelos/chave/histórico e fotos foraGit. Não gere release definitivo automaticamente nem outro APK sem nova etapa estável.
+
+---
+
+## Histórico preservado — estados de CI/APK pendentes abaixo foram superados
+
 # 0.26.4 — APK de teste build 72 em geração (1072 esperado)
 
 - Fonte de app **142c648dde009250527b3525d807e4625078f8c2**, aprovada em compilação, testes e lint no CI **39126725397**. Alternativa Kotlin anterior 96848c1/39126506961 também aprovada. Nenhuma alteração de app após aprovação.
