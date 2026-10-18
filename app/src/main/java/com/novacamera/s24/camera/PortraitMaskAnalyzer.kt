@@ -41,7 +41,18 @@ class PortraitMaskAnalyzer(
 ) : ImageAnalysis.Analyzer, java.io.Closeable {
     private val app = context.applicationContext
     private var segmenter: PersonSegmenter.Live? = null
-    private var depth: DepthEstimator.Session? = null
+    @Volatile private var depth: DepthEstimator.Session? = null
+    /**
+     * Cinematográfico (0.28.1): profundidade em thread própria. Antes ela rodava dentro do quadro (~1,4 s)
+     * e esse quadro passava do limite de 650 ms → máscara apagada; enquanto isso a máscara anterior
+     * vencia (750 ms). Sem pessoa na cena (só profundidade) o desfoque quase nunca ficava "pronto"
+     * (dono 0.28.0: "A máscara ainda não está pronta ou perdeu validade"). Agora a pessoa/plano segue
+     * a cada quadro e a profundidade nova entra quando termina; movimento descarta a que está em curso.
+     */
+    private val depthExecutor by lazy { java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-cine-depth") } }
+    @Volatile private var depthInFlight = false
+    @Volatile private var depthDone: Plane? = null
+    private val depthGeneration = java.util.concurrent.atomic.AtomicInteger()
     private var depthFailed = false
     private var wasPersonOnly = false
     private val createdAt=SystemClock.uptimeMillis()
@@ -121,6 +132,7 @@ class PortraitMaskAnalyzer(
 
             if (cinematic) {
                 if(sceneGuard.moved(lumaGrid(upright),selectedTap)) {
+                    depthGeneration.incrementAndGet(); depthDone=null
                     depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
                 }
             }
@@ -158,7 +170,31 @@ class PortraitMaskAnalyzer(
             val sceneLuma = if (!cinematic && depthN != null) lumaGrid(upright) else null
             val sceneChanged = sceneLuma == null || depthRefresh.needed(now, sceneLuma, selectedTap,
                 if (lowPower) com.novacamera.s24.core.LivePortraitPolicy.LOW_POWER_MAX_AGE_MS else com.novacamera.s24.core.DepthRefreshPolicy.MAX_AGE_MS)
-            if (!depthFailed && !personOnly && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+            if (cinematic && !depthFailed && !personOnly && !depthInFlight && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+                lastDepth = now
+                depthInFlight = true
+                val input = upright.copy(Bitmap.Config.ARGB_8888, false)
+                val gen = depthGeneration.get()
+                depthExecutor.execute {
+                    val started=SystemClock.uptimeMillis()
+                    val depthCpu0=SystemClock.currentThreadTimeMillis()
+                    try {
+                        if (closed || gen != depthGeneration.get()) return@execute
+                        val session = DepthEstimator.shared(app).also { if (it == null) depthFailed = true; depth = it }
+                        val plane = session?.run(input)?.let { DepthPortrait.normalize(Planes.resize(it, mw, mh)) }
+                        if (plane != null && !closed && gen == depthGeneration.get()) depthDone = plane
+                    } catch (e: Throwable) { Log.w(TAG, "profundidade do cinematográfico falhou", e) }
+                    finally {
+                        input.recycle()
+                        depthBudget.completed(started,SystemClock.uptimeMillis())
+                        com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.DEPTH,
+                            SystemClock.currentThreadTimeMillis()-depthCpu0, SystemClock.uptimeMillis()-started)
+                        depthInFlight = false
+                    }
+                }
+            }
+            if (cinematic) depthDone?.let { depthN = it; depthDone = null }
+            if (!cinematic && !depthFailed && !personOnly && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
                 if (!cinematic) depthRefresh.done(now, sceneLuma ?: lumaGrid(upright), selectedTap)
                 val started=SystemClock.uptimeMillis()
@@ -255,6 +291,8 @@ class PortraitMaskAnalyzer(
     /** Chamar na mesma thread da análise (depois de [ImageAnalysis.clearAnalyzer]). */
     override fun close() {
         closed = true
+        depthGeneration.incrementAndGet(); depthDone = null
+        if (cinematic) depthExecutor.shutdown()
         runCatching { segmenter?.close() }; segmenter = null
         // A sessão de profundidade é compartilhada com a foto: não fecha aqui, só agenda a liberação por ociosidade.
         if (depth != null) ProcessingQueue.scheduleDepthRelease()

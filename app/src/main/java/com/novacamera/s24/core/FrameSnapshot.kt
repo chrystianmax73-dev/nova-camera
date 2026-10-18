@@ -9,8 +9,8 @@ object FrameSnapshot {
  * Não altera resolução/FPS da gravação nem permite reutilizar máscara inválida.
  */
 class DepthDutyBudget {
-    private var next=0L
-    var lastCostMs=0L;private set
+    @Volatile private var next=0L
+    @Volatile var lastCostMs=0L;private set
     fun allowed(now:Long,interval:Long,lastStart:Long)=now>=next && now-lastStart>=interval
     fun completed(start:Long,end:Long) { lastCostMs=(end-start).coerceAtLeast(0);next=end+lastCostMs*3 }
 }

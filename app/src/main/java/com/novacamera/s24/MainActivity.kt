@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var monitor: DeviceMonitor
     private val handler = Handler(Looper.getMainLooper())
     private val quickVideoWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler)
+    private val cinemaWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler, 4000)
     // Threads com nome: o bloco "CPU por thread" do diagnóstico precisa dizer quem consome.
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-ui-io") }
     private val contourExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-contour") }
@@ -456,6 +457,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         quickVideoWarmup.cancel()
+        cinemaWarmup.cancel()
         contourGeneration++
         contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release() }
         newSessionOnResume = true
@@ -1008,12 +1010,31 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun startVideo() {
-        camera.cinematicUnavailableReason?.let { reason ->
-            com.novacamera.s24.ui.CinematicFallbackDialog.show(this,reason) {
-                if(camera.chooseCommonVideo()) hint.show("Preparando vídeo comum na mesma qualidade. Toque novamente para gravar",4500)
-            }
+        // CINEMA: a máscara pode estar a caminho (profundidade leva ~1 s sem pessoa na cena). Aguarda até
+        // 4 s com aviso em vez de abrir o diálogo na hora; só sem máscara depois disso pergunta.
+        if (camera.cinemaMode && camera.cinematicBound && camera.cinematicUnavailableReason != null && !camera.cinematicThermallyBlocked) {
+            hint.show("Preparando o desfoque… toque no assunto para escolher o foco", 2500)
+            cinemaWarmup.await(
+                valid = { camera.cinemaMode && !camera.isRecording && !isDestroyed && !isFinishing },
+                ready = { camera.cinematicUnavailableReason == null },
+                start = { startVideoNow() },
+                expired = { showCinematicFallback(camera.cinematicUnavailableReason ?: "A máscara não ficou pronta") })
             return
         }
+        camera.cinematicUnavailableReason?.let { reason ->
+            showCinematicFallback(reason)
+            return
+        }
+        startVideoNow()
+    }
+
+    private fun showCinematicFallback(reason: String) {
+        com.novacamera.s24.ui.CinematicFallbackDialog.show(this,reason) {
+            if(camera.chooseCommonVideo()) hint.show("Preparando vídeo comum na mesma qualidade. Toque novamente para gravar",4500)
+        }
+    }
+
+    private fun startVideoNow() {
         // Timelapse e câmera lenta não gravam som: não pede o microfone à toa.
         val silent = camera.mode == CaptureMode.TIMELAPSE || camera.mode == CaptureMode.CAMERA_LENTA
         if (!silent && settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {

@@ -913,8 +913,21 @@ class NovaCamera(
                 }
                 videoBindingIssue = "${selectedVideoQuality.label}/${selectedVideoFps} fps não aceito pela sessão desta câmera"
                 // Recusa da sessão base (sem EIS, sem assinatura, sem Retrato): os seletores param de oferecer.
-                if (ranges != null && !cinematicBound && !portraitVideoSession && selectedVideoQuality != VideoQualityOption.AUTO)
+                if (ranges != null && !cinematicBound && !portraitVideoSession && selectedVideoQuality != VideoQualityOption.AUTO) {
                     settings.markVideoRefused(Camera2CameraInfo.from(info).cameraId, selectedVideoQuality, selectedVideoFps)
+                    // Recusa definitiva da sessão (já sem EIS e sem assinatura): em vez de deixar só a prévia
+                    // com o cartão de erro (dono 0.28.0, 4K/60), escolhe a maior taxa aceita e avisa.
+                    val accepted = listOf(60, 30, 24).filter { it < selectedVideoFps }
+                        .firstOrNull { f -> ranges.any { it.first == f && it.second == f } }
+                    if (accepted != null && !isRecording) {
+                        val before = selectedVideoFps
+                        settings.videoFps = accepted
+                        videoBindingIssue = null
+                        listener.onMessage("${selectedVideoQuality.label} não grava a $before fps nesta câmera; usando $accepted fps")
+                        handler.post { if (!released && !paused) bind() }
+                        return
+                    }
+                }
                 suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(selectedVideoFps, fpsOptions)
             }
             if (videoBindingIssue != null && (videoRecovery.exhausted || selectedVideoFps !in fpsOptions) && !limitVideo &&
