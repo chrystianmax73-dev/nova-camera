@@ -1,3 +1,12 @@
+# 0.26.9 — bateria: profundidade não é mais descartada ao sair para a galeria (Claude; fonte em validação)
+
+- **Leitura do diagnóstico 0.26.8:** Retrato parado **12,1%** (era 128%), Foto 12,9% (era 26%). **Não é A/B limpo:** a prévia do desfoque **não estava rodando** (compositor 0 quadros; prévia travou ao abrir o Retrato e a recuperação desligou efeito e análise), aparelho frio (térmico 0, era 2) e prévia a 15 quadros/s (era 30; cena mais escura, ISO 486 — a "perda estimada" de 751 conta isso, não é perda real). Mostra que **sem a prévia do desfoque** Retrato ≈ Foto; o ganho do modelo leve **com** a prévia ativa ainda precisa ser medido.
+- **Bug achado:** profundidade recarregou nos 2 Retratos seguidos (carga 2,5 s e 2,3 s). Causa: `onTrimMemory` tratava `TRIM_MEMORY_UI_HIDDEN` (20) como pressão de memória (`level >= RUNNING_LOW`) — isso chega toda vez que a pessoa sai para a galeria — e liberava o modelo (o diagnóstico mostra "Rastreamento: Memória limitada"). Agora o modelo de profundidade só sai por 60 s sem uso, calor SEVERO, `RUNNING_CRITICAL` ou `COMPLETE`.
+- **Para o Codex (não alterado aqui):** o mesmo `level >= RUNNING_LOW` também para o rastreamento e **cancela o acabamento de vídeo** quando a pessoa só sai para a galeria (UI_HIDDEN). Provável bug; avaliar.
+- Tempos (0.26.8, frio, 4 núcleos): Retrato 1× 7,5 s e 6,8 s (antes ~9,3–12,5 s), HDR 6,1 s.
+
+---
+
 # 0.26.8 — bateria: causa dos 128–155% de CPU da prévia do Retrato e correção (Claude; APK de teste build76 entregue)
 
 - **[Baixar ZIP com app-release.apk — build76 (1076)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39138561980/artifacts/12140374817)**. Mesma assinatura permanente. Artefato 12140374817, 132853213 bytes; digest do ZIP sha256:beccb8682601389cfca34ae3c97fffc8c38c02074a6e337a717d4c10d3bc6f14; expira 2026-11-17T15:07:16Z. [Actions 39138561980](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39138561980) com sucesso; publicação skipped. Fonte do app 4ba0c51 (CI 39137984831 aprovado); fonte do APK 05ee274; gatilho restaurado em f7e6db0 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

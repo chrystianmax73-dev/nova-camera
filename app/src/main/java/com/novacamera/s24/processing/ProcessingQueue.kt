@@ -208,7 +208,10 @@ object ProcessingQueue {
     }
 
     /** Descarta só o cache do modelo, fora da UI e depois da tarefa atual. */
-    fun trimModelMemory() { executor.execute { NcnnDenoiser.release(); DepthEstimator.release() } }
+    fun trimModelMemory() { executor.execute { NcnnDenoiser.release() } }
+
+    /** Pressão de memória real: libera também o modelo de profundidade mantido entre Retratos. */
+    fun releaseDepthModel() { executor.execute { DepthEstimator.release() } }
 
     /** Modelo de profundidade fica carregado entre Retratos; liberado com calor ou depois de 1 min sem uso. */
     private fun releaseDepthLater() {

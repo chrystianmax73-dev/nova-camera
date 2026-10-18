@@ -470,6 +470,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             com.novacamera.s24.processing.VideoFinishJob.cancel("Memória limitada; acabamento cancelado e original preservado")
             ProcessingQueue.trimModelMemory()
         }
+        // O modelo de profundidade NÃO sai em TRIM_MEMORY_UI_HIDDEN (20, ≥ RUNNING_LOW): esse nível chega
+        // toda vez que a pessoa sai para ver a foto na galeria, e o 2º Retrato voltava a carregar o modelo
+        // (diagnóstico 0.26.8: carga 2,5 s e 2,3 s em fotos seguidas). Ele já sai sozinho após 60 s sem uso.
+        if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) ProcessingQueue.releaseDepthModel()
     }
 
     override fun onDestroy() {
