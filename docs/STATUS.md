@@ -1,3 +1,13 @@
+# 0.26.5 — seleção de objeto e referência noturna (em validação)
+
+- Base c128f496/CI39127776999 aprovada. Análise individual das três fotos em NOTURNO_RETRATO_0265.md; fotos declaradas0.26.3, diagnóstico recebido0.26.4, sem associação automática entre versões. Pessoais foraGit.
+- Regressões7dd0829/CI39130019486 reproduziram duas falhas: ilha desconectada vira assunto e quadro com ruído correlacionado ganha preferência por falsa nitidez. Teste adicional da estrutura fina fortalecido antes do fix; consultar seu run separadamente.
+- Objeto sem pessoa: uma semente elegível mais próxima do toque/centro, mantendo componente inteiro; pessoas conservam sementes múltiplas. Toque usa mediana3×3 contra outlier, com teste de estrutura fina. Sem modelo/inferência nova.
+- Referência: estima ruído correlacionado, desconta energia no agregado e exige ganho adicional para trocar por quadro mais ruidoso. Não filtra nem aumenta nitidez dos pixels; testes preservam preferência por bordas reais quando o ganho é suficiente. TomNoturno/WB/exposição/quadros/resolução/fusão/SR preservados.
+- CI do fix ainda pendente. Nenhum APK0.26.5 confirmado nem ganho físico de qualidade, tempo ou autonomia declarado. Congelamentos, HDR/highlights e demais gargalos seguem abertos.
+
+---
+
 # 0.26.4 — APK de teste entregue: eficiência tonal e metadados da captura
 
 - **[Baixar ZIP com app-release.apk — build72 (1072)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262/artifacts/12137010846)**. Mesma assinatura permanente, instalação sobre a anterior. Artefato12137010846, 132627982 bytes; SHA-256 doZIP 6e926a82da4b8416857580d20b68adbe99c76e1bee108166c2291be0393d8907; expira2026-11-17T12:30:40Z. Nenhum release criado.

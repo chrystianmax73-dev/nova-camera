@@ -71,6 +71,7 @@ object DepthPortrait {
         val fromPerson = inPerson.size >= n * MIN_PERSON
         val seed: (Int) -> Boolean = if (tapIndex != null && !tapOnPerson) { i -> near(i, tapIndex, w, max(1, min(w, h) / 40)) }
             else { i -> central(i, w, h) }
+        val objectCenter=tapIndex ?: ((h-1)/2*w+(w-1)/2)
         var near: Float; var far: Float
         var connected: BooleanArray
         if (fromPerson) {
@@ -84,11 +85,11 @@ object DepthPortrait {
             val f = if (tapIndex != null && !tapOnPerson) tapDepth(depth, tapIndex) else focus(depth, null)
             val t = otsu(depth)
             var range = if (f >= t) t to 1f else 0f to t
-            connected = grow(depth, range.first, range.second, seed)
+            connected = grow(depth, range.first, range.second, seed,objectCenter)
             if (connected.count { it } > n * MAX_OBJECT) {
                 val (t1, t2) = otsu3(depth)
                 range = when { f >= t2 -> t2 to 1f; f >= t1 -> t1 to t2; else -> 0f to t1 }
-                val refined = grow(depth, range.first, range.second, seed)
+                val refined = grow(depth, range.first, range.second, seed,objectCenter)
                 if (refined.count { it } >= n * MIN_PERSON) connected = refined
                 else range = if (f >= t) t to 1f else 0f to t
             }
@@ -117,11 +118,11 @@ object DepthPortrait {
         return dx * dx + dy * dy <= r * r
     }
 
-    /** Profundidade no ponto tocado: mediana 5×5 (um pixel ruidoso não decide o assunto). */
+    /** Mediana3×3: rejeita pixel isolado sem apagar estruturas de dois pixels no mapa. */
     private fun tapDepth(depth: Plane, c: Int): Float {
         val w = depth.w; val h = depth.h; val cx = c % w; val cy = c / w
-        val v = ArrayList<Float>(25)
-        for (dy in -2..2) for (dx in -2..2) {
+        val v = ArrayList<Float>(9)
+        for (dy in -1..1) for (dx in -1..1) {
             val x = cx + dx; val y = cy + dy
             if (x in 0 until w && y in 0 until h) v += depth[x, y]
         }
@@ -134,12 +135,23 @@ object DepthPortrait {
     }
 
     /** Região na faixa [lo, hi] conectada (8 vizinhos) às sementes. */
-    private fun grow(depth: Plane, lo: Float, hi: Float, seed: (Int) -> Boolean): BooleanArray {
+    private fun grow(depth: Plane, lo: Float, hi: Float, seed: (Int) -> Boolean, singleCenter:Int?=null): BooleanArray {
         val w = depth.w; val h = depth.h; val n = w * h
         val inRange = BooleanArray(n) { depth.data[it] in lo..hi }
         val out = BooleanArray(n)
         val queue = IntArray(n); var head = 0; var tail = 0
-        for (i in 0 until n) if (inRange[i] && seed(i)) { out[i] = true; queue[tail++] = i }
+        var best=-1;var distance=Long.MAX_VALUE
+        for (i in 0 until n) if (inRange[i] && seed(i)) {
+            if(singleCenter==null){out[i]=true;queue[tail++]=i}
+            else {
+                val dx=(i%w-singleCenter%w).toLong();val dy=(i/w-singleCenter/w).toLong()
+                val d=dx*dx+dy*dy
+                if(d<distance){distance=d;best=i}
+            }
+        }
+        // Objetos: só o componente conectado à semente válida mais próxima do alvo. Pessoas
+        // conservam múltiplas sementes, incluindo membros e objetos segurados na mesma faixa.
+        if(best>=0){out[best]=true;queue[tail++]=best}
         while (head < tail) {
             val i = queue[head++]; val x = i % w; val y = i / w
             for (dy in -1..1) for (dx in -1..1) {
