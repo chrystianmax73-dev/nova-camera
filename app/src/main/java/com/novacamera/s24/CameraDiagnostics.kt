@@ -31,6 +31,7 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.camera.PortraitMaskAnalyzer.report)
             appendLine(com.novacamera.s24.core.ShutterLog.report())
             appendLine(com.novacamera.s24.core.PhotoTrace.report())
+            appendLine(com.novacamera.s24.core.GlPerformance.report)
             appendLine(com.novacamera.s24.core.CostLog.report())
             appendLine(com.novacamera.s24.core.EnergyLog.report())
             appendLine(com.novacamera.s24.core.SessionPerformance.report())

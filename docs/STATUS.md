@@ -1,3 +1,14 @@
+# 0.25.2 — custo do compositor e trabalho GL redundante
+
+- Etapa anterior0.25.1 corrigida aprovada em assembleDebug/testDebugUnitTest/lintDebug no Actions39085319391 (0a2d1bb). Falha histórica39084985949 preservada abaixo.
+
+- Estende para o Retrato fotográfico a supressão de blur/cópia sem máscara ou contribuição visível. Cinematográfico já fazia parte disso desde0.24.6; calibração pendente continua com cópia, transição válida continua com blur. Shaders, resolução1/4 do blur, raios/intensidade, FPS e arquivo não mudam.
+- Cache de localizações por programa/contexto (inclusive ausentes); glTexSubImage2D para atualizar máscara de mesma geometria, glTexImage2D só ao alocar/mudar tamanho. Conteúdo/formatos iguais. FBOs já eram reutilizados e logo já era cacheada, sem duplicar correções.
+- Diagnóstico GL por sessão: preparação EGL, render/update/preparo/cópia/blur/composição/swap/upload, contagens, média/máximo, cadência de render, realocações de máscara/FBO e bytes de upload/readback conhecidos. Agregação sem texto por quadro, publicação no máximo1Hz; não usa glFinish nem força sincronização para medir. Wall não éGPU; cadência de render não éFPSMP4. Alocações internas do driver não medidas.
+- CI desta revisão pendente. Benefício físico, bordas/qualidade e temperaturas ainda dependem do S24; sem afirmação de economia comprovada. Base e protocolo em P0_DESEMPENHO_BASELINE.md.
+
+---
+
 # 0.25.1 — investigação P0: energia e etapas da captura
 
 - CI39084985949: compilação concluída; uma falha em teste legado que exigia a reescala indevida850→850000µA (264 totais/5 dispensados). Expectativa atualizada conforme BatteryManager; nova execução necessária. Pausa de análise limpa máscara/cache para não manter cena antiga; leitura bruta preserva sentinelas, potência continua indisponível para elas.

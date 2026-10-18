@@ -123,6 +123,11 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private class Out(val output: SurfaceOutput, val egl: EGLSurface, val size: Size, var logo: Int = 0, var logoRevision: Long = -1)
     private val outputs = ArrayList<Out>()
 
+    private val metrics=com.novacamera.s24.core.GlPerformance()
+    private val uniformLocations=com.novacamera.s24.core.GlLocationCache { p,n -> GLES20.glGetUniformLocation(p,n) }
+    private val attributeLocations=com.novacamera.s24.core.GlLocationCache { p,n -> GLES20.glGetAttribLocation(p,n) }
+    private val maskStorage=com.novacamera.s24.core.MaskTextureStorage()
+    private fun uniform(p:Int,n:String)=uniformLocations.get(p,n)
     private var progCopy = 0; private var progBlur = 0; private var progFinal = 0
     private val fbo = IntArray(3); private val fboTex = IntArray(3)
     private var smallW = 0; private var smallH = 0
@@ -195,8 +200,16 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex)
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE_ALPHA, w, h, 0,
-            GLES20.GL_LUMINANCE_ALPHA, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(mask))
+        require(w>0 && h>0 && mask.size.toLong()==w.toLong()*h*2) { "Máscara inválida" }
+        val uploadAt=System.nanoTime()
+        if(maskStorage.needsAllocation(w,h)) {
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE_ALPHA, w, h, 0,
+                GLES20.GL_LUMINANCE_ALPHA, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(mask))
+            maskStorage.allocated(w,h);metrics.maskAllocations++
+        } else GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D,0,0,0,w,h,
+            GLES20.GL_LUMINANCE_ALPHA,GLES20.GL_UNSIGNED_BYTE,ByteBuffer.wrap(mask))
+        metrics.maskUploadBytes+=mask.size
+        metrics.record(com.novacamera.s24.core.GlPerformance.UPLOAD,System.nanoTime()-uploadAt)
         hasMask = !needsCalibration
         maskAt = android.os.SystemClock.elapsedRealtime()
     }
@@ -222,6 +235,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                     EGL14.eglDestroyContext(display, context); EGL14.eglTerminate(display)
                 }
             }
+            metrics.publish("liberado")
             thread.quitSafely()
             val callbacks=synchronized(releaseLock) { releaseComplete=true; releaseCallbacks.toList().also { releaseCallbacks.clear() } }
             callbacks.forEach { it() }
@@ -237,32 +251,41 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     }
 
     private fun onFrame() {
+        val at=System.nanoTime()
         try { renderFrame() } catch (e: Throwable) { fatal(e) }
+        finally { metrics.record(com.novacamera.s24.core.GlPerformance.FRAME,System.nanoTime()-at) }
     }
 
     private fun renderFrame() {
         val st = surfaceTexture ?: return
         if (released) return
         makeCurrent(pbuffer)
+        val updateAt=System.nanoTime()
         st.updateTexImage()
+        metrics.record(com.novacamera.s24.core.GlPerformance.UPDATE,System.nanoTime()-updateAt)
         st.getTransformMatrix(stMatrix)
         if (outputs.isEmpty()) return
+        val prepareAt=System.nanoTime()
         ensureFbos()
+        metrics.record(com.novacamera.s24.core.GlPerformance.PREPARE,System.nanoTime()-prepareAt)
         val s = strength
         val blur = blurEnabled
         val now=android.os.SystemClock.elapsedRealtime()
         val target=if(blur && maskReady && s>0.01f)1f else 0f
         if(expireMasks) { maskBlend+=(target-maskBlend)*((now-blendAt).coerceIn(0L,100L)/180f).coerceIn(0f,1f); blendAt=now }
         else maskBlend=target
-        val work=com.novacamera.s24.core.CinematicPolicy.renderWork(blur,expireMasks,maskReady,maskBlend,pendingCalibration!=null)
+        val work=com.novacamera.s24.core.CinematicPolicy.renderWork(blur,expireMasks,target>0f,maskBlend,pendingCalibration!=null)
+        val copyAt=System.nanoTime()
         if (work.copy) {
             // 1) Cópia reduzida em coordenadas do buffer (as mesmas da máscara).
             drawTo(fbo[0], smallW, smallH) {
                 use(progCopy); bindOes(progCopy, "uCam", 0)
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progCopy, "uTex"), 1, false, identity, 0)
+                GLES20.glUniformMatrix4fv(uniform(progCopy, "uTex"), 1, false, identity, 0)
             }
             pendingCalibration?.let { analysis -> pendingCalibration = null; calibrate(analysis) }
         }
+        if(work.copy)metrics.record(com.novacamera.s24.core.GlPerformance.COPY,System.nanoTime()-copyAt)
+        val blurAt=System.nanoTime()
         if (work.blur) {
             // 2) Desfoque separável (duas iterações), raio proporcional à intensidade e na escala da foto final.
             val radius = (5f + 18f * s) * maxOf(smallW, smallH) / 1000f
@@ -272,8 +295,10 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                 if (it == 0) copyTex(fboTex[2], fbo[0])
             }
         }
+        if(work.blur)metrics.record(com.novacamera.s24.core.GlPerformance.BLUR,System.nanoTime()-blurAt)
         // 3) Composição para cada saída.
         for (o in outputs) {
+            val composeAt=System.nanoTime()
             o.output.updateTransformMatrix(texMatrix, stMatrix)
             makeCurrent(o.egl)
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
@@ -282,11 +307,11 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             bindOes(progFinal, "uCam", 0)
             bindTex(progFinal, "uBlur", 1, fboTex[2])
             bindTex(progFinal, "uMask", 2, if (maskTex != 0) maskTex else fboTex[2])
-            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progFinal, "uTex"), 1, false, texMatrix, 0)
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(progFinal, "uFlip"), maskFlipX, maskFlipY)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uOn"), maskBlend)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uTone"), tone)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal, "uWarmth"), warmth)
+            GLES20.glUniformMatrix4fv(uniform(progFinal, "uTex"), 1, false, texMatrix, 0)
+            GLES20.glUniform2f(uniform(progFinal, "uFlip"), maskFlipX, maskFlipY)
+            GLES20.glUniform1f(uniform(progFinal, "uOn"), maskBlend)
+            GLES20.glUniform1f(uniform(progFinal, "uTone"), tone)
+            GLES20.glUniform1f(uniform(progFinal, "uWarmth"), warmth)
             val style=watermark?.takeIf { o.output.targets and androidx.camera.core.CameraEffect.VIDEO_CAPTURE != 0 }
             if (o.logo!=0 && o.logoRevision!=signatureRevision) {
                 GLES20.glDeleteTextures(1,intArrayOf(o.logo),0);o.logo=0
@@ -305,18 +330,23 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                 } finally { bmp.recycle() }
             }
             bindTex(progFinal,"uLogo",3,if(o.logo!=0)o.logo else fboTex[0])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFinal,"uLogoOn"),if(style!=null && o.logo!=0)1f else 0f)
+            GLES20.glUniform1f(uniform(progFinal,"uLogoOn"),if(style!=null && o.logo!=0)1f else 0f)
             drawQuad(progFinal)
             EGLExt.eglPresentationTimeANDROID(display, o.egl, st.timestamp)
+            metrics.record(com.novacamera.s24.core.GlPerformance.COMPOSE,System.nanoTime()-composeAt)
+            val swapAt=System.nanoTime()
             check(EGL14.eglSwapBuffers(display, o.egl)) { "Falha ao entregar quadro da composição" }
+            metrics.record(com.novacamera.s24.core.GlPerformance.SWAP,System.nanoTime()-swapAt)
         }
         checkGl()
+        metrics.frame(if(expireMasks) "vídeo Retrato" else "prévia foto/estilo")
     }
 
     /** Compara a cópia reduzida da câmera com a análise nas quatro orientações e fica com a melhor. */
     private fun calibrate(analysis: FloatArray) {
         val px = ByteBuffer.allocateDirect(smallW * smallH * 4).order(ByteOrder.nativeOrder())
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
+        metrics.readbackBytes+=smallW.toLong()*smallH*4
         GLES20.glReadPixels(0, 0, smallW, smallH, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
         val luma = FloatArray(smallW * smallH) { i ->
             val o = i * 4
@@ -334,6 +364,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
 
     private fun ensureEgl() {
         if (display != EGL14.EGL_NO_DISPLAY) return
+        val initAt=System.nanoTime()
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         val v = IntArray(2); check(EGL14.eglInitialize(display, v, 0, v, 1)) { "EGL indisponível" }
         val attribs = intArrayOf(EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
@@ -347,6 +378,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         pbuffer = EGL14.eglCreatePbufferSurface(display, config, intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
         makeCurrent(pbuffer)
         progCopy = program(VS, FS_COPY); progBlur = program(VS, FS_BLUR); progFinal = program(VS, FS_FINAL)
+        metrics.record(com.novacamera.s24.core.GlPerformance.INIT,System.nanoTime()-initAt)
     }
 
     private fun makeCurrent(s: EGLSurface) = check(EGL14.eglMakeCurrent(display, s, s, context)) { "eglMakeCurrent falhou" }
@@ -355,6 +387,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         val w = maxOf(16, inputSize.width / 4); val h = maxOf(16, inputSize.height / 4)
         if (w == smallW && h == smallH && fbo[0] != 0) return
         if (fbo[0] != 0) { GLES20.glDeleteFramebuffers(3, fbo, 0); GLES20.glDeleteTextures(3, fboTex, 0) }
+        metrics.fboBuilds++
         smallW = w; smallH = h
         GLES20.glGenFramebuffers(3, fbo, 0); GLES20.glGenTextures(3, fboTex, 0)
         for (i in 0 until 3) {
@@ -378,7 +411,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
 
     private fun blurPass(src: Int, dst: Int, dx: Float, dy: Float) = drawTo(dst, smallW, smallH) {
         use(progBlur); bindTex(progBlur, "uSrc", 0, src)
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(progBlur, "uStep"), dx / smallW, dy / smallH)
+        GLES20.glUniform2f(uniform(progBlur, "uStep"), dx / smallW, dy / smallH)
     }
 
     private fun copyTex(src: Int, dst: Int) = blurPass(src, dst, 0f, 0f)
@@ -386,17 +419,17 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private fun bindOes(p: Int, name: String, unit: Int) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTex)
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(p, name), unit)
+        GLES20.glUniform1i(uniform(p, name), unit)
     }
 
     private fun bindTex(p: Int, name: String, unit: Int, tex: Int) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(p, name), unit)
+        GLES20.glUniform1i(uniform(p, name), unit)
     }
 
     private fun drawQuad(p: Int) {
-        val loc = GLES20.glGetAttribLocation(p, "aPos")
+        val loc = attributeLocations.get(p, "aPos")
         GLES20.glEnableVertexAttribArray(loc)
         GLES20.glVertexAttribPointer(loc, 2, GLES20.GL_FLOAT, false, 0, quad)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)

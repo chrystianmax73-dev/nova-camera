@@ -22,8 +22,8 @@ class CinematicPolicyTest {
         assertEquals(CinematicPolicy.RenderWork(true,true),CinematicPolicy.renderWork(true,true,true,0f,false))
         assertEquals(CinematicPolicy.RenderWork(true,true),CinematicPolicy.renderWork(true,true,false,.2f,false))
         assertEquals(CinematicPolicy.RenderWork(false,false),CinematicPolicy.renderWork(false,true,true,1f,true))
-        // Retrato fotográfico mantém o caminho anterior, sem prazo da máscara.
-        assertEquals(CinematicPolicy.RenderWork(true,true),CinematicPolicy.renderWork(true,false,false,0f,false))
+        // Sem máscara no Retrato fotográfico, uOn=0: blur seria descartado pelo shader.
+        assertEquals(CinematicPolicy.RenderWork(false,false),CinematicPolicy.renderWork(true,false,false,0f,false))
     }
 
     @Test fun calorNaoPrometeMascaraMesmoQuandoAAnteriorAindaEstaNoGl() {

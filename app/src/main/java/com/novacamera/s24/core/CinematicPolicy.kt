@@ -20,7 +20,7 @@ object CinematicPolicy {
      * Sem análise disponível (ex.: pausa térmica), não há calibração para executar.
      */
     fun renderWork(enabled:Boolean,expiring:Boolean,ready:Boolean,blend:Float,calibrationPending:Boolean):RenderWork {
-        val blur=enabled && (!expiring || ready || blend>.001f)
+        val blur=enabled && (ready || (expiring && blend>.001f))
         return RenderWork(blur || (enabled && calibrationPending),blur)
     }
     fun fresh(now:Long,at:Long) = at>0 && now>=at && now-at<750
