@@ -5,6 +5,7 @@
 - Arquivos tocados: `core/ModelLoadWindow.kt` (novo), `processing/DepthEstimator.kt` (`Session.open` marca begin/end), `camera/NovaCamera.kt` (`watchTick`: ramo `ModelLoadWindow.defersStall` antes de contar a parada; linha do StallLog com `ModelLoadWindow.describe`), `CameraDiagnostics.kt` (linha de relatório), teste `ModelLoadWindowTest`.
 - **Não mexi** na escalada (`onPreviewStalled`: 1ª parada com análise → `liveBlurBlocked`; 2ª em 60 s com efeito → `portraitPreviewFailed`, que some com Tom/Temperatura até reabrir o app). Se a hipótese da carga for descartada pelo diagnóstico, a próxima suspeita é o próprio efeito GL/rebind; aí vale rever essa escalada (ex.: não derrubar Tom/Temperatura por parada que ocorreu com a análise ativa).
 - Hipótese, evidência e como ler o diagnóstico: ver STATUS 0.26.15.
+- **Resultado do teste (dono, build82):** hipótese da carga do modelo **descartada** (0 s sem quadros durante a carga; traseira sem paradas ao abrir/trocar). As paradas que restam são na **câmera frontal**, logo após Retratos frontais, com efeito=false análise=false. **Codex:** se pegar esta frente, começar por: tempo desde a última captura no StallLog; testar se a frontal retoma a repetição da prévia após `takePicture` (ZSL/`CAPTURE_MODE_MINIMIZE_LATENCY` na frontal?); e rever a escalada que desliga Tom/Temperatura.
 - Ao mexer em qualidade de imagem no Retrato: a profundidade é **um modelo só** compartilhado (0.26.12, `DepthEstimator.shared`); a prévia com pessoa não usa profundidade (0.26.14, `LivePortraitPolicy`); nada disso altera a foto final.
 
 ---
