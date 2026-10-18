@@ -69,6 +69,8 @@ class PortraitMaskAnalyzer(
     private var prevAmount: FloatArray? = null
     /** Quadros seguidos com a máscara praticamente igual (cena e aparelho parados). */
     private var stillFrames = 0
+    /** Quadros restantes da transição de foco entre assuntos (ver [RACK_KEEP]). */
+    private var rackFocusFrames = 0
     @Volatile private var closed = false
     private var lastState: String? = "init"
     private val metricsToken=metricsGeneration.incrementAndGet()
@@ -132,8 +134,16 @@ class PortraitMaskAnalyzer(
 
             if (cinematic) {
                 if(sceneGuard.moved(lumaGrid(upright),selectedTap)) {
-                    depthGeneration.incrementAndGet(); depthDone=null
-                    depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
+                    if (sceneGuard.selectionOnly) {
+                        // Troca de assunto com a cena parada (toque ou rosto novo): a profundidade da cena
+                        // continua certa; só o plano de foco muda. Mantém a máscara anterior e deixa a
+                        // suavização [RACK_KEEP] levar o foco até o novo assunto em ~1 s ("rack focus",
+                        // como o Cinematográfico do iPhone), em vez de apagar o desfoque e recalcular.
+                        rackFocusFrames = RACK_FRAMES
+                    } else {
+                        depthGeneration.incrementAndGet(); depthDone=null
+                        depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
+                    }
                 }
             }
             // Prévia da foto: modelo leve (só mostra o desfoque; a foto usa o multiclasse). O vídeo
@@ -225,8 +235,9 @@ class PortraitMaskAnalyzer(
                 stillFrames = if (d / p.size < STILL_DIFF) stillFrames + 1 else 0
             } ?: run { stillFrames = 0 }
             // Suaviza no tempo: sem tremulação na borda entre quadros.
-            val sub = smooth(subject.data, prevSubject).also { prevSubject = it }
-            val amt = smooth(amount.data, prevAmount).also { prevAmount = it }
+            val keep = if (rackFocusFrames > 0) { rackFocusFrames--; RACK_KEEP } else 0.4f
+            val sub = smooth(subject.data, prevSubject, keep).also { prevSubject = it }
+            val amt = smooth(amount.data, prevAmount, keep).also { prevAmount = it }
             if(cinematic && (SystemClock.uptimeMillis()-now>650 || (heat()?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE)) {
                 effect.clearMask(); state("Desfoque pausado: análise atrasada ou temperatura; vídeo comum mantido"); return
             }
@@ -267,8 +278,8 @@ class PortraitMaskAnalyzer(
         when(rot%360) {90->1f-ny to nx;180->1f-nx to 1f-ny;270->ny to 1f-nx;else->nx to ny}
     }
 
-    private fun smooth(now: FloatArray, prev: FloatArray?): FloatArray =
-        if (prev == null || prev.size != now.size) now else FloatArray(now.size) { prev[it] * 0.4f + now[it] * 0.6f }
+    private fun smooth(now: FloatArray, prev: FloatArray?, keep: Float = 0.4f): FloatArray =
+        if (prev == null || prev.size != now.size) now else FloatArray(now.size) { prev[it] * keep + now[it] * (1f - keep) }
 
     private fun lumaGrid(bmp: Bitmap): FloatArray {
         val px = IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }
@@ -308,5 +319,8 @@ class PortraitMaskAnalyzer(
         /** Diferença média da máscara entre quadros abaixo disso = parado. */
         private const val STILL_DIFF = 0.006f
         private const val STILL_AFTER = 10
+        /** Rack focus: 70% do plano anterior por quadro analisado (~3/s) → ~90% do caminho em ~2 s, sem salto. */
+        private const val RACK_KEEP = 0.7f
+        private const val RACK_FRAMES = 8
     }
 }

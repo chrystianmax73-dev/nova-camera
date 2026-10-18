@@ -1680,7 +1680,7 @@ class NovaCamera(
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !normalVideoMode &&
             !mode.isPro && !m.manualExposure && night == null
         // Rostos do próprio sensor (modo simples, sem custo de CPU do app): só para desenhar onde estão.
-        if (settings.showFaces && facesSupported && !mode.isPro && night == null)
+        if ((settings.showFaces || cinematicRequested) && facesSupported && !mode.isPro && night == null)
             b.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
@@ -1780,9 +1780,20 @@ class NovaCamera(
     private var lastFacesMs = 0L
     private var hadFaces = false
 
+    /**
+     * Cinematográfico sem toque: o maior rosto do sensor vira o assunto (como o iPhone, que acompanha
+     * rostos sozinho). Coordenadas do sensor, as mesmas de [cinematicTap]. Some 1 s depois do último rosto.
+     */
+    @Volatile private var cinemaFace: Pair<Float, Float>? = null
+    @Volatile private var cinemaFaceAt = 0L
+    private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 1000L }
+
     private fun publishFaces(result: TotalCaptureResult) {
-        if (!settings.showFaces) return
         val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
+        if (cinematicRequested) faces.filter { it.score >= 50 }.maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
+            cinemaFace = it.bounds.exactCenterX() to it.bounds.exactCenterY(); cinemaFaceAt = SystemClock.uptimeMillis()
+        }
+        if (!settings.showFaces) return
         val now = SystemClock.uptimeMillis()
         if (faces.isEmpty() && !hadFaces) return
         if (now - lastFacesMs < 120L && faces.isNotEmpty()) return
@@ -2543,7 +2554,7 @@ class NovaCamera(
         } },
             // O toque vale enquanto o ponto de foco do usuário vale (mesma regra da foto em subjectPointForPhoto):
             // quando ele expira, a prévia volta a "pessoa sem toque" e deixa de recalcular profundidade.
-            tapSensor={cinematicTap?.takeIf { userPointActive }},captureBusy={capturing || ProcessingQueue.pending>0})
+            tapSensor={cinematicTap?.takeIf { userPointActive } ?: cinemaFaceTarget},captureBusy={capturing || ProcessingQueue.pending>0})
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis

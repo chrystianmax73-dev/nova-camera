@@ -31,12 +31,15 @@ object CinematicPolicy {
 class CinematicSceneGuard {
     private var previous:FloatArray?=null
     private var tap:Pair<Float,Float>?=null
+    /** Último [moved] foi só troca de assunto (cena parada): a profundidade continua valendo. */
+    var selectionOnly=false;private set
     fun moved(luma:FloatArray,target:Pair<Float,Float>?):Boolean {
         val old=previous
         val movement=old!=null && (old.size!=luma.size || old.indices.sumOf { abs(old[it]-luma[it]).toDouble() }/luma.size>0.045)
         val previousTap=tap
         val selection=(previousTap==null)!=(target==null) || (previousTap!=null && target!=null && hypot(previousTap.first-target.first,previousTap.second-target.second)>.04f)
         previous=luma.copyOf(); if(selection || tap==null) tap=target
+        selectionOnly=selection && !movement
         return movement || selection
     }
 }

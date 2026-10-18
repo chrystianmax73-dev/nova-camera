@@ -52,5 +52,8 @@ class CinematicPolicyTest {
         assertTrue(g.moved(FloatArray(20){.6f},.5f to .5f))
         assertFalse(g.moved(FloatArray(20){.6f},.51f to .5f))
         assertTrue(g.moved(FloatArray(20){.6f},.8f to .5f))
+        assertTrue("troca de assunto com cena parada mantém a profundidade", g.selectionOnly)
+        assertTrue(g.moved(FloatArray(20){.1f},.8f to .5f))
+        assertFalse(g.selectionOnly)
     }
 }
