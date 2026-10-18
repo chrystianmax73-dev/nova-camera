@@ -1,3 +1,13 @@
+# APK de teste 0.26.5 — build 73 em geração (1073 esperado)
+
+- Fonte de app **4344b8ef3188471df9c005021767088e24173c2e**, aprovada em compilação/testes/lint no CI **39130691263**. Nenhuma alteração de app após essa aprovação. Três causas reproduzidas antes do aplicativo foram corrigidas nos testes: ilha desconectada, estrutura fina tocada e referência favorecida por ruído. Resultados sintéticos, não validação física de qualidade.
+- Fonte APK **e2b10b947632bfaf3eec986d2ba709885b04b8b3**, run **39131104555**, job **117686274567**, número real de build **73**. Link: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555 . **APK ainda NÃO confirmado neste registro.** VersionName0.26.5; versionCode1073 esperado pela fórmula, conferir verificação real do job.
+- Gatilho original já restaurado em **f3c8fcd02ded88f7afdda1d74d93c3f5c2924f8f**, blob **a82bc113b2de207b7a3e9a9660cc19af520167ff**. Não gerar outro build, workflow_dispatch ou release. Publicação do push deve ficar skipped.
+- Próximo passo exato: acompanhar run existente até conclusão; conferir testes/lint e contagem real, JPEG200MP, modelos offline/Depth=True, assembleRelease, certificado/versionCode e upload/publicação skipped. Depois registrar artefato real/link/digestZIP/tamanho/expiração emSTATUS/handoff e só então enviar ao dono. Se falhar, ler erro concreto e preservar progresso.
+- Detalhes e análise individual em **NOTURNO_RETRATO_0265.md**. Fotos declaradas0.26.3 e diagnóstico0.26.4 foram mantidos separados. Diagnóstico informaRetrato49,0s eNoturno5x com rejeição53–60%; não declarar tudo resolvido, nem ganhos de autonomia/qualidade/S24 sem novas fotos. Foco, highlights/HDR, rejeição alta, tempos deSR/profundidade/desfoque, NAFNet abortando e congelamentos continuam pendentes. Preservar tomNoturno,8quadros/SR/resolução, modelos/main/chave permanente e mídia foraGit.
+
+---
+
 # Etapa atual 0.26.5 — Noturno e Retrato, fonte em validação
 
 - Branch única **codex/video-estabilidade-0-20**. Base c128f496950e4ad7f0d972c1b14dc35149ca0639, CI39127776999 aprovado antes do app. Buscar HEAD remoto antes de retomar. APK anterior confirmado0.26.4/build72/1072 permanece no histórico; **nenhum APK0.26.5 confirmado neste registro**.
