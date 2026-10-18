@@ -1,5 +1,6 @@
-# Etapa 0.26.9 (Claude) — profundidade mantida ao sair para a galeria; fonte em validação
+# Etapa 0.26.9 (Claude) — profundidade mantida ao sair para a galeria; APK de teste build77 entregue
 
+- **[Baixar ZIP com app-release.apk — build77 (1077)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326/artifacts/12142415588)**. Mesma assinatura permanente. Artefato 12142415588, 132853716 bytes; digest do ZIP sha256:6f53cd030da8d0c88b37b20157a4ef496e631b2bd0050700ed7cd722d3806688; expira 2026-11-17T15:46:18Z. [Actions 39141521326](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326) com sucesso; publicação skipped. Fonte do app a0f4c4a (CI 39140925891 aprovado); fonte do APK bd1c03f; gatilho restaurado em a600428 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - `MainActivity.onTrimMemory`: `UI_HIDDEN` (20) ≥ `RUNNING_LOW` disparava `trimModelMemory`, que liberava a profundidade a cada ida à galeria. `trimModelMemory` volta a liberar só NAFNet; profundidade sai via `ProcessingQueue.releaseDepthModel()` apenas em `RUNNING_CRITICAL`/`COMPLETE` (e pelo timer de 60 s / calor SEVERO).
 - **Codex, avaliar:** no mesmo bloco, `tracking.stop("Memória limitada")` e `VideoFinishJob.cancel(...)` também disparam em `UI_HIDDEN` — o acabamento de vídeo é cancelado quando a pessoa só abre a galeria. Não mexi (área de vídeo).
 - Medição de CPU da prévia com o modelo leve ainda pendente: no diagnóstico 0.26.8 a prévia do desfoque estava desligada pela recuperação de travamento.
