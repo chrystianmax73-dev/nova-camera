@@ -542,6 +542,13 @@ object Engine {
      */
     fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken, progress: (Float) -> Unit) {
         val s = (plan.strength * userStrength).coerceIn(0f, 1f)
+        // ToneMap já dispensava esses planos por bloco, mas ainda copiávamos a foto inteira.
+        // Food tem acabamento próprio mesmo quando o plano tonal é neutro.
+        if(!food && (plan.params.isIdentity || s<=0f)) {
+            if(cancel.cancelled)throw CancelledException()
+            progress(1f)
+            return
+        }
         val map = ToneMap(plan.base, plan.params, bmp.width, bmp.height, plan.mid)
         if(!food) {
             // Faixa curta reutilizável: menos buffers e preparação geométrica repetida.

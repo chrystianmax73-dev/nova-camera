@@ -22,6 +22,23 @@ import kotlin.math.sin
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
 class EngineAndroidTest {
+    @Test fun planoNeutroPreservaFotoMasAindaAplicaFoodEPermiteCancelar() {
+        val px=IntArray(64*48){i->0xFF000000.toInt() or (((i*7)%256) shl 16) or (((i*3)%256) shl 8) or ((i*13)%256)}
+        val base=com.novacamera.s24.core.imaging.Plane(8,6,FloatArray(48){-.8f})
+        val plan=com.novacamera.s24.core.imaging.Adaptive.Plan(com.novacamera.s24.core.imaging.ToneParams(0f,0f,0f),1f,base,null,"neutro")
+        val bmp=Bitmap.createBitmap(px,64,48,Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888,true)
+        try {
+            Engine.toneInPlace(bmp,plan,1f,false,CancelToken()){}
+            val actual=IntArray(px.size);bmp.getPixels(actual,0,64,0,0,64,48)
+            org.junit.Assert.assertArrayEquals(px,actual)
+            val expected=px.copyOf();com.novacamera.s24.core.imaging.FoodLook.applyTile(expected,1f)
+            Engine.toneInPlace(bmp,plan,1f,true,CancelToken()){}
+            bmp.getPixels(actual,0,64,0,0,64,48);org.junit.Assert.assertArrayEquals(expected,actual)
+            var cancelled=false
+            try{Engine.toneInPlace(bmp,plan,1f,false,CancelToken().also{it.cancelled=true}){}}catch(_:CancelledException){cancelled=true}
+            assertTrue(cancelled)
+        } finally { bmp.recycle() }
+    }
     @Test fun faixasTonaisMantemBitmapInteiroEVerificamCancelamento() {
         val rng=Random(264);val width=4601;val height=137
         val px=IntArray(width*height){rng.nextInt() or (0xFF shl 24)}
