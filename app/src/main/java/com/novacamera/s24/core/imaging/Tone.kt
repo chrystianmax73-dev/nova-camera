@@ -183,21 +183,41 @@ class ToneMap(
     // Meios-tons sobem; pretos (listras escuras, cantos) ficam: sem "pretos lavados".
     private val lnMidBlackFull = ln(0.04f)
     private val lnMidBlackEnd = ln(0.13f)
-    // Constantes calculadas pelo mesmo Kotlin; não trocar precisão de log/exp ao portar o laço.
-    private val nativeSettings by lazy { floatArrayOf(params.shadowLiftEv,params.highlightCompression,
-        params.blackLevel,params.clarity,params.midLiftEv,params.lumaBlack,0f,
-        lnShadowStart,lnShadowFull,lnHighStart,lnBlackFull,lnBlackEnd,lnMidFull,lnMidEnd,lnMidBlackFull,lnMidBlackEnd) }
 
     /** Aplica a uma região [tile] (w×h) cuja origem na imagem cheia é (x0, y0). */
-    fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f, chromaProtection: Float = 0f) {
-        if (params.isIdentity || strength <= 0f) return
-        val s = strength.coerceIn(0f, 1f)
-        // Proteção cromática adaptativa conserva seu caminho Kotlin. Sem cache nativo permanente,
-        // ponteiros retidos, novas threads ou cópia de um Bitmap inteiro.
-        if(PhotoKernels.available && chromaProtection<=0f && (mid==null || (mid.w==base.w && mid.h==base.h))) {
-            val settings=nativeSettings.copyOf().also{it[6]=s}
-            if(PhotoKernels.tone(tile,tw,th,x0,y0,fullW,fullH,base.data,base.w,base.h,mid?.data,settings))return
+    fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f, chromaProtection: Float = 0f) =
+        applyTileImpl(tile,tw,th,x0,y0,strength,chromaProtection,true)
+
+    /** Referência anterior para regressão e benchmark; não muda a fórmula ou tolerância. */
+    internal fun applyTileReference(tile:IntArray,tw:Int,th:Int,x0:Int,y0:Int,strength:Float=1f,chromaProtection:Float=0f) =
+        applyTileImpl(tile,tw,th,x0,y0,strength,chromaProtection,false)
+
+    /** Índices/pesos bilineares dependem da geometria, não da cor. Reutilizados entre linhas e planos. */
+    private class Coordinates(w:Int,h:Int,tw:Int,th:Int,x0:Int,y0:Int,sx:Float,sy:Float) {
+        private val left=IntArray(tw);private val right=IntArray(tw);private val fractionX=FloatArray(tw)
+        private val top=IntArray(th);private val bottom=IntArray(th);private val fractionY=FloatArray(th)
+        init {
+            for(x in 0 until tw){
+                val fx=((x0+x+.5f)*sx-.5f).coerceIn(0f,(w-1).toFloat())
+                val i=fx.toInt();left[x]=i;right[x]=min(i+1,w-1);fractionX[x]=fx-i
+            }
+            for(y in 0 until th){
+                val fy=((y0+y+.5f)*sy-.5f).coerceIn(0f,(h-1).toFloat())
+                val i=fy.toInt();top[y]=i*w;bottom[y]=min(i+1,h-1)*w;fractionY[y]=fy-i
+            }
         }
+        fun sample(p:Plane,x:Int,y:Int):Float {
+            val a=p.data[top[y]+left[x]]+(p.data[top[y]+right[x]]-p.data[top[y]+left[x]])*fractionX[x]
+            val b=p.data[bottom[y]+left[x]]+(p.data[bottom[y]+right[x]]-p.data[bottom[y]+left[x]])*fractionX[x]
+            return a+(b-a)*fractionY[y]
+        }
+    }
+
+    private fun applyTileImpl(tile:IntArray,tw:Int,th:Int,x0:Int,y0:Int,strength:Float,chromaProtection:Float,cached:Boolean) {
+        if (params.isIdentity || strength <= 0f) return
+        val coordinates=if(cached)Coordinates(base.w,base.h,tw,th,x0,y0,sx,sy)else null
+        val sameMid=mid!=null && mid.w==base.w && mid.h==base.h
+        val s = strength.coerceIn(0f, 1f)
         val black = params.blackLevel * s
         val bl = black * 255f
         val blScale = 1f / (1f - black)
@@ -216,14 +236,14 @@ class ToneMap(
                     val k = if (y <= 0.5f) 0f else max(0f, (y - lb * 255f) * lbScale) / y
                     r *= k; g *= k; b *= k
                 }
-                val baseLog = base.sample((x0 + tx + 0.5f) * sx - 0.5f, by)
+                val baseLog = coordinates?.sample(base,tx,ty) ?: base.sample((x0 + tx + 0.5f) * sx - 0.5f, by)
                 val shadowW = smooth(lnShadowStart, lnShadowFull, baseLog) * smooth(lnBlackFull, lnBlackEnd, baseLog)
                 val highW = smooth(lnHighStart, 0f, baseLog)
                 var deltaLog = params.shadowLiftEv * 0.6931f * shadowW - params.highlightCompression * highW * (baseLog - lnHighStart)
                 if (params.midLiftEv > 0f) deltaLog += params.midLiftEv * 0.6931f *
                     smooth(lnMidEnd, lnMidFull, baseLog) * smooth(lnMidBlackFull, lnMidBlackEnd, baseLog)
                 if (mid != null && params.clarity > 0f) {
-                    val m = mid.sample((x0 + tx + 0.5f) * sx - 0.5f, by)
+                    val m = if(coordinates!=null && sameMid)coordinates.sample(mid,tx,ty) else mid.sample((x0 + tx + 0.5f) * sx - 0.5f, by)
                     // Forma de média escala (mid − base), limitada: sem halos e sem tocar textura fina.
                     deltaLog += params.clarity * (m - baseLog).coerceIn(-0.35f, 0.35f)
                 }

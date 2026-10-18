@@ -13,6 +13,4 @@ object PhotoKernels {
         x0:Int,y0:Int,x1:Int,y1:Int,step:Int):IntArray
     @JvmStatic external fun merge(pixels:Array<IntArray>,geometry:IntArray,shifts:FloatArray,
         outW:Int,outH:Int,ox:Int,oy:Int,factor:Float,cropX:Float,cropY:Float,noise:Float,kernel:FloatArray):IntArray
-    @JvmStatic external fun tone(pixels:IntArray,tw:Int,th:Int,x0:Int,y0:Int,fullW:Int,fullH:Int,
-        base:FloatArray,bw:Int,bh:Int,mid:FloatArray?,settings:FloatArray):Boolean
 }

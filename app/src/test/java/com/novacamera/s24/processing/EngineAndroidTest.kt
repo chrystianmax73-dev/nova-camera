@@ -22,9 +22,7 @@ import kotlin.math.sin
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
 class EngineAndroidTest {
-    @Test fun faixasTonaisNativasMantemBitmapInteiroEVerificamCancelamento() {
-        com.novacamera.s24.core.imaging.NativePhotoKernelsTest.compileHost()
-        val kernels=com.novacamera.s24.core.imaging.PhotoKernels
+    @Test fun faixasTonaisMantemBitmapInteiroEVerificamCancelamento() {
         val rng=Random(264);val width=4601;val height=137
         val px=IntArray(width*height){rng.nextInt() or (0xFF shl 24)}
         val base=com.novacamera.s24.core.imaging.Plane(29,19,FloatArray(29*19){kotlin.math.ln(.004f+rng.nextFloat()*.996f)})
@@ -32,9 +30,7 @@ class EngineAndroidTest {
         val plan=com.novacamera.s24.core.imaging.Adaptive.Plan(params,1f,base,base,"regressão")
         val expected=px.copyOf();val bmp=Bitmap.createBitmap(px,width,height,Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888,true)
         try {
-            kernels.useNativeForTest(false)
-            com.novacamera.s24.core.imaging.ToneMap(base,params,width,height,base).applyTile(expected,width,height,0,0)
-            kernels.useNativeForTest(true)
+            com.novacamera.s24.core.imaging.ToneMap(base,params,width,height,base).applyTileReference(expected,width,height,0,0)
             var updates=0
             Engine.toneInPlace(bmp,plan,1f,false,CancelToken()){updates++}
             val actual=IntArray(px.size);bmp.getPixels(actual,0,width,0,0,width,height)
@@ -43,7 +39,7 @@ class EngineAndroidTest {
             var cancelled=false
             try{Engine.toneInPlace(bmp,plan,1f,false,token){}}catch(_:CancelledException){cancelled=true}
             assertTrue(cancelled)
-        } finally { kernels.useNativeForTest(true);bmp.recycle() }
+        } finally { bmp.recycle() }
     }
     private val w = 960
     private val h = 720
