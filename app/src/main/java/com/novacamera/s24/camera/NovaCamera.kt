@@ -142,7 +142,7 @@ class NovaCamera(
     private var oemFacts = mapOf<Boolean, Triple<Boolean, Boolean, Boolean>>() // isFront → (bokeh, night, hdr)
 
     // Foco / exposição
-    private var userPointActive = false
+    @Volatile private var userPointActive = false
     private var aeLocked = false
     private var focusToken = 0
     /** Ponto tocado (para focar de novo nele antes de uma rajada) e o zoom no momento do toque. */
@@ -2431,7 +2431,10 @@ class NovaCamera(
         val analysisGeneration=videoEffectGeneration
         val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post {
             if(analysisGeneration==videoEffectGeneration && !released && !paused)listener.onPortraitPreview(s)
-        } },tapSensor={cinematicTap},captureBusy={capturing || ProcessingQueue.pending>0})
+        } },
+            // O toque vale enquanto o ponto de foco do usuário vale (mesma regra da foto em subjectPointForPhoto):
+            // quando ele expira, a prévia volta a "pessoa sem toque" e deixa de recalcular profundidade.
+            tapSensor={cinematicTap?.takeIf { userPointActive }},captureBusy={capturing || ProcessingQueue.pending>0})
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis

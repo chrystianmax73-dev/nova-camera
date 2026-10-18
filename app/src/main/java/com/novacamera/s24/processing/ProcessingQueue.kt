@@ -196,6 +196,8 @@ object ProcessingQueue {
         val app = context.applicationContext
         MediaWriter.identify(app)
         synchronized(queued) { queued += job }
+        // Processo protegido enquanto há foto na fila (abrir a galeria não deve perder a foto).
+        ProcessingService.start(app)
         // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
         refineCancel?.cancelled = true
         post(JobProgress(job.id, job.kind, 0f, "Na fila", pending))
@@ -203,7 +205,46 @@ object ProcessingQueue {
             synchronized(queued) { queued -= job }
             current = job
             started[job.id] = android.os.SystemClock.elapsedRealtime() to heat
-            try { job.trace?.mark("saída da fila");run(app, job) } finally { job.trace?.publish("processamento encerrado (consultar resultado)");current = null; started.remove(job.id) }
+            try { job.trace?.mark("saída da fila");run(app, job) } finally {
+                job.trace?.publish("processamento encerrado (consultar resultado)");current = null; started.remove(job.id)
+                // Tarefa tratada (com ou sem sucesso): sem marca de interrompida.
+                File(sessionsDir(app), "${job.id}/$INTERRUPTED_MARK").delete()
+                if (pending == 0) ProcessingService.stop(app)
+            }
+        }
+    }
+
+    private const val INTERRUPTED_MARK = "interrupted"
+
+    /**
+     * Fotos cujo processamento foi interrompido porque o processo morreu (sistema encerrou o app,
+     * travamento): o original já salvo na sessão vai para a galeria, sem processamento, uma vez.
+     * Roda na fila de processamento, então nunca disputa com uma tarefa viva. AUTO não precisa:
+     * a foto comum já estava na galeria antes do processamento.
+     */
+    fun recoverInterrupted(context: Context, done: (Int) -> Unit) {
+        val app = context.applicationContext
+        executor.execute {
+            var recovered = 0
+            sessionsDir(app).listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+                val mark = File(dir, INTERRUPTED_MARK)
+                if (!mark.exists()) return@forEach
+                val kind = runCatching { mark.readText().trim() }.getOrDefault("")
+                val session = Session(dir)
+                if (kind != JobKind.AUTO.name && session.enhancedUri == null && session.original.exists()) {
+                    runCatching {
+                        val bmp = BitmapFactory.decodeFile(session.original.path) ?: error("original ilegível")
+                        try {
+                            MediaWriter.insert(app.contentResolver, bmp, "NOVA_${dir.name}_recuperada.jpg", MediaWriter.GALLERY,
+                                session.exif, "Nova · processamento interrompido; original recuperado")
+                        } finally { bmp.recycle() }
+                        recovered++
+                    }.onFailure { Log.w(TAG, "recuperação falhou: ${dir.name}", it) }
+                }
+                mark.delete()
+            }
+            if (recovered > 0) Log.i(TAG, "fotos recuperadas: $recovered")
+            main.post { done(recovered) }
         }
     }
 
@@ -255,6 +296,8 @@ object ProcessingQueue {
         val name = stamp()
         val session = Session(File(sessionsDir(context), "${job.id}"))
         session.dir.mkdirs()
+        // Marca apagada ao fim da tarefa (submit); se o processo morrer antes, a próxima abertura recupera.
+        runCatching { File(session.dir, INTERRUPTED_MARK).writeText(job.kind.name) }
         session.kind = job.kind
         session.style = job.style
         if (contrastProfile) session.meta.setProperty("profile", "contrast")
@@ -293,6 +336,7 @@ object ProcessingQueue {
         facts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
         session.zoom = job.zoom
         session.signature = job.signature
+        runCatching { session.save() } // data/EXIF já gravados, para uma eventual recuperação
         try {
             // Núcleos para alinhamento e super-resolução nesta foto (um só com calor ou economia).
             Parallel.workers = heat.let { hh -> com.novacamera.s24.core.Workers.count(hh?.thermalStatus ?: 0, hh?.powerSave == true,

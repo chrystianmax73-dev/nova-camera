@@ -232,6 +232,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
         loadLatestMedia()
         ProcessingQueue.addListener(onProcessing)
+        ProcessingQueue.recoverInterrupted(this) { n ->
+            if (n > 0 && !isDestroyed) hint.show(if (n == 1) "1 foto interrompida foi salva na galeria (sem processamento)"
+                else "$n fotos interrompidas foram salvas na galeria (sem processamento)", 4000)
+        }
         com.novacamera.s24.processing.VideoFinishJob.restore(this)
         com.novacamera.s24.processing.VideoFinishJob.addListener(onVideoFinish)
     }
