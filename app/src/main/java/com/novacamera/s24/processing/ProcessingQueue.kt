@@ -208,7 +208,15 @@ object ProcessingQueue {
     }
 
     /** Descarta só o cache do modelo, fora da UI e depois da tarefa atual. */
-    fun trimModelMemory() { executor.execute { NcnnDenoiser.release() } }
+    fun trimModelMemory() { executor.execute { NcnnDenoiser.release(); DepthEstimator.release() } }
+
+    /** Modelo de profundidade fica carregado entre Retratos; liberado com calor ou depois de 1 min sem uso. */
+    private fun releaseDepthLater() {
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.SEVERE) { DepthEstimator.release(); return }
+        main.postDelayed({ executor.execute {
+            if (pending == 0) DepthEstimator.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
+        } }, DepthEstimator.IDLE_MS + 1_000L)
+    }
 
     /** Cancela a tarefa em andamento e as que estão na fila (os originais já salvos ficam). */
     fun cancelAll() {
@@ -387,6 +395,7 @@ object ProcessingQueue {
                 // crescendo com a distância até ele.
                 progress(0.69f, "Estimando profundidade")
                 val depth = runCatching { timed(job,"profundidade/carga") { DepthEstimator.estimate(context, base) } }
+                    .also { releaseDepthLater() }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
                 val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint,
                     report={job.trace?.mark(it)}) } }

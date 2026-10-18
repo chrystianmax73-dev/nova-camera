@@ -235,6 +235,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         monitor.start()
         performanceGeneration++
         com.novacamera.s24.core.SessionPerformance.boundary()
+        com.novacamera.s24.core.ThreadCpu.boundary()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         lastInteraction = SystemClock.elapsedRealtime()
         handler.removeCallbacks(idleCheck)
@@ -250,6 +251,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     // ------------------------------------------------------------------ auxílios do visor
 
     private var aidBusy = false
+    private val aidReader by lazy { com.novacamera.s24.camera.PreviewFrameReader(preview) }
+    private val backlightReader by lazy { com.novacamera.s24.camera.PreviewFrameReader(preview) }
     private var aidSlow = false
 
     /** Nova medição (histograma, estouro, realce de foco) da prévia exibida, poucas vezes por segundo. */
@@ -272,11 +275,18 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             overlay.showHistogram = hist; overlay.showClipping = clip; overlay.showPeaking = peaking
             if (!hist && !clip && !peaking) { if (overlay.aid != null) overlay.aid = null; return }
             if (aidBusy || preview.previewStreamState.value != PreviewView.StreamState.STREAMING) return
-            val t0 = SystemClock.elapsedRealtime()
-            // A própria prévia exibida (já com o efeito de tom): sem fluxo extra da câmera.
-            val bmp = runCatching { preview.bitmap }.getOrNull() ?: return
-            aidSlow = SystemClock.elapsedRealtime() - t0 > AID_SLOW_COPY_MS
+            // A própria prévia exibida (já com o efeito de tom), em cópia reduzida e assíncrona: o
+            // preview.bitmap copiava a prévia inteira na thread da interface 2×/s.
             aidBusy = true
+            val started = aidReader.read { bmp, copyMs ->
+                aidSlow = copyMs > AID_SLOW_COPY_MS
+                if (bmp == null) { aidBusy = false; return@read }
+                analyzeAid(bmp, peaking)
+            }
+            if (!started) aidBusy = false
+        }
+
+        private fun analyzeAid(bmp: android.graphics.Bitmap, peaking: Boolean) {
             io.execute {
                 val result = runCatching {
                     val w = AID_WIDTH; val h = (AID_WIDTH * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
@@ -308,8 +318,17 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             // O assunto já tem AE prioritária; não copiar outra prévia para contraluz que não será aplicada.
             if (camera.subjectTracking) { backlightEv = 0f; return }
             if (preview.previewStreamState.value != PreviewView.StreamState.STREAMING) return
-            val bmp = runCatching { preview.bitmap }.getOrNull() ?: return
+            // Cópia reduzida (≤ 320 px) e assíncrona; antes, preview.bitmap copiava a prévia inteira na
+            // thread da interface ~1,5×/s só para medir 64 px.
             backlightBusy = true
+            val started = backlightReader.read { bmp, _ ->
+                if (bmp == null) { backlightBusy = false; return@read }
+                measureBacklight(bmp)
+            }
+            if (!started) backlightBusy = false
+        }
+
+        private fun measureBacklight(bmp: android.graphics.Bitmap) {
             io.execute {
                 val reading = runCatching {
                     val w = 64; val h = (64 * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
@@ -382,6 +401,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     val counts = synchronized(NovaCamera.telemetry) { NovaCamera.telemetry.frames to NovaCamera.telemetry.droppedFrames }
                     io.execute {
                         val sample = runCatching { monitor.performanceSample(activity, counts.first, counts.second) }.getOrNull()
+                        // Quem consome a CPU (por thread): ~100 leituras pequenas de /proc a cada 10 s.
+                        runCatching { com.novacamera.s24.core.ThreadCpu.add(activity, SystemClock.elapsedRealtime(), com.novacamera.s24.core.ThreadCpu.snapshot()) }
                         handler.post {
                             performanceBusy = false
                             if (generation == performanceGeneration && sample != null)
@@ -429,6 +450,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         monitor.stop()
         performanceGeneration++
         com.novacamera.s24.core.SessionPerformance.boundary()
+        com.novacamera.s24.core.ThreadCpu.boundary()
         orientationListener.disable()
         handler.removeCallbacks(idleCheck)
         handler.removeCallbacks(energyTick)

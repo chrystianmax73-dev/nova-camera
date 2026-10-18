@@ -1,3 +1,12 @@
+# Etapa 0.26.7 (Claude) — bateria/CPU; fonte em validação
+
+- **Divisão (dono, 18/10):** Claude = bateria, CPU e consumo da prévia/processamento; Codex = qualidade de imagem (Noturno, Retrato, SR, máscaras). Depois virá uma repaginação de interface (estilo iPhone, transições suaves, mantendo os recursos) — ainda não iniciada. **Não editar ao mesmo tempo**; buscar HEAD remoto antes.
+- Feito: (1) `DepthEstimator` mantém a sessão entre fotos (`IDLE_MS` 60 s; `release()` em calor SEVERO e em `ProcessingQueue.trimModelMemory`); (2) `core/ThreadCpu` + bloco "CPU por thread" no diagnóstico (amostrado no `energyTick`, fila io); (3) contraluz e auxílios Pro usam `PreviewFrameReader` em vez de `preview.bitmap`.
+- Causa dos 155% de CPU da prévia do Retrato: **ainda não identificada**. Hipóteses a confirmar com o novo bloco: RenderThread/UI (invalidações do overlay), threads do CameraX (callbacks 30/s), análise/rastreamento, compositor GL. Só otimizar depois de ver os números.
+- Codex: se mexer em `DepthEstimator.estimate`, preservar o cache (não voltar a fechar a sessão a cada foto).
+
+---
+
 # Etapa 0.26.6 (Claude) — alinhamento e super-resolução em vários núcleos; APK de teste build74 entregue
 
 - **[Baixar ZIP com app-release.apk — build74 (1074)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39133451951/artifacts/12138453579)**. Mesma assinatura permanente, instala sobre a anterior. Artefato 12138453579, 132634522 bytes; digest do ZIP sha256:4be52c2aa1eea6613c4b8fae28824025459e013534309d67fbf49f733f376f27; expira 2026-11-17T14:00:31Z. [Actions 39133451951](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39133451951) concluído com sucesso (testes, lint, assembleRelease, assinatura, upload); publicação skipped. Fonte do app 01b5bd7 (CI 39133124284 aprovado); fonte do APK 9513b5e; gatilho original restaurado em 732a180 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

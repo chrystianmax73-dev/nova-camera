@@ -35,6 +35,7 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.core.CostLog.report())
             appendLine(com.novacamera.s24.core.EnergyLog.report())
             appendLine(com.novacamera.s24.core.SessionPerformance.report())
+            appendLine(com.novacamera.s24.core.ThreadCpu.report())
             appendLine(com.novacamera.s24.core.TrackingLog.report())
             appendLine(com.novacamera.s24.core.CrashLog.report(context))
             appendLine(com.novacamera.s24.core.StallLog.report(context))

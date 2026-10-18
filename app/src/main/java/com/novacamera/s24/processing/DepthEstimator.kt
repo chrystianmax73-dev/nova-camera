@@ -40,17 +40,33 @@ object DepthEstimator {
     fun estimate(context: Context, photo: Bitmap): Plane? {
         if (!available(context)) { report = "Profundidade: modelo não incluído nesta build"; return null }
         val t0 = SystemClock.elapsedRealtime()
-        val session = Session.open(context) ?: run { report = "Profundidade: falha ao carregar o modelo"; return null }
-        try {
-            val tLoad = SystemClock.elapsedRealtime() - t0
-            val t1 = SystemClock.elapsedRealtime()
-            val out = session.run(photo)
-            report = "Profundidade (Depth Anything V2 Small): ${if (out != null) "ok" else "falhou"} · backend=" +
-                "${if (session.gpu) "Vulkan" else "CPU"}, carga=${tLoad}ms, inferência=${SystemClock.elapsedRealtime() - t1}ms"
-            Log.i(TAG, report)
-            return out
-        } finally { session.close() }
+        // Carregar o modelo custava ~2,5 s a cada Retrato (diagnóstico 0.26.4: carga 2482–3558 ms para
+        // 1,4 s de inferência). Fica carregado entre fotos e é liberado depois de [IDLE_MS] sem uso.
+        val reused = cached != null
+        val session = cached ?: Session.open(context)?.also { cached = it }
+            ?: run { report = "Profundidade: falha ao carregar o modelo"; return null }
+        val tLoad = SystemClock.elapsedRealtime() - t0
+        val t1 = SystemClock.elapsedRealtime()
+        val out = session.run(photo)
+        lastUsedMs = SystemClock.elapsedRealtime()
+        report = "Profundidade (Depth Anything V2 Small): ${if (out != null) "ok" else "falhou"} · backend=" +
+            "${if (session.gpu) "Vulkan" else "CPU"}, carga=${if (reused) "0ms (modelo já carregado)" else "${tLoad}ms"}, " +
+            "inferência=${SystemClock.elapsedRealtime() - t1}ms"
+        Log.i(TAG, report)
+        return out
     }
+
+    /** Sem uso por este tempo, o modelo da foto é liberado (memória da GPU/CPU). */
+    const val IDLE_MS = 60_000L
+    private var cached: Session? = null
+    private var lastUsedMs = 0L
+
+    /** Libera o modelo mantido entre fotos (pressão de memória, calor ou tempo sem uso). */
+    @Synchronized
+    fun release() { cached?.close(); cached = null }
+
+    @Synchronized
+    fun releaseIfIdle(nowMs: Long) { if (cached != null && nowMs - lastUsedMs >= IDLE_MS) release() }
 
     /** Modelo carregado uma vez (prévia ao vivo do Retrato); [close] obrigatório. */
     class Session private constructor(private val handle: Long,val loadMs:Long) : java.io.Closeable {

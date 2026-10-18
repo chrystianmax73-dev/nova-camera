@@ -1,3 +1,13 @@
+# 0.26.7 — bateria/CPU: modelo de profundidade mantido entre fotos, CPU por thread no diagnóstico, cópias reduzidas da prévia (Claude; fonte em validação)
+
+- **Divisão de trabalho (dono, 18/10):** Claude cuida de **bateria/CPU/consumo**; Codex cuida da **qualidade de imagem**. Não editar os dois ao mesmo tempo no branch.
+- **Profundidade:** o modelo era carregado e descartado a cada Retrato (diagnóstico 0.26.4: carga 2482–3558 ms para ~1,4 s de inferência). Agora fica carregado e é liberado após 60 s sem uso, com calor SEVERO, ou sob pressão de memória (`trimModelMemory`). Diagnóstico mostra "carga=0ms (modelo já carregado)" quando reaproveita. Esperado: −2,5 a −3,5 s por Retrato a partir do segundo. Não altera pixels.
+- **CPU por thread:** o total do processo (Retrato parado: 155%) não diz quem consome. Novo bloco no diagnóstico, "CPU por thread", lê /proc/self/task a cada 10 s e soma por nome (pools agrupados), por atividade (`core/ThreadCpu.kt`, `ThreadCpuTest`). É o dado para a próxima correção.
+- **Cópias da prévia:** contraluz automática (~1,5×/s) e auxílios Pro (2×/s) usavam `preview.bitmap`, cópia da prévia inteira na thread da interface. Passam a usar `PreviewFrameReader` (≤ 320 px, assíncrono, já usado pelo rastreamento). Mesma medida (64 e 240 px).
+- **Não comprovado:** ganho de bateria ou CPU no S24. Próximo passo: diagnóstico com a prévia do Retrato e da Foto parada ~1 min cada, sem processar, para ler o bloco "CPU por thread".
+
+---
+
 # 0.26.6 — alinhamento e super-resolução em vários núcleos (Claude; APK de teste build74 entregue)
 
 - **[Baixar ZIP com app-release.apk — build74 (1074)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39133451951/artifacts/12138453579)**. Mesma assinatura permanente, instala sobre a anterior. Artefato 12138453579, 132634522 bytes; digest do ZIP sha256:4be52c2aa1eea6613c4b8fae28824025459e013534309d67fbf49f733f376f27; expira 2026-11-17T14:00:31Z. [Actions 39133451951](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39133451951) concluído com sucesso (testes, lint, assembleRelease, assinatura, upload); publicação skipped. Fonte do app 01b5bd7 (CI 39133124284 aprovado); fonte do APK 9513b5e; gatilho original restaurado em 732a180 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
