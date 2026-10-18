@@ -632,12 +632,12 @@ object ProcessingQueue {
     private class SelectedResolutionUnavailable : RuntimeException()
 
     fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, trace: com.novacamera.s24.core.PhotoTrace? = null, progress: (Float) -> Unit) {
-        fun step(name:String, block:()->Unit) { if(trace==null)block() else trace.measure(name,block) }
+        fun <T> step(name:String, block:()->T):T = if(trace==null)block() else trace.measure(name,block)
         val kind = session.kind
-        val plan = if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
+        val plan = step("acabamento/plano tonal") { if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
                 session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
-        else Engine.planTone(bmp, kind.tone, session.zoom)
+        else Engine.planTone(bmp, kind.tone, session.zoom) }
         // Tele (3×/5×/10×): detalhe fino antes do tom (o tom não realça o que foi recuperado). Também no
         // HDR e no Retrato (foto real: cacto 5× pelo HDR saía sem o realce). Noturno não (ruído).
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
@@ -651,13 +651,13 @@ object ProcessingQueue {
         if (kind != JobKind.FOOD) step("acabamento/crominância") { Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
         // Perfil "Contraste": não no Noturno (tom do Noturno mantido por decisão do usuário) nem no Food.
         if (session.meta.getProperty("profile") == "contrast" && kind != JobKind.NIGHT && kind != JobKind.FOOD)
-            Engine.profileInPlace(bmp, cancel)
+            step("acabamento/perfil") { Engine.profileInPlace(bmp, cancel) }
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
             if (matte != null) step("acabamento/desfoque") { Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) } }
         }
         // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
-        Engine.styleInPlace(bmp, session.style, cancel)
+        step("acabamento/estilo") { Engine.styleInPlace(bmp, session.style, cancel) }
         progress(1f)
     }
 
