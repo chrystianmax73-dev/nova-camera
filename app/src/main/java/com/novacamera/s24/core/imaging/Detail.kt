@@ -79,6 +79,7 @@ object Detail {
      */
     fun applyBand(px: IntArray, w: Int, h: Int, amount: Float, sigma: Float, validTop: Int = 0, validBottom: Int = h): Int {
         if (amount <= 0f || w < 3 || h < 3) return 0
+        if(PhotoKernels.available)return PhotoKernels.detail(px,w,h,amount,sigma,validTop,validBottom)
         val y = IntArray(w * h) { luma(px[it]) }
         val b = blur(y, w, h)
         val lo = 2f * sigma; val hi = 4f * sigma

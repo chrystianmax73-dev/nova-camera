@@ -38,7 +38,9 @@ ExternalProject_Add(nova_jpeg_build SOURCE_DIR ${nova_jpeg_SOURCE_DIR} BINARY_DI
 add_library(nova_jpeg_static STATIC IMPORTED)
 set_target_properties(nova_jpeg_static PROPERTIES IMPORTED_LOCATION ${NOVA_JPEG_BINARY}/libjpeg.a)
 add_dependencies(novadenoise nova_jpeg_build)
-target_sources(novadenoise PRIVATE jpeg_bands.cpp)
+target_sources(novadenoise PRIVATE jpeg_bands.cpp photo_kernels.cpp)
+# Mesma ordem/arredondamento do Kotlin: sem FMA ou fast-math.
+set_source_files_properties(photo_kernels.cpp PROPERTIES COMPILE_OPTIONS "-O3;-ffp-contract=off")
 target_include_directories(novadenoise PRIVATE ${nova_jpeg_SOURCE_DIR}/src ${NOVA_JPEG_BINARY})
 target_link_libraries(novadenoise nova_jpeg_static)
 target_link_options(novadenoise PRIVATE -Wl,--exclude-libs,ALL)

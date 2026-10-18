@@ -93,7 +93,6 @@ object SuperRes {
         frames: List<Pair<Region, Pair<Float, Float>>>, noise: Float,
     ): IntArray {
         val n = outW * outH
-        val accR = FloatArray(n); val accG = FloatArray(n); val accB = FloatArray(n); val accW = FloatArray(n)
         val sigma = 0.28f * factor
         val inv2s2 = 1f / (2f * sigma * sigma)
         val rad = max(1, (2f * sigma + 0.5f).toInt())
@@ -101,6 +100,12 @@ object SuperRes {
         val maxD2 = 2f * (rad + 1) * (rad + 1)
         val lutScale = (KERNEL_LUT - 1) / maxD2
         val kernel = FloatArray(KERNEL_LUT) { exp(-(it / lutScale) * inv2s2) }
+        if(PhotoKernels.available) {
+            val geometry=IntArray(frames.size*4);val shifts=FloatArray(frames.size*2)
+            frames.forEachIndexed { i,(r,s) -> geometry[i*4]=r.x0;geometry[i*4+1]=r.y0;geometry[i*4+2]=r.w;geometry[i*4+3]=r.h;shifts[i*2]=s.first;shifts[i*2+1]=s.second }
+            return PhotoKernels.merge(frames.map { it.first.px }.toTypedArray(),geometry,shifts,outW,outH,ox0,oy0,factor,cropX,cropY,noise,kernel)
+        }
+        val accR = FloatArray(n); val accG = FloatArray(n); val accB = FloatArray(n); val accW = FloatArray(n)
         val ref = frames[0].first
         val tol = 0.04f + 3f * noise
         // Robustez pela faixa local da referência (mín./máx. 3×3 em volta da posição): o detalhe fino

@@ -1,3 +1,11 @@
+# 0.26.0 — P0 etapa2: cálculos nativos equivalentes
+
+- Align.search, SuperRes.mergeTile eDetail.applyBand ganham laçosC++ na biblioteca já existente, Kotlin mantido como fallback/referência. Mesmos oitoquadros, posições/pesos/núcleo/rejeição de movimento/cores/pele/limites; semfast-math/FMA, sem modelo novo ou GPU presumida. SR cacheia mínimo/máximo3x3 da referência em vez de repetir por amostra; buffers limitados ao bloco. JNIsearch copia apenas região+busca, não plano inteiro por célula.
+- Regressão real compila JNIhost no teste e compara pixels/decisões com Kotlin para cores, ruído, movimento, margens e intensidades. Benchmarkpareado3x com aquecimento de ambos, tempos impressos, sem limiar de performance instável e sem chamar host deS24. CI pendente. Nenhuma mudança de assinatura/dependências/permissões/tomNoturno.
+- Baseline físico e escopo emP0_ETAPA2.md. Próximos incrementos: memória, aquisição, foco/prévia. Não considerarP0 concluída sem melhora mensurável noS24.
+
+---
+
 # 0.25.4 — P0 etapa2: escala energética incerta
 
 - Baseline físico0.25.3 do dono registrado antes de editar emP0_ETAPA2.md; basee14795c/CI39087054435 aprovada. Retrato total79.17s/65.80s,Foto60.44s,8quadros7.41–9.10s,SR27.74–31.41s,memória962.5MiB,saídas49/28MP. Fotos/diagnóstico completo ainda não anexados nesta etapa.

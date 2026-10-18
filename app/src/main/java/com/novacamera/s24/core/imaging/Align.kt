@@ -24,6 +24,10 @@ object Align {
     fun search(ref: Plane, mov: Plane, radius: Int, prior: Shift = Shift(0, 0), region: IntArray? = null, step: Int = 1): Shift {
         val x0 = region?.get(0) ?: 0; val y0 = region?.get(1) ?: 0
         val x1 = region?.get(2) ?: ref.w; val y1 = region?.get(3) ?: ref.h
+        if(PhotoKernels.available) {
+            val xy=PhotoKernels.search(ref.data,mov.data,ref.w,ref.h,radius,prior.dx,prior.dy,x0,y0,x1,y1,step)
+            return Shift(xy[0],xy[1])
+        }
         var best = prior; var bestCost = Double.MAX_VALUE
         for (dy in prior.dy - radius..prior.dy + radius) for (dx in prior.dx - radius..prior.dx + radius) {
             var cost = 0.0; var n = 0

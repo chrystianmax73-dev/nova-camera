@@ -1,0 +1,118 @@
+// Núcleos próprios equivalentes a Align.search/SuperRes.mergeTile. Nenhuma amostra descartada.
+#include <jni.h>
+#include <vector>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+static int rnd(float x){return static_cast<int>(std::floor(x+0.5f));}
+static int clamp(int x,int a,int b){return std::max(a,std::min(b,x));}
+static float luma(jint c){return (.2126f*((c>>16)&255)+.7152f*((c>>8)&255)+.0722f*(c&255))/255.f;}
+static jint argb(int r,int g,int b){return static_cast<jint>(0xff000000U|(clamp(r,0,255)<<16)|(clamp(g,0,255)<<8)|clamp(b,0,255));}
+extern "C" JNIEXPORT jintArray JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_search(JNIEnv* e,jclass,jfloatArray ra,jfloatArray ma,jint w,jint h,jint radius,jint px,jint py,jint x0,jint y0,jint x1,jint y1,jint step){
+    if(w<=0||h<=0||step<=0||radius<0||e->GetArrayLength(ra)!=w*h||e->GetArrayLength(ma)!=w*h)return nullptr;
+    try {
+    int rw=x1-x0,rh=y1-y0;
+    int mx0=std::max(0,x0+px-radius),my0=std::max(0,y0+py-radius);
+    int mx1=std::min(w,x1+px+radius),my1=std::min(h,y1+py+radius),mw=mx1-mx0,mh=my1-my0;
+    if(x0<0||y0<0||x1>w||y1>h||rw<=0||rh<=0||mw<=0||mh<=0)return nullptr;
+    // Copiar só as regiões usadas: copiar dois planos inteiros por célula custaria gigabytes.
+    std::vector<jfloat> r(rw*rh),m(mw*mh);
+    for(int y=0;y<rh;y++)e->GetFloatArrayRegion(ra,(y0+y)*w+x0,rw,r.data()+y*rw);
+    for(int y=0;y<mh;y++)e->GetFloatArrayRegion(ma,(my0+y)*w+mx0,mw,m.data()+y*mw);
+    if(e->ExceptionCheck())return nullptr;
+    int bx=px,by=py;double best=std::numeric_limits<double>::max();
+    for(int dy=py-radius;dy<=py+radius;dy++)for(int dx=px-radius;dx<=px+radius;dx++){
+        int xs=std::max(x0,-dx),xe=std::min(x1,w-dx),ys=std::max(y0,-dy),ye=std::min(y1,h-dy);
+        double cost=0;int n=0;
+        for(int y=ys;y<ye;y+=step)for(int x=xs;x<xe;x+=step){cost+=std::abs(r[(y-y0)*rw+x-x0]-m[(y+dy-my0)*mw+x+dx-mx0]);n++;}
+        if(n<16)continue;
+        double c=cost/n+1e-5*(std::abs(dx-px)+std::abs(dy-py));
+        if(c<best){best=c;bx=dx;by=dy;}
+    }
+    jint xy[2]={bx,by};auto a=e->NewIntArray(2);if(a)e->SetIntArrayRegion(a,0,2,xy);return a;
+    } catch(const std::bad_alloc&) {auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do alinhamento nativo");return nullptr;}
+}
+struct Region{std::vector<jint> px;int x,y,w,h;};
+static jint bilinear(const Region& a,float qx,float qy){
+    float x=qx-a.x,y=qy-a.y;int x0=clamp(static_cast<int>(std::floor(x)),0,a.w-2),y0=clamp(static_cast<int>(std::floor(y)),0,a.h-2);
+    float tx=std::max(0.f,std::min(1.f,x-x0)),ty=std::max(0.f,std::min(1.f,y-y0));
+    auto c=[&](int sh){float v0=(a.px[y0*a.w+x0]>>sh)&255,v1=(a.px[y0*a.w+x0+1]>>sh)&255;
+        float v2=(a.px[(y0+1)*a.w+x0]>>sh)&255,v3=(a.px[(y0+1)*a.w+x0+1]>>sh)&255;
+        float top=v0+(v1-v0)*tx,bot=v2+(v3-v2)*tx;return static_cast<int>(top+(bot-top)*ty+.5f);};
+    return argb(c(16),c(8),c(0));
+}
+extern "C" JNIEXPORT jintArray JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_merge(JNIEnv* e,jclass,jobjectArray arrays,jintArray ga,jfloatArray sa,jint ow,jint oh,jint ox,jint oy,jfloat factor,jfloat cropX,jfloat cropY,jfloat noise,jfloatArray ka){
+    int count=e->GetArrayLength(arrays);
+    if(count<1||count>32||ow<=0||oh<=0||ow>2048||oh>2048||!std::isfinite(factor)||factor<=0||e->GetArrayLength(ga)!=count*4||e->GetArrayLength(sa)!=count*2||e->GetArrayLength(ka)!=1024)return nullptr;
+    try {
+        std::vector<jint> geo(count*4);std::vector<jfloat> shifts(count*2),kernel(1024);
+        e->GetIntArrayRegion(ga,0,count*4,geo.data());e->GetFloatArrayRegion(sa,0,count*2,shifts.data());e->GetFloatArrayRegion(ka,0,1024,kernel.data());if(e->ExceptionCheck())return nullptr;
+        std::vector<Region> frames;frames.reserve(count);
+        for(int k=0;k<count;k++){
+            auto a=static_cast<jintArray>(e->GetObjectArrayElement(arrays,k));int w=geo[k*4+2],h=geo[k*4+3];
+            if(!a||w<3||h<3||e->GetArrayLength(a)!=w*h){if(a)e->DeleteLocalRef(a);return nullptr;}
+            Region r{{},geo[k*4],geo[k*4+1],w,h};r.px.resize(w*h);e->GetIntArrayRegion(a,0,w*h,r.px.data());e->DeleteLocalRef(a);if(e->ExceptionCheck())return nullptr;frames.push_back(std::move(r));
+        }
+        int n=ow*oh;std::vector<float> ar(n),ag(n),ab(n),aw(n);
+        float sigma=.28f*factor;int rad=std::max(1,static_cast<int>(2.f*sigma+.5f));
+        float maxD2=2.f*(rad+1)*(rad+1),scale=1023.f/maxD2,tol=.04f+3.f*noise;
+        const auto& ref=frames[0];
+        // A faixa local é a mesma 3x3; cache elimina nove leituras repetidas por amostra.
+        std::vector<float> lo(ref.w*ref.h,1.f),hi(ref.w*ref.h,0.f);
+        for(int y=1;y<ref.h-1;y++)for(int x=1;x<ref.w-1;x++)for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
+            float v=luma(ref.px[(y+dy)*ref.w+x+dx]);int i=y*ref.w+x;lo[i]=std::min(lo[i],v);hi[i]=std::max(hi[i],v);
+        }
+        for(int k=0;k<count;k++){
+            const auto& r=frames[k];
+            for(int j=0;j<r.h;j++)for(int i=0;i<r.w;i++){
+                float qx=r.x+i-shifts[k*2],qy=r.y+j-shifts[k*2+1];
+                float ux=(qx-cropX+.5f)*factor-.5f-ox,uy=(qy-cropY+.5f)*factor-.5f-oy;
+                if(ux < -rad||uy < -rad||ux > ow+rad||uy > oh+rad)continue;
+                jint c=r.px[j*r.w+i];float robust=1;
+                if(k>0){int ix=clamp(rnd(qx-ref.x),1,ref.w-2),iy=clamp(rnd(qy-ref.y),1,ref.h-2),z=iy*ref.w+ix;
+                    float v=luma(c),d=std::max(0.f,std::max(lo[z]-v,v-hi[z]));if(d>tol)robust=std::max(0.f,std::min(1.f,1.f-(d-tol)/tol));if(robust<=0)continue;}
+                float cr=(c>>16)&255,cg=(c>>8)&255,cb=c&255;int cx=rnd(ux),cy=rnd(uy);
+                for(int y=std::max(0,cy-rad);y<=std::min(oh-1,cy+rad);y++){
+                    float dy=y-uy;
+                    for(int x=std::max(0,cx-rad);x<=std::min(ow-1,cx+rad);x++){
+                        float dx=x-ux,d2=dx*dx+dy*dy;if(d2>=maxD2)continue;float weight=kernel[static_cast<int>(d2*scale)]*robust;if(weight<1e-3f)continue;
+                        int o=y*ow+x;ar[o]+=weight*cr;ag[o]+=weight*cg;ab[o]+=weight*cb;aw[o]+=weight;
+                    }
+                }
+            }
+        }
+        std::vector<jint> out(n);
+        for(int y=0;y<oh;y++)for(int x=0;x<ow;x++){
+            int o=y*ow+x;float weight=aw[o];
+            out[o]=weight>=.05f?argb(static_cast<int>(ar[o]/weight+.5f),static_cast<int>(ag[o]/weight+.5f),static_cast<int>(ab[o]/weight+.5f)):
+                bilinear(ref,cropX+(ox+x+.5f)/factor-.5f,cropY+(oy+y+.5f)/factor-.5f);
+        }
+        auto a=e->NewIntArray(n);if(a)e->SetIntArrayRegion(a,0,n,out.data());return a;
+    } catch(const std::bad_alloc&) { auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do bloco SR nativo");return nullptr; }
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_detail(JNIEnv* e,jclass,jintArray input,jint w,jint h,jfloat amount,jfloat sigma,jint top,jint bottom){
+    if(w<3||h<3||amount<=0||e->GetArrayLength(input)!=w*h)return 0;
+    try {
+        int n=w*h;std::vector<jint> px(n);e->GetIntArrayRegion(input,0,n,px.data());if(e->ExceptionCheck())return 0;
+        std::vector<int> lum(n),tmp(n),blur(n);
+        for(int i=0;i<n;i++)lum[i]=(((px[i]>>16)&255)*77+((px[i]>>8)&255)*150+(px[i]&255)*29)>>8;
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++) {int o=y*w;
+            tmp[o+x]=lum[o+std::max(0,x-2)]+4*lum[o+std::max(0,x-1)]+6*lum[o+x]+4*lum[o+std::min(w-1,x+1)]+lum[o+std::min(w-1,x+2)];}
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++)blur[y*w+x]=(tmp[std::max(0,y-2)*w+x]+4*tmp[std::max(0,y-1)*w+x]+6*tmp[y*w+x]+4*tmp[std::min(h-1,y+1)*w+x]+tmp[std::min(h-1,y+2)*w+x]+128)>>8;
+        float lo=2.f*sigma,hi=4.f*sigma;int changed=0;
+        for(int y=std::max(1,top);y<std::min(h-1,bottom);y++)for(int x=1;x<w-1;x++){
+            int i=y*w+x;float d=lum[i]-blur[i],ad=std::abs(d);if(ad<=lo)continue;
+            float t=(ad-lo)/(hi-lo),gate=ad>=hi?1.f:t*t*(3.f-2.f*t);
+            int mn=255,mx=0;for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){int v=lum[i+dy*w+dx];mn=std::min(mn,v);mx=std::max(mx,v);}
+            jint c=px[i];float r=(c>>16)&255,g=(c>>8)&255,b=c&255;
+            float cb=128.f-.168736f*r-.331264f*g+.5f*b,cr=128.f+.5f*r-.418688f*g-.081312f*b;
+            float skin=(cb>=77.f&&cb<=127.f&&cr>=133.f&&cr<=173.f)?.3f:1.f;
+            float target=std::max(static_cast<float>(mn),std::min(static_cast<float>(mx),lum[i]+amount*gate*skin*d));
+            int delta=static_cast<int>(target-lum[i]);if(delta==0)continue;
+            px[i]=argb(static_cast<int>(r)+delta,static_cast<int>(g)+delta,static_cast<int>(b)+delta);changed++;
+        }
+        e->SetIntArrayRegion(input,0,n,px.data());return changed;
+    } catch(const std::bad_alloc&) {auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do detalhe nativo");return 0;}
+}
