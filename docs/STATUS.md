@@ -8,7 +8,8 @@
 
 ---
 
-# 0.28.2 — Cinema no estilo do iPhone (Claude; branch `claude/nova-interface`; fonte)
+# 0.28.2 — Cinema no estilo do iPhone (Claude; branch `claude/nova-interface`; APK de teste build92 entregue)
+- **[Baixar ZIP com app-release.apk — build92 (1092)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39177239844/artifacts/12154534793)**. Artefato 12154534793, 138669692 bytes; sha256:ecfd9e044a092ecba0bc3c9a9a8980dff419d47822791ccfe9e493ad9c57422c; expira 2026-11-17T23:42:30Z; sem release. Gatilho restaurado em fefba2a.
 - Referência (pesquisa): o Cinematográfico do iPhone detecta rostos e muda o foco sozinho, faz "rack focus" suave ao tocar noutro assunto e permite mudar foco/abertura depois (guarda a profundidade junto do vídeo).
 - **Rack focus:** tocar noutro assunto com a cena parada não apaga mais o desfoque para recalcular: a profundidade da cena continua válida, só o plano de foco muda, e a máscara anda até o novo assunto em ~1–2 s (`CinematicSceneGuard.selectionOnly`, `RACK_KEEP` 0,7 por quadro). Movimento da cena continua reiniciando como antes.
 - **Foco automático no rosto:** sem toque, o maior rosto detectado pelo próprio sensor (modo SIMPLE, sem CPU do app) vira o assunto; some 1 s depois do último rosto. Detecção ligada no cinematográfico mesmo com "Mostrar rostos" desligado.
