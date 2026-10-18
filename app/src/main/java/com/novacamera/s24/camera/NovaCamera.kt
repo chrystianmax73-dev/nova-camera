@@ -722,7 +722,7 @@ class NovaCamera(
                 videoBindingIssue = "${requestedFps} fps bloqueado por temperatura/economia; escolha 30 fps ou aguarde"
             val wantedFps = requestedFps.takeIf { it in fpsOptions } ?: 30 // só prévia quando bloqueado
             if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
-            else if (settings.videoAutoFps && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
+            else if (settings.videoAutoFps && !portraitProfile && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
                 ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
                     ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
             }
