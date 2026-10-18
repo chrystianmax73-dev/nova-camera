@@ -227,6 +227,7 @@ class NovaCamera(
     private val videoRecovery = com.novacamera.s24.core.VideoRecovery()
 
     private fun onPreviewStalled(cam: Camera) {
+        if (capturing && stillLease.defersRecovery(SystemClock.uptimeMillis())) return
         if (cam !== camera || cam !== watchCamera || released || paused) return
         if (mode.isVideo) {
             if ((mode==CaptureMode.VIDEO || mode==CaptureMode.VIDEO_PRO) && videoCapture==null) return
@@ -504,7 +505,6 @@ class NovaCamera(
 
     fun bind() {
         val p = provider ?: return
-        if (capturing && stillLease.defersRecovery(SystemClock.uptimeMillis())) return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
         if (!settings.cinematicVideo) commonVideoChosen=false

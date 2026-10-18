@@ -13,7 +13,7 @@
 - SR deixa de reter sete mapas de confiabilidade que não consulta: a confiabilidade continua calculada para selecionar quadros, campos subpixel e fusão não mudam. Em 4080×3060/fator2, ~83,3 MiB deixam de permanecer retidos durante SR. Isto é contagem de buffers, não PSS medido no aparelho. Outros caminhos mantêm seus mapas.
 - Sai a troca automática 2×→1,5× por memória livre instantânea. Sob pressão recolhe temporários uma vez; se não houver folga para a escala selecionada, preserva o original e informa que a versão de alta resolução não foi produzida. OOM continua protegido. Não prometer 49 MP em toda situação de recursos insuficientes.
 - Tempos individuais de detalhe, tons, pouca luz, crominância e desfoque no diagnóstico, além do total. Limite de eventos por foto128, registros8. Regressão compara pixels SR/seleção de oito quadros com/sem retenção; CI pendente. Qualidade real, latência, PSS e temperatura exigem S24.
-- 0.26.0 CI39088522688 falhou em C++ com exceções desabilitadas; corrigido apenas no novo fonte. Busca SSD e suavização SR também portadas com testes de equivalência. Nenhum ganho físico declarado.
+- 0.26.0 corrigida em3bf8835 aprovada no Actions39088782041 (compilação/testes/lint; equivalência JNI/Kotlin executada). Benchmark real do servidor e protocolo emP0_ETAPA2_VALIDACAO.md; não é ganho S24. CI39088522688 falhou em C++ com exceções desabilitadas; corrigido apenas no novo fonte. Busca SSD e suavização SR também portadas com testes de equivalência. Nenhum ganho físico declarado.
 
 ---
 
