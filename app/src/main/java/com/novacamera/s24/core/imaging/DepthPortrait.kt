@@ -78,7 +78,7 @@ object DepthPortrait {
             val v = inPerson.map { depth.data[it] }.sorted()
             far = v[(v.size * 0.05f).toInt()] - MARGIN
             near = v[min(v.size - 1, (v.size * 0.95f).toInt())] + MARGIN
-            connected = grow(depth, far, near) { i -> p!!.data[i] >= 0.5f }
+            connected = grow(depth, far, near,seed={ i -> p!!.data[i] >= 0.5f })
         } else {
             // Perto × longe; se o "perto" conectado ao centro tomar quase o quadro (chão e parede junto
             // com o objeto), separa em três faixas e fica com a do centro.
