@@ -2013,14 +2013,17 @@ class NovaCamera(
 
         fun submit() {
             if(!submitted.compareAndSet(false,true))return
-            stillLease.end();activePhotoTrace=null
+            val ownsCapture = activePhotoTrace === trace
+            if(ownsCapture) { stillLease.end();activePhotoTrace=null }
             trace.mark("rajada concluída ${frames.size}/${steps.size}");trace.publish("aquisição concluída, processamento pendente")
-            capturing = false
-            if (nightOverride != null) { nightOverride = null; applyInterop() }
-            if (srFactor > 1f && camera === cam) cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
-            releaseBurstFocus()
-            if (baseEv != appliedEv() || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
-            if (frames.isEmpty()) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada"); return }
+            if(ownsCapture) {
+                capturing = false
+                if (nightOverride != null) { nightOverride = null; applyInterop() }
+                if (srFactor > 1f && camera === cam) cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
+                releaseBurstFocus()
+                if (baseEv != appliedEv() || steps.any { it != 0 }) cam.cameraControl.setExposureCompensationIndex(baseEv)
+            }
+            if (frames.isEmpty()) { if(ownsCapture) { listener.onPhotoSaved(null); listener.onMessage("A foto não foi capturada") }; return }
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
@@ -2028,16 +2031,17 @@ class NovaCamera(
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
             frames.clear() // Job e coleta já possuem listas próprias.
-            listener.onProcessingQueued(kind)
+            if(ownsCapture) listener.onProcessingQueued(kind)
         }
 
         fun shoot(i: Int) {
-            if (i == steps.size || camera !== cam) return submit()
-            val take = {
+            if (i == steps.size || camera !== cam || activePhotoTrace !== trace) return submit()
+            val take = take@{
+                if(camera !== cam || activePhotoTrace !== trace) { submit();return@take }
                 stillLease.request(SystemClock.uptimeMillis())
                 trace.mark("solicitação quadro${i+1}")
                 ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
-                    override fun onCaptureStarted() { trace.mark("início quadro${i+1}"); if (i == 0) { shot?.started(); handler.post { listener.onCaptureStarted() } } }
+                    override fun onCaptureStarted() { trace.mark("início quadro${i+1}"); if (i == 0) { shot?.started(); handler.post { if(activePhotoTrace === trace) listener.onCaptureStarted() } } }
                     override fun onCaptureSuccess(image: ImageProxy) {
                         if (i == 0) shot?.done(image.imageInfo.timestamp)
                         var cameraImageClosed=false
@@ -2137,7 +2141,7 @@ class NovaCamera(
             } else take()
         }
         fun startBurst() {
-            if (camera !== cam) return submit()
+            if (camera !== cam || activePhotoTrace !== trace) return submit()
             val plan = nightPlan
             if (plan != null) {
                 nightOverride = plan
@@ -2148,7 +2152,8 @@ class NovaCamera(
             } else shoot(0)
         }
         val zoomOut = {
-            if (srFactor > 1f) {
+            if(camera !== cam || activePhotoTrace !== trace) submit()
+            else if (srFactor > 1f) {
                 // Lente sem recorte durante a rajada; um instante para o quadro novo chegar ao sensor.
                 // O foco já foi feito no recorte (no modo AF de disparo a lente não se move com o zoom).
                 listener.onMessage("Segure firme · super-resolução")
@@ -2183,7 +2188,7 @@ class NovaCamera(
             return then()
         }
         var done = false
-        val go = { reason:String -> if (!done) { done = true; trace.mark(reason);then() } }
+        val go = { reason:String -> if (!done) { done = true; trace.mark(reason);if(activePhotoTrace === trace)then() else trace.publish("AF interrompido pela troca de sessão") } }
         // Novo ciclo do ponto: os retornos ao automático agendados pelo toque antigo deixam de valer.
         val token = if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT) ++focusToken else focusToken
         burstFocusHeld = plan.target == com.novacamera.s24.core.FocusPolicy.Target.CENTER
@@ -2192,7 +2197,7 @@ class NovaCamera(
         }
         future.addListener({
             val result=runCatching { future.get().isFocusSuccessful }.getOrNull()
-            if (camera !== cam) return@addListener
+            if (camera !== cam || activePhotoTrace !== trace) return@addListener
             if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
                 afAtPoint = result == true
                 // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
