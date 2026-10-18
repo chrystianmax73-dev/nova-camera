@@ -21,6 +21,11 @@ import kotlin.math.roundToInt
  */
 object SuperRes {
     private const val KERNEL_LUT = 1024
+    /** Núcleo largo (áreas lisas), em fração do fator: ~0,6 px do quadro. */
+    private const val WIDE_SIGMA = 0.6f
+    /** Faixa local (em desvios do ruído) abaixo da qual é liso / acima da qual é detalhe. */
+    private const val FLAT_LO = 3f
+    private const val FLAT_HI = 5f
 
     /** Região de um quadro lida da memória: pixels ARGB, origem (x0, y0) no próprio quadro. */
     class Region(val px: IntArray, val x0: Int, val y0: Int, val w: Int, val h: Int) {
@@ -90,18 +95,34 @@ object SuperRes {
      */
     fun mergeTile(
         outW: Int, outH: Int, ox0: Int, oy0: Int, factor: Float, cropX: Float, cropY: Float,
-        frames: List<Pair<Region, Pair<Float, Float>>>, noise: Float,
+        frames: List<Pair<Region, Pair<Float, Float>>>, noise: Float, lowLight: Boolean = false,
     ): IntArray {
         val n = outW * outH
         val accR = FloatArray(n); val accG = FloatArray(n); val accB = FloatArray(n); val accW = FloatArray(n)
+        // Núcleo adaptativo (como no artigo), só em pouca luz ([lowLight]): estreito onde há detalhe,
+        // largo onde a cena é lisa (parede, céu), para somar mais amostras — no escuro o estreito deixava
+        // a área lisa ~3 dB mais ruidosa que a fusão comum. Com luz boa fica o comportamento validado em
+        // fotos reais (a estimativa de ruído da cena sobe em texturas finas e faria detalhe passar por liso).
         val sigma = 0.28f * factor
-        val inv2s2 = 1f / (2f * sigma * sigma)
+        val sigmaWide = WIDE_SIGMA * factor
         val rad = max(1, (2f * sigma + 0.5f).toInt())
+        val radWide = max(rad, (2f * sigmaWide + 0.5f).toInt())
         // Tabela do núcleo pela distância² (exp por amostra custava ~15 s numa foto de 48 MP).
-        val maxD2 = 2f * (rad + 1) * (rad + 1)
+        val maxD2 = 2f * (radWide + 1) * (radWide + 1)
         val lutScale = (KERNEL_LUT - 1) / maxD2
-        val kernel = FloatArray(KERNEL_LUT) { exp(-(it / lutScale) * inv2s2) }
+        val kernel = FloatArray(KERNEL_LUT) { exp(-(it / lutScale) / (2f * sigma * sigma)) }
+        val kernelWide = FloatArray(KERNEL_LUT) { exp(-(it / lutScale) / (2f * sigmaWide * sigmaWide)) }
         val ref = frames[0].first
+        // Lisura local (0 = detalhe, 1 = liso) pela faixa 3×3 da luminância da referência. Ruído puro dá
+        // faixa de ~3× o desvio; abaixo disso é liso, acima de ~5× é detalhe (inclusive o fino serrilhado,
+        // que a versão suavizada apagava e tratava como liso).
+        fun flatness(qx: Float, qy: Float): Float {
+            if (!lowLight || noise <= 0f) return 0f
+            val cx = (qx - ref.x0).roundToInt().coerceIn(1, ref.w - 2); val cy = (qy - ref.y0).roundToInt().coerceIn(1, ref.h - 2)
+            var lo = 1f; var hi = 0f
+            for (dy in -1..1) for (dx in -1..1) { val l = ref.luma((cy + dy) * ref.w + cx + dx); if (l < lo) lo = l; if (l > hi) hi = l }
+            return ((FLAT_HI * noise - (hi - lo)) / ((FLAT_HI - FLAT_LO) * noise)).coerceIn(0f, 1f)
+        }
         val tol = 0.04f + 3f * noise
         // Robustez pela faixa local da referência (mín./máx. 3×3 em volta da posição): o detalhe fino
         // real fica dentro dela e é aceito; algo que entrou ou saiu da cena fica fora e é rejeitado.
@@ -119,7 +140,7 @@ object SuperRes {
                 val qx = reg.x0 + i - s.first; val qy = reg.y0 + j - s.second
                 val ux = (qx - cropX + 0.5f) * factor - 0.5f - ox0
                 val uy = (qy - cropY + 0.5f) * factor - 0.5f - oy0
-                if (ux < -rad || uy < -rad || ux > outW + rad || uy > outH + rad) continue
+                if (ux < -radWide || uy < -radWide || ux > outW + radWide || uy > outH + radWide) continue
                 val c = reg.px[j * reg.w + i]
                 var robust = 1f
                 if (k > 0) {
@@ -129,13 +150,17 @@ object SuperRes {
                 }
                 val r = Px.r(c).toFloat(); val g = Px.g(c).toFloat(); val b = Px.b(c).toFloat()
                 val cx = ux.roundToInt(); val cy = uy.roundToInt()
-                for (y in max(0, cy - rad)..min(outH - 1, cy + rad)) {
+                val flat = flatness(qx, qy)
+                val rr = if (flat > 0f) radWide else rad
+                for (y in max(0, cy - rr)..min(outH - 1, cy + rr)) {
                     val dy = y - uy
-                    for (x in max(0, cx - rad)..min(outW - 1, cx + rad)) {
+                    for (x in max(0, cx - rr)..min(outW - 1, cx + rr)) {
                         val dx = x - ux
                         val d2 = dx * dx + dy * dy
                         if (d2 >= maxD2) continue
-                        val w = kernel[(d2 * lutScale).toInt()] * robust
+                        val li = (d2 * lutScale).toInt()
+                        val k = if (flat > 0f) kernel[li] + (kernelWide[li] - kernel[li]) * flat else kernel[li]
+                        val w = k * robust
                         if (w < 1e-3f) continue
                         val o = y * outW + x
                         accR[o] += w * r; accG[o] += w * g; accB[o] += w * b; accW[o] += w

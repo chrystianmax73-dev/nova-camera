@@ -367,13 +367,13 @@ object Engine {
      * resolução). Devolve a foto e quantos quadros entraram.
      */
     fun superRes(frames: List<FrameSource>, a: Alignment?, cropFactor: Float, outScale: Float, rotationDegrees: Int, mirror: Boolean,
-                 cancel: CancelToken, progress: (Float) -> Unit): Pair<Bitmap, Int> {
+                 cancel: CancelToken, lowLight: Boolean = false, progress: (Float) -> Unit): Pair<Bitmap, Int> {
         val ow = (frames[0].width * outScale).roundToInt(); val oh = (frames[0].height * outScale).roundToInt()
         val r = ((rotationDegrees % 360) + 360) % 360
         val turned = r == 90 || r == 270
         val dw = if (turned) oh else ow; val dh = if (turned) ow else oh
         val out = Bitmap.createBitmap(dw, dh, Bitmap.Config.ARGB_8888)
-        val n = superResTiles(frames, a, cropFactor, outScale, cancel, progress) { px, x0, y0, tw, th ->
+        val n = superResTiles(frames, a, cropFactor, outScale, cancel, progress, lowLight) { px, x0, y0, tw, th ->
             // Bloco (x0, y0, tw, th) da saída sem giro → mesmo bloco girado/espelhado na foto final.
             val rw = if (turned) th else tw; val rh = if (turned) tw else th
             val dst = IntArray(px.size)
@@ -397,7 +397,7 @@ object Engine {
     }
 
     private fun superResTiles(frames: List<FrameSource>, a: Alignment?, cropFactor: Float, outScale: Float, cancel: CancelToken,
-                              progress: (Float) -> Unit, sink: (IntArray, Int, Int, Int, Int) -> Unit): Int {
+                              progress: (Float) -> Unit, lowLight: Boolean = false, sink: (IntArray, Int, Int, Int, Int) -> Unit): Int {
         val w = frames[0].width; val h = frames[0].height
         val factor = cropFactor * outScale
         val ow = (w * outScale).roundToInt(); val oh = (h * outScale).roundToInt()
@@ -428,7 +428,7 @@ object Engine {
                 val mov = com.novacamera.s24.core.imaging.SuperRes.Region(movPx, rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m)
                 list += mov to com.novacamera.s24.core.imaging.SuperRes.estimateShift(ref, mov, gx, gy)
             }
-            sink(com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise), ox0, oy0, otw, oth)
+            sink(com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise, lowLight), ox0, oy0, otw, oth)
             done++; progress(done.toFloat() / total)
         }
         return used.size

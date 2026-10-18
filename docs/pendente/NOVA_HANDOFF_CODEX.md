@@ -1,7 +1,7 @@
 # Handoff — Nova Camera (continuidade)
 
 - **Repositório:** https://github.com/chrystianmax73-dev/nova-camera (público, GPL-3.0-or-later)
-- **Branch:** `ccr-7443eaac-tqygyg` (PR #1, rascunho). Último commit: ver `git log -1` (versão 0.20.0).
+- **Branch:** `ccr-7443eaac-tqygyg` (PR #1, rascunho). Último commit: ver `git log -1` (versão 0.21.0).
 - **Aparelho-alvo:** Galaxy S24 Ultra (SM-S928B). App 100% offline (sem permissão INTERNET).
 - **Distribuição:** GitHub Actions → Releases `nova-test-N` (workflow `nova-release.yml`), APK assinado
   com a keystore permanente dos GitHub Secrets `NOVA_KEYSTORE_*`.
@@ -58,6 +58,20 @@ Arquivos: `core/FocusPolicy.kt` (novo), `camera/NovaCamera.kt`, `camera/CameraTy
 **Não validado no aparelho:** tempo real do AF na tele, comportamento do AF do HAL Samsung durante
 `setZoomRatio` da SR (assumido: em AF_MODE_AUTO travado a lente não se move).
 
+## Concluído na 0.21.0
+
+Arquivos: `core/SuperResPolicy.kt` (novo), `core/imaging/SuperRes.kt` (núcleo adaptativo,
+parâmetro `lowLight`), `processing/Engine.kt` (repassa `lowLight`), `processing/ProcessingQueue.kt`
+(`SR_LOW_LIGHT_ISO` = 1600; nota do Noturno preservada), `camera/NovaCamera.kt` (decisão via
+`SuperResPolicy`; no Noturno a rajada mantém o plano e o `kind` NIGHT), testes `SuperResPolicyTest` e
+dois casos novos em `SuperResTest`.
+
+- Noturno usa SR no zoom digital da tele **só na mão** (`!plan.steady`), com plano próprio e ≥ 3
+  quadros. (A proposta antiga "só apoiado" estava errada: a SR depende do tremor entre quadros.)
+- O núcleo largo só liga com `lowLight` (Noturno ou ISO ≥ 1600). Motivo: a estimativa de ruído da
+  cena (`Consistency.noiseOf`) sobe em texturas finas; ligado sempre, o teste de motor perdia todo o
+  ganho (21,1 → 19,0 dB) porque detalhe passava por liso.
+
 ## Pendências (em ordem)
 
 1. **Validar no aparelho (dono):** tocar num objeto a 5×/10×, esperar > 4 s, disparar → deve focar
@@ -65,9 +79,12 @@ Arquivos: `core/FocusPolicy.kt` (novo), `camera/NovaCamera.kt`, `camera/CameraTy
    Se o foco falhar na SR, conferir em Ajustes › Diagnóstico a linha `foco … D, AF …` (telemetria).
 2. **Video Pro fecha o app:** aguardando o relatório do CrashLog (Ajustes › Diagnóstico) do dono.
    Não "consertar" no escuro.
-3. **Noturno com super-resolução no 10×:** hoje a SR só roda em Foto/HDR/Zoom (`srFactor` exclui
-   NIGHT). Proposta: permitir SR no Noturno só com `NightExposure.steady` e quadros ≤ 1/15 s; tomar
-   cuidado com memória (8 quadros longos) e com `ThermalPolicy`. Exige teste com fotos reais.
+3. **Noturno com SR (0.21.0) no aparelho:** foto noturna a 10× na mão; comparar com a mesma cena com
+   Ajustes › Super-resolução desligada. Ver a nota da foto ("Noturno: … · Super-resolução: n de N").
+   Se sair mais granulada ou com borrão, ajustar `FLAT_LO/FLAT_HI/WIDE_SIGMA` em `SuperRes.kt` ou
+   desligar o caso NIGHT em `SuperResPolicy` — não mexer no tom do Noturno.
+   Melhoria possível depois: estimar o ruído por bloco (diferença temporal entre quadros alinhados)
+   para não depender do ISO no `lowLight`.
 4. **Cor amarela puxando para âmbar** na comparação com a Samsung (mangueira 10×: tom 43° × 51°).
    Antes de mexer, confirmar com o dono se Tom/Temperatura estavam em 0.
 5. Item "céu/pele separados" não iniciado. Calibração de tom pede 4 pares Nova × Samsung da mesma cena.

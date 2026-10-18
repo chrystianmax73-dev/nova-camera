@@ -1639,10 +1639,20 @@ class NovaCamera(
         // Super-resolução: zoom digital sobre uma tele física (ex.: 10× na lente 5×). A rajada é feita na
         // lente sem recorte e a foto final é montada com as amostras de todos os quadros.
         val lensNow = currentLens
-        val srFactor = if (settings.superRes && !isFront && activeExtension == ExtensionMode.NONE &&
-            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM) &&
-            lensNow?.physicalCameraId != null && lensNow.intrinsic >= 2.5f && zoomOnLens >= SR_MIN_DIGITAL) zoomOnLens else 1f
-        if (srFactor > 1f) {
+        // No Noturno também (só na mão, com plano de exposição próprio): os quadros mantêm o tempo e a
+        // quantidade do plano, e o tom do Noturno é aplicado depois, como sempre.
+        val srFactor = com.novacamera.s24.core.SuperResPolicy.factor(
+            enabled = settings.superRes, front = isFront, vendorExtension = activeExtension != ExtensionMode.NONE,
+            kind = when (kind) {
+                JobKind.PHOTO, JobKind.HDR, JobKind.ZOOM -> com.novacamera.s24.core.SuperResPolicy.Kind.PHOTO
+                JobKind.NIGHT -> com.novacamera.s24.core.SuperResPolicy.Kind.NIGHT
+                else -> com.novacamera.s24.core.SuperResPolicy.Kind.OTHER
+            },
+            physicalTele = lensNow?.physicalCameraId != null, lensIntrinsic = lensNow?.intrinsic ?: 1f, zoomOnLens = zoomOnLens,
+            nightFrames = steps.size, nightSteady = nightPlan?.steady == true, nightManualPlan = nightPlan != null)
+        if (srFactor > 1f && kind == JobKind.NIGHT) {
+            captureNote = (captureNote?.let { "$it · " } ?: "") + "super-resolução na lente sem recorte"
+        } else if (srFactor > 1f) {
             kind = JobKind.ZOOM
             steps = List(SR_FRAMES) { 0 }
             captureNote = "Super-resolução: $SR_FRAMES quadros na lente sem recorte"
@@ -2191,7 +2201,6 @@ class NovaCamera(
         /** Rajada RAW de testes no Pro (super-resolução precisa de vários quadros com leve deslocamento). */
         private const val RAW_BURST_FRAMES = 6
         /** Super-resolução: a partir de 1,4× de zoom digital sobre a tele; 8 quadros; espera após trocar o zoom. */
-        private const val SR_MIN_DIGITAL = 1.4f
         private const val SR_FRAMES = 8
         private const val SR_SETTLE_MS = 150L
         /** Alta resolução na tele: a partir do 2,5× equivalente (lentes 3× e 5×). */

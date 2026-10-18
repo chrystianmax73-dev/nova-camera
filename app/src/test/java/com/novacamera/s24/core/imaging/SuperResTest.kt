@@ -83,6 +83,47 @@ class SuperResTest {
         assertTrue(pSr > pOne + 1.0)
     }
 
+    /**
+     * Noturno no 10×: 5 quadros escuros e ruidosos. A alternativa sem SR é a fusão comum de quadros já
+     * ampliados (média dos quadros alinhados, cada um interpolado). A SR não pode sair pior que ela.
+     */
+    @Test fun noturnoRuidosoNaoFicaPiorQueAFusaoComum() {
+        for (noise in listOf(0.05f, 0.08f)) {
+            val rnd = Random(21)
+            val shifts = listOf(0f to 0f) + List(4) { rnd.nextFloat() * 2f to rnd.nextFloat() * 2f }
+            val frames = shifts.map { (sx, sy) -> frame(sx, sy, rnd, noise) }
+            val list = frames.mapIndexed { k, f -> f to (-shifts[k].first / 2f to -shifts[k].second / 2f) }
+            val sr = SuperRes.mergeTile(big, big, 0, 0, 2f, 0f, 0f, list, noise, lowLight = true)
+            val fused = IntArray(big * big) { i ->
+                var s = 0f
+                for ((f, d) in list) s += Px.r(SuperRes.bilinear(f, (i % big + 0.5f) / 2f - 0.5f + d.first, (i / big + 0.5f) / 2f - 0.5f + d.second))
+                val v = (s / list.size + 0.5f).toInt(); Px.argb(v, v, v)
+            }
+            val pSr = psnr(sr, big, 8); val pFused = psnr(fused, big, 8)
+            println("PSNR noturno (ruído $noise) super-resolução=%.2f dB, fusão comum ampliada=%.2f dB".format(pSr, pFused))
+            assertTrue("SR pior que a fusão comum no escuro: $pSr vs $pFused", pSr > pFused - 0.3)
+        }
+    }
+
+    /** Área lisa no escuro (parede, céu): a SR não pode deixar mais granulado que a fusão comum. */
+    @Test fun noturnoAreaLisaSemMaisGranulado() {
+        fineAmp = 0f
+        val noise = 0.08f
+        val rnd = Random(5)
+        val shifts = listOf(0f to 0f) + List(4) { rnd.nextFloat() * 2f to rnd.nextFloat() * 2f }
+        val frames = shifts.map { (sx, sy) -> frame(sx, sy, rnd, noise) }
+        val list = frames.mapIndexed { k, f -> f to (-shifts[k].first / 2f to -shifts[k].second / 2f) }
+        val sr = SuperRes.mergeTile(big, big, 0, 0, 2f, 0f, 0f, list, noise, lowLight = true)
+        val fused = IntArray(big * big) { i ->
+            var s = 0f
+            for ((f, d) in list) s += Px.r(SuperRes.bilinear(f, (i % big + 0.5f) / 2f - 0.5f + d.first, (i / big + 0.5f) / 2f - 0.5f + d.second))
+            val v = (s / list.size + 0.5f).toInt(); Px.argb(v, v, v)
+        }
+        val pSr = psnr(sr, big, 8); val pFused = psnr(fused, big, 8)
+        println("PSNR noturno área lisa super-resolução=%.2f dB, fusão comum ampliada=%.2f dB".format(pSr, pFused))
+        assertTrue("SR mais granulada que a fusão comum: $pSr vs $pFused", pSr > pFused - 1.0)
+    }
+
     @Test fun objetoQueSeMexeuNaoViraFantasma() {
         val rnd = Random(3)
         val f0 = frame(0f, 0f, rnd, 0f)

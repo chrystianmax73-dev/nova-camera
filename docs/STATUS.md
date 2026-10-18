@@ -6,6 +6,22 @@ Legenda da coluna **Validação**:
 - **Aparelho**: só pode ser confirmado no S24 Ultra / S25 Ultra. **Nada nesta versão foi testado em aparelho.**
 
 
+## 0.21.0 — Noturno com super-resolução no 10× e SR sem granulado no escuro
+
+- **Noturno no zoom digital da tele** (ex.: 10× na lente 5×), segurando na mão: a rajada do Noturno
+  (mesmo tempo e quantidade de quadros do plano pelo giroscópio) é feita na lente sem recorte e
+  montada por super-resolução; o tom do Noturno é aplicado depois, como sempre. Apoiado (giroscópio
+  parado), sem plano próprio ou com < 3 quadros: fusão comum, como antes. Regras em
+  `core/SuperResPolicy.kt` (testes `SuperResPolicyTest`).
+- **Núcleo adaptativo na SR em pouca luz** (Noturno ou ISO ≥ 1600): estreito no detalhe, largo nas
+  áreas lisas. Medido (cena sintética, 5 quadros): sem ele a área lisa saía ~3 dB **mais** granulada
+  que a fusão comum; com ele, +2 dB **menos**. Detalhe fino: +0,5 dB (ruído moderado) a −0,1 dB (muito
+  escuro) em relação à fusão comum ampliada. Com luz boa nada muda (mesmo resultado da 0.20, validado
+  em fotos reais).
+
+Validação: **Testes** (`SuperResTest`, `SuperResAndroidTest`); **Aparelho** pendente — nenhuma foto
+noturna real com SR ainda.
+
 ## 0.20.0 — Foco por toque confiável na tele e nas rajadas
 
 O toque já focava e media no ponto (anel, confirmação por cor, toque longo = AE/AF bloqueado), mas

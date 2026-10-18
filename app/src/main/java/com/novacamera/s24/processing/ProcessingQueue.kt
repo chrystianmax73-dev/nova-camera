@@ -168,6 +168,8 @@ object ProcessingQueue {
     private const val TAG = "NovaProcessing"
     const val KEEP_SESSIONS = 4
     const val MAX_PENDING = 3
+    /** ISO a partir do qual a super-resolução trata a foto como pouca luz (núcleo largo no liso). */
+    const val SR_LOW_LIGHT_ISO = 1600
 
     private val executor = Executors.newSingleThreadExecutor { r ->
         Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "nova-processing")
@@ -294,7 +296,9 @@ object ProcessingQueue {
                     } else null
                     // Alta resolução só com memória folgada (a foto de 48 MP ocupa ~190 MB); senão 1,5× ou normal.
                     val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
-                    val (out, n) = Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
+                    // Pouca luz (Noturno ou ISO alto): núcleo largo nas áreas lisas, para não deixar granulado.
+                    val lowLight = job.kind == JobKind.NIGHT || (job.imagingFacts.iso ?: 0) >= SR_LOW_LIGHT_ISO
+                    val (out, n) = Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel, lowLight) {
                         progress(0.2f + 0.45f * it, "Super-resolução")
                     }
                     base = out
@@ -306,6 +310,8 @@ object ProcessingQueue {
                         job.srFactor > 1.05f -> "Super-resolução: $n de ${frames.size} quadros (zoom digital de ${z}× sobre a lente)"
                         else -> "Alta resolução: $n de ${frames.size} quadros, $mp MP"
                     } + if (scale < job.outScale - 0.01f) " · memória curta: resolução reduzida" else ""
+                    // Noturno: mantém a descrição da exposição (tempo e quadros) antes da SR.
+                    if (job.kind == JobKind.NIGHT) job.captureNote?.substringBefore(" · super-resolução")?.let { note = "$it · $note" }
                 } finally { sources.forEach { it.close() } }
             } else if (frames.size > 1 && (job.kind.merges || job.kind == JobKind.HDR)) {
                 orig.recycle()
