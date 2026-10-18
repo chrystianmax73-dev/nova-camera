@@ -36,3 +36,17 @@ Congelamentos atuais fora da rajada persistem inclusive sem efeito/análise. Err
 3. Medir microbenchmark pareado noCI e registrar limites. Sem prometer redução física, detalhe novo ou autonomia. Preservar oito quadros, resolução, cor/tom e demais recursos; nova fotoS24 necessária.
 
 Próximas etapas dependem da evidência: alinhar/fundir mais eficientemente, melhorar rejeição versus ruído sem fantasmas, investigar foco real e congelamentos. Não ampliar ruído ou clarearNoturno por tentativa. Comparar originais e versão anterior em cena/lente/foco/exposição/temperatura equivalentes,5repetições, com PhotoTrace e inspeção de recortes nativos. Não usar JPEG redimensionado para alegar detalhe49MP.
+
+
+## Execução intermediária e decisão pendente
+
+O CI39125696313 (fonte07ccf74) passou em compilação, testes e lint. O primeiro microbenchmark tonal NÃO mostrou ganho: três repetições no servidor, Kotlin237,256ms / JNI257,343ms. Isso não mede S24 e não justifica chamar a primeira implementação de mais rápida. Foram acrescentados reuso da geometria horizontal/bilinear, faixa64linhas e benchmark com aquecimento e cinco pares AB/BA, incluindo as cópiasJNI. A fontecc13e31 ainda precisa ser conferida. Se não houver benefício consistente, manter Kotlin ativo; não entregar caminho mais caro como otimização. Fórmulas e tolerância de igualdade dos testes não foram reduzidas.
+
+
+## Estratégia nativa descartada antes do APK
+
+A fontecc13e31 passou noCI39126084412. Cinco paresAB/BA com aquecimento: Kotlin[133,877;151,534;185,457;133,562;133,348]ms, JNI[162,440;110,115;203,691;187,889;94,701]ms; medianas133,877/162,440ms. Não houve vantagem consistente: port tonalJNI removido integralmente em96848c1; photo_kernels.cpp e PhotoKernels.kt restaurados ao conteúdo anterior da0.26.3. Os kernels nativos já existentes para alinhamento/SR/detalhes permanecem, sem alteração.
+
+A nova hipótese é apenasKotlin: reutilizar índices/pesos bilineares horizontais e verticais, mantendo as operações/arredondamentos, e uma faixa64linhas reutilizável no Engine (Food mantém o caminho antigo). A faixa recebe coordenadas globais iguais; último trecho e cancelamento são testados. Referência anterior preservada para comparação exata e benchmark. Não há novo JNI, modelo, thread, filtro, LUT aproximada, nitidez ou ajuste de cor.
+
+Na saída8160×6120, o buffer tonal passa de até800alocações256×256 (mais bordas) para um buffer8160×64 e um último trecho. Isto é contagem derivada do código, NÃO medição de alocações/PSS noS24. O custo dos pequenos vetores de coordenadas é adicional e entra no benchmark. Só os resultados doCI da fonte96848c1 ou posterior podem validar essa alternativa. Não tratar os testes da versão nativa descartada como validação dela.

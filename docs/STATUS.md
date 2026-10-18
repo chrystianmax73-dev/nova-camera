@@ -3,7 +3,8 @@
 - Base cf6f617/CI39123476501 aprovada antes das mudanças. Baseline físico e análise individual das três fotos em [QUALIDADE_0263_BASELINE.md](pendente/QUALIDADE_0263_BASELINE.md); fotos pessoais1280×960 semEXIF preservadas foraGit.
 - Diagnóstico do dono: 49MP com8/8 em39,89–41,52s; Noturno5/5 em15,27s. CompatibilidadeJPEG18,6mm com5x, ID não confirmado. Nada disso prova ganho controlado de qualidade/autonomia.
 - ISO/exposição do JPEG passam a aparecer por quadro com origem explícita e dadosCamera2 separados. Acabamento usa metadados da referência escolhida, sem herdar ISO da primeira imagem quando ela muda. Compatibilidade não vira confirmação óptica.
-- Próxima alteração limitada: acelerar cálculo tonal preservando pixels e parâmetros; testes e APK ainda pendentes. Nenhum ganho físico ou correção geral de prévia declarado.
+- Port tonalJNI experimental foi testado e descartado antes do APK: CI39126084412 passou, mas cinco pares não mostraram vantagem (medianas Kotlin133,877ms/JNI162,440ms). Biblioteca nativa voltou ao conteúdo anterior; kernelsSR/alinhamento/detalhes existentes preservados.
+- Fonte96848c1 testa reutilização de coordenadas bilineares emKotlin e faixa64linhas reutilizável, com comparação exata contra fórmula anterior. Cronometra plano tonal/perfil/estilo. CI dessa alternativa e APK ainda pendentes; não declarar ganho físico nem correção geral de prévia.
 
 ---
 
