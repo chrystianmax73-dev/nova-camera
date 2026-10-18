@@ -1,3 +1,13 @@
+# 0.24.7 — recursos da análise e prioridade energética (17/10/2026)
+
+- Base8bbb343d63d7c91681e647d5568b8e3536f8f79f conferida; baseline Actions39075324814 aprovado antes de editar. Novo pedido autoriza Vídeo comum sem cinema e gravação cinematográfica no Retrato, gestos/zoom/tracking, bateria primeiro. Próxima etapa0.25.0 fará essa separação; ainda não concluída nesta entrada.
+- ImageProxy é copiado e fechado antes de segmentação/carga/inferência, com reciclagem de bitmaps mesmo em erro. Antes mantinha buffer da câmera durante todo o trabalho pesado. MPImages de entrada/saída fechadas explicitamente; entrada recebe Bitmap próprio porque MPImage.close recicla seu Bitmap. Foto do chamador preservada; algoritmos/pesos iguais.
+- Orçamento de profundidade usa tempo real gasto, incluindo carga: pausa de3× o custo após terminar (ocupação alvo máxima25% quando esse limite domina), sem alterar resolução/FPS ou aceitar máscara velha. Não prova redução de temperatura/autonomia; precisa A/B no S24. Térmica visível entre threads.
+- Pesquisa pública antes das mudanças: AndroidX ImageAnalysis.java (KEEP_ONLY_LATEST, fechamento de ImageProxy), MediaPipe MPImage.java/BitmapImageContainer.java (posse e reciclagem de Bitmap). Nenhum código proprietário copiado. Testes novos cobrem ordem copy→close→inferência, exceções, duty budget e posse real de Bitmap/MPImage. CI pendente.
+- Feedback0.24.6: MP4 pessoal recebido e analisado localmente, não enviado ao Git;1080×1920/AVC,16.98s,508quadros,29.92fps pelos PTS, marca horizontal presente. Diagnóstico separado registrou29.32fps e máscara indisponível mesmo em estado térmico0; sem correlação segura entre os arquivos. Consumo do aparelho chegou a14.3W em2 amostras, sem atribuição por acelerador/A/B. Tracking27 análises,cópia6.6ms média,perda/ambiguidade. Não declarar cinema estável ou economia comprovada.
+
+---
+
 # 0.24.6 — marca orientada no compositor e passes de desfoque sob demanda (17/10/2026)
 
 - **APK de teste disponível: 0.24.6, build66 (1066).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550/artifacts/12116148402), até16/11/2026. [Build39074742550 aprovado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39074742550): **244 aprovados, 5 dispensados, 0 falhas**, lint, JPEG200MP, modelos offline, assembleRelease e certificado/versionCode/upload verificados. Publicação skipped; nenhum release criado.

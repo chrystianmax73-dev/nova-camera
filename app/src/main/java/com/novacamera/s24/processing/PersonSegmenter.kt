@@ -60,13 +60,18 @@ object PersonSegmenter {
         override fun close() = segmenter.close()
     }
 
-    private fun run(segmenter: ImageSegmenter, photo: Bitmap, input: Int): Result {
-        val scale = input.toFloat() / max(photo.width, photo.height)
-        val small = if (scale < 1f)
-            Bitmap.createScaledBitmap(photo, max(1, (photo.width * scale).toInt()), max(1, (photo.height * scale).toInt()), true)
-        else photo
+    /** MPImage toma posse do Bitmap: fechar uma imagem emprestada reciclaria o quadro do chamador. */
+    internal fun <T> withOwnedInput(photo:Bitmap,input:Int,block:(com.google.mediapipe.framework.image.MPImage)->T):T {
+        val scale=input.toFloat()/max(photo.width,photo.height)
+        val scaled=if(scale<1f) Bitmap.createScaledBitmap(photo,max(1,(photo.width*scale).toInt()),max(1,(photo.height*scale).toInt()),true) else photo
+        val owned=if(scaled===photo) photo.copy(Bitmap.Config.ARGB_8888,false) else scaled
+        val image=try { BitmapImageBuilder(owned).build() } catch(e:Throwable) { owned.recycle();throw e }
+        try { return block(image) } finally { image.close() }
+    }
+
+    private fun run(segmenter: ImageSegmenter, photo: Bitmap, input: Int): Result = withOwnedInput(photo,input) { image ->
+        val masks = segmenter.segment(image).confidenceMasks().get()
         try {
-            val masks = segmenter.segment(BitmapImageBuilder(small).build()).confidenceMasks().get()
             fun plane(i: Int): Plane {
                 val img = masks[i]
                 val buf = ByteBufferExtractor.extract(img).order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -80,9 +85,7 @@ object PersonSegmenter {
             val hair = plane(HAIR)
             val face = plane(FACE_SKIN)
             val n = person.data.size.toFloat()
-            return Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
-        } finally {
-            if (small !== photo) small.recycle()
-        }
+            Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
+        } finally { masks.forEach { it.close() } }
     }
 }

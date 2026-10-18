@@ -137,7 +137,7 @@ class NovaCamera(
     @Volatile private var referenceMeasured = false
     private var caps: CameraCapabilities? = null
     private var activeExtension = ExtensionMode.NONE
-    private var heat: DeviceHeat? = null
+    @Volatile private var heat: DeviceHeat? = null
     private var targetRotation = Surface.ROTATION_0
     private var oemFacts = mapOf<Boolean, Triple<Boolean, Boolean, Boolean>>() // isFront → (bokeh, night, hdr)
 

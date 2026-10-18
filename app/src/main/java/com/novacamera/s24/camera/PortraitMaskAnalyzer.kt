@@ -44,6 +44,7 @@ class PortraitMaskAnalyzer(
     private var depthFailed = false
     private var lastSeg = 0L
     private var lastDepth = 0L
+    private val depthBudget=com.novacamera.s24.core.DepthDutyBudget()
     private val sceneGuard=com.novacamera.s24.core.CinematicSceneGuard()
     private var depthN: Plane? = null
     private var prevSubject: FloatArray? = null
@@ -54,6 +55,8 @@ class PortraitMaskAnalyzer(
     private var lastState: String? = "init"
 
     override fun analyze(image: ImageProxy) {
+        var cameraClosed=false
+        var ownedFull:Bitmap?=null;var ownedSmall:Bitmap?=null;var ownedUpright:Bitmap?=null
         try {
             if (closed) return
             if(cinematic && com.novacamera.s24.processing.VideoFinishJob.state.running) {
@@ -74,18 +77,21 @@ class PortraitMaskAnalyzer(
             if (now - lastSeg < if (status >= ThermalPolicy.MODERATE || still) 300 else 100) return
             lastSeg = now
 
-            val full = image.toBitmap()
             val rot = image.imageInfo.rotationDegrees
+            val selectedTap=tapInImage(image,rot)
+            cameraClosed=true
+            val full = com.novacamera.s24.core.FrameSnapshot.readAndClose(image) { image.toBitmap() }.also { ownedFull=it }
             // Reduz antes de girar: o modelo de pessoa vê 256 px e a máscara final tem 128 px.
             val s = 256f / max(full.width, full.height)
-            val small = Bitmap.createScaledBitmap(full, max(1, (full.width * s).roundToInt()), max(1, (full.height * s).roundToInt()), true)
+            val small = Bitmap.createScaledBitmap(full, max(1, (full.width * s).roundToInt()), max(1, (full.height * s).roundToInt()), true).also { ownedSmall=it }
             if (small !== full) full.recycle()
             if (effect.needsCalibration) effect.offerCalibration(lumaGrid(small))
             val upright = if (rot % 360 == 0) small else
                 Bitmap.createBitmap(small, 0, 0, small.width, small.height, Matrix().apply { postRotate(rot.toFloat()) }, true)
+            ownedUpright=upright
 
             if (cinematic) {
-                if(sceneGuard.moved(lumaGrid(upright),tapInImage(image,rot))) {
+                if(sceneGuard.moved(lumaGrid(upright),selectedTap)) {
                     depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
                 }
             }
@@ -98,17 +104,19 @@ class PortraitMaskAnalyzer(
                 still -> 2500L
                 else -> 900L
             }
-            if (!depthFailed && now - lastDepth >= depthEvery && ProcessingQueue.pending == 0) {
+            if (!depthFailed && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
+                val started=SystemClock.uptimeMillis()
                 val session = depth ?: DepthEstimator.Session.open(app).also { if (it == null) depthFailed = true; depth = it }
-                session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) }
+                try { session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) } }
+                finally { depthBudget.completed(started,SystemClock.uptimeMillis()) }
             }
             if (upright !== small) upright.recycle()
             small.recycle()
 
             val d = depthN?.takeIf { it.w == mw && it.h == mh }
             val (subject, amount) = when {
-                d != null -> DepthPortrait.plan(d, person, if(cinematic) tapInImage(image,rot) else null).let { it.subject to it.blur }
+                d != null -> DepthPortrait.plan(d, person, selectedTap).let { it.subject to it.blur }
                 person != null -> Planes.resize(person, mw, mh).let { p -> p to Plane(mw, mh, FloatArray(mw * mh) { 1f }) }
                 else -> { effect.clearMask(); state("Retrato: aproxime-se de uma pessoa ou objeto"); return }
             }
@@ -137,7 +145,9 @@ class PortraitMaskAnalyzer(
         } catch (e: Throwable) {
             Log.w(TAG, "máscara da prévia falhou", e)
         } finally {
-            image.close()
+            // Aliases (sem giro/escala) são possíveis; isRecycled impede liberação duplicada.
+            listOf(ownedUpright,ownedSmall,ownedFull).forEach { if(it!=null && !it.isRecycled)it.recycle() }
+            if(!cameraClosed) image.close()
         }
     }
 
