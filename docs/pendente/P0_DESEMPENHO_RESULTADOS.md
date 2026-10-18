@@ -33,6 +33,13 @@ Comparar APK67 e nova revisão nas condições de P0_DESEMPENHO_BASELINE.md, rep
 
 Próxima otimização da aquisição depende dessa separação: CameraX não oferece aqui um takePictureBurst público equivalente a Camera2.captureBurst. Não substituir o motor por uma sessão Camera2 paralela, não enfileirar oito JPEGs às cegas nem reduzir quadros/48MP. Investigar gargalo real por pedido, 3A, entrega, fila ou decode antes de escolher pipelining. Se for necessário perfil rápido, implementar escolha explícita junto ao perfil máximo, com prova objetiva de qualidade. A análise ao vivo ainda executa pessoa e depth sequencialmente: se o total excede650ms no cinema, descarta a composição atrasada mesmo quando a segmentação foi rápida. Isso é verificável no código, mas937ms do diagnóstico fotográfico não mede o caminho da prévia. Usar os novos tempos para decidir se cabe separar resultados de pessoa/depth com fila e validade próprias; não liberar máscaras antigas nem aumentar inferência para esconder atraso. CPU/GPU delegates da segmentação e depth devem ser comparados em APK diagnóstico controlado no S24, incluindo carga, steady-state, cópias, qualidade e térmica; nenhum backend trocado nesta entrega.
 
+## Pendências específicas para a próxima etapa
+
+- A linha de base de tempo/energia física ainda não existe. A instrumentação também tem custo, não quantificado no S24; comparar0.25.0 e esta revisão não isola cada otimização. Fazer pares por componente e separar primeira carga/steady state antes de atribuir ganhos.
+- Política térmica fotográfica herdada: ProcessingQueue pode limitar a fusão a1quadro em calor severo, depois de a aquisição já ter planejado8. Avaliar uma escolha explícita antes da rajada (“aguardar para máxima qualidade”/“captura no perfil normal”) para evitar adquirir e descartar quadros, preservando perfil máximo e original. Não foi criada nova redução automática nesta etapa.
+- O SceneGuard de movimento do cache depthN ainda é específico do cinema. No Retrato fotográfico, validar adicionalmente movimento/seleção/idade do mapa; a foto final usa nova inferência completa. Esta revisão limpa cache ao priorizar captura e troca de entrada, mas não prova validade de todo cache ao movimentar a prévia.
+- Render contagens são callbacks entregues pelo compositor; instrumentar timestamps únicos de SurfaceTexture se aparecer discrepância com CaptureResult. Nem contagemGL nem CaptureResult substitui leituraPTS doMP4. Latências do driver/GPU, apresentação física e alocações internas continuam sem medição.
+
 ## Fontes públicas consultadas
 
 - [Android BatteryManager](https://github.com/aosp-mirror/platform_frameworks_base/blob/master/core/java/android/os/BatteryManager.java): CURRENT_NOW em microampères; sinal de carga/descarga, sentinelas em getLongProperty.
@@ -40,3 +47,7 @@ Próxima otimização da aquisição depende dessa separação: CameraX não ofe
 - [Khronos ES2 glTexSubImage2D](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es2.0/glTexSubImage2D.xml): atualiza texels de armazenamento existente, dimensões dentro da alocação.
 - [Khronos ES2 glGetUniformLocation](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es2.0/glGetUniformLocation.xml): localização válida após link e até relink; caches por programa/contexto, nenhum relink por quadro.
 - Pesquisa MediaPipe/posse anterior em [PESQUISA_RETRATO_ENERGIA.md](PESQUISA_RETRATO_ENERGIA.md). Pesos/dependências, câmera comum, HDR/Noturno/SR e assinaturaAndroid preservados.
+
+## Execução real e entrega desta etapa
+
+App3634fe000a70eb63127b5b6fba50dd39eb1805bf aprovado noCI39085985023; etapas anteriores39085319391/39085617083 aprovadas. APK0.25.3/build68(1068) gerado no39086391072, fonte11294a4d579e33f39066d75356f4ddebe295fb0b,267aprovados/5dispensados/0falhas, lint/JPEG200MP/modelos/assembleRelease/pesos-profundidadeTrue/certificado-versionCode/upload aprovados; publicação skipped. [ZIP assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39086391072/artifacts/12120593095). Esses são testes reais de código/build, sem benchmark físico de consumo/latência/qualidadeS24. Handoff/STATUS registram digest, expiração e continuidade.
