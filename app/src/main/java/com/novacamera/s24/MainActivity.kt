@@ -925,13 +925,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             return false
         }
         if(camera.mode==CaptureMode.RETRATO && settings.cinematicVideo && !settings.portraitVideoProfileAccepted) {
-            android.app.AlertDialog.Builder(this).setTitle("Vídeo cinematográfico do Retrato")
-                .setMessage("Usar Full HD/30 fps, sem EIS, neste modo? O Vídeo normal manterá ${settings.videoQuality.label}/${settings.videoFps} fps e sua estabilização. O efeito exige máscara atual e é experimental nas duas câmeras.")
-                .setNegativeButton("Continuar fotografando",null)
-                .setPositiveButton("Usar esse perfil") { _,_ ->
-                    settings.portraitVideoProfileAccepted=true
-                    hint.show("Perfil do Retrato confirmado. Segure ou arraste à direita novamente para gravar",4500)
-                }.show()
+            com.novacamera.s24.ui.PortraitVideoProfileDialog.show(this,"${settings.videoQuality.label}/${settings.videoFps} fps") {
+                settings.portraitVideoProfileAccepted=true
+                hint.show("Perfil do Retrato confirmado. Segure ou arraste à direita novamente para gravar",4500)
+            }
             return false
         }
         if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {

@@ -68,6 +68,7 @@ class PortraitPreviewEffect private constructor(
     fun clearMask() = processor.postMask(null, 0, 0)
 
     val maskReady get() = processor.maskReady
+    val signatureDrawings get() = processor.signatureDrawings
     fun release() = processor.release()
     fun releaseThen(done: () -> Unit) = processor.release(done)
 
@@ -96,6 +97,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
     private val handler = Handler(thread.looper)
     val executor = Executor { r -> handler.post(r) }
 
+    @Volatile var signatureDrawings=0;private set
     @Volatile var watermark: com.novacamera.s24.processing.SignatureStyle? = null
     @Volatile var expireMasks = false
     @Volatile private var maskAt = 0L
@@ -299,6 +301,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                     o.logo=IntArray(1).also { GLES20.glGenTextures(1,it,0) }[0]
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,o.logo); texParams(GLES20.GL_TEXTURE_2D)
                     android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bmp,0)
+                    signatureDrawings++
                 } finally { bmp.recycle() }
             }
             bindTex(progFinal,"uLogo",3,if(o.logo!=0)o.logo else fboTex[0])

@@ -2528,6 +2528,7 @@ class NovaCamera(
         }
         val captureContext = "${if(portraitVideoSession) "RETRATO · VÍDEO" else mode.label} · ${if (isFront) "frontal" else "traseira"} · ${request.size ?: "AUTO"}/${request.fps} fps alvo · assinatura solicitada=${settings.signatureEnabled && settings.signatureVideo}, ativa=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · cinematográfico=$cinematicBound"
         val captureOverlay = videoSignatureOverlay
+        val captureCompositor=portraitEffect?.takeIf { cinematicBound }
         val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
         if (free < MIN_FREE_BYTES) return listener.onMessage("Pouco espaço livre para gravar")
         vc.targetRotation = targetRotation
@@ -2573,7 +2574,7 @@ class NovaCamera(
                         val uri = event.outputResults.outputUri.takeIf { it != android.net.Uri.EMPTY }
                         listener.onRecordingFinished(uri, err)
                         if (uri != null && normalVideo) inspectVideo(uri, request,
-                            "$captureContext · desenhos da assinatura na textura=${captureOverlay?.drawings ?: 0}")
+                            "$captureContext · desenhos da assinatura na textura=${captureCompositor?.signatureDrawings ?: captureOverlay?.drawings ?: 0} · caminho=${if(captureCompositor!=null) "compositor" else "OverlayEffect/comum"}")
                         val recovery = videoRecovery.finalized()
                         if (released) releaseCaptureResources()
                         else if (recovery == com.novacamera.s24.core.VideoRecovery.Action.STOP) {
