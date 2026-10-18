@@ -1,3 +1,13 @@
+# APK P0 em geração — 0.25.3, build68
+
+- Fonte app3634fe000a70eb63127b5b6fba50dd39eb1805bf aprovada no CI39085985023; sem alterações de app posteriores. Fonte APK11294a4d579e33f39066d75356f4ddebe295fb0b.
+- Build assinado68 (versionCode esperado1068, confirmar) em execução: https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39086391072 . **APK ainda não confirmado.**
+- Gatilho original nova-release.yml já restaurado emd918218de608bdc4f66c97cda16eb6be20888a8e, bloba82bc113b2de207b7a3e9a9660cc19af520167ff. Publicação deve ficar skipped. Não disparar outro build/release nem alterar a assinatura.
+- Próximo passo: conferir jobs do39086391072, testes/lint/JPEG200MP/modelos/assembleRelease/pesos/certificado-versionCode/upload e publicação skipped; só então registrar artefato real/link/digest/tamanho/expiração e entregar. Se falhar, ler erros reais. Toda análise, alterações, protocoloS24 e limites estão no handoff preservado abaixo e emP0_DESEMPENHO_BASELINE/RESULTADOS.md.
+- Continuar porHEAD atualizado na mesma branch, prioridadeP0: números físicos antes/depois ainda não medidos, qualidade/autonomia/velocidade não comprovadas. Oitoquadros/resolução máxima/algoritmos intactos. Não confundir instrumentação ouCI com benchmarkS24.
+
+---
+
 # Investigação P0 — 0.25.3, fonte final aprovada; APK em preparação
 
 - Branch única `codex/video-estabilidade-0-20`; HEAD base conferido `c56ee20975ac4c3cec28251da68cb4a85645a3e8`.0.25.0/build67 preservada; dono testou e disse “Testei e tá bom”, sem benchmark controlado. Main/original/chaveAndroid preservadas. Buscar HEAD remoto atualizado antes de retomar.
