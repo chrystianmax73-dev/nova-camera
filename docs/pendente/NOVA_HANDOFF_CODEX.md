@@ -1,3 +1,30 @@
+# Etapa atual 0.26.4 — Kotlin preservado; validação e APK pendentes
+
+Trabalhar somente em `codex/video-estabilidade-0-20`. Buscar HEAD remoto atualizado. A fonte de app mais recente é **142c648dde009250527b3525d807e4625078f8c2**. A versão continua 0.26.4; ainda NÃO há APK dessa versão neste registro. O APK confirmado anterior é 0.26.3, build 71 (1071), no histórico abaixo.
+
+**Correção do estado anterior:** o laço tonal em JNI foi testado e descartado antes de gerar APK. O CI 39126084412 passou, mas cinco pares AB/BA não mostraram vantagem consistente (medianas Kotlin 133,877 ms / JNI 162,440 ms). Em 96848c1, photo_kernels.cpp e PhotoKernels.kt foram restaurados ao conteúdo anterior. Os kernels nativos existentes de alinhamento, SR e detalhes permanecem intactos. Não habilitar o experimento antigo com base em testes de pixels: igualdade não provou velocidade.
+
+A alternativa atual é inteiramente Kotlin: ToneMap reutiliza índices e pesos bilineares; Engine usa uma faixa curta de 64 linhas reutilizável, com cancelamento entre faixas. A fórmula, parâmetros, amostras, arredondamento, proteção de cor e tom Noturno não mudam. A referência anterior fica disponível para testes exatos e microbenchmark pareado. Em 142c648, planos neutros deixam de copiar a imagem inteira inutilmente; Food continua aplicando seu acabamento e cancelamento continua respeitado. Testes Android comparam pixels, costuras, última faixa, plano neutro e Food. O CI da fonte 96848c1 é **39126506961**, ainda em andamento neste registro; também consultar o run da fonte final 142c648. Não usar aprovação do JNI descartado para declarar essa alternativa validada.
+
+Também mudaram ISO/exposição por quadro no relatório (JPEG e Camera2 com origens separadas), ISO/exposição da referência escolhida no acabamento e cronômetros de planejamento tonal, perfil e estilo. Não houve novo denoise, modelo, nitidez, clareamento ou mudança de resolução/quadros.
+
+As três fotos e o diagnóstico reais de 0.26.3 foram analisados; veja **docs/pendente/QUALIDADE_0263_BASELINE.md**. Fotos pessoais estão fora do Git. Cópias recebidas 1280×960 sem EXIF não comprovam detalhes de 49 MP. Diagnóstico: três fotos 8/8 e 49 MP em 39,89–41,52 s; Noturno apoiado 5/5 em 15,27 s. Focais JPEG 18,6 mm compatíveis com 5x e 7,9 mm com 3x, ID físico não confirmado. PSS observado até 634,4 MiB e bateria até 38,6 °C, sem comparação controlada. Congelamentos fora da rajada continuam abertos. Escala energética ainda não confirmada. NAFNet abortou 3/192 blocos; não tratar isso como redução de ruído por IA concluída.
+
+## Próximo passo exato
+
+1. Consultar os CIs de 96848c1 e 142c648, ler logs completos se falharem e corrigir a causa. Registrar os cinco pares **TONE_KOTLIN**, contagem real de testes, compilação e lint. Não reduzir tolerâncias de pixels. Gradle offline local foi tentado e retornou command not found; usar Actions conforme autorizado.
+2. Se a fonte final passar, gerar apenas APK de teste com a chave permanente pelo fluxo existente. Adicionar temporariamente esta branch ao push de nova-release.yml mantendo a guarda que pula publicação; NUNCA usar workflow_dispatch. Assim que o run surgir, restaurar o blob original **a82bc113b2de207b7a3e9a9660cc19af520167ff**. Conferir testes, lint, JPEG 200 MP, modelos offline/Depth=True, assembleRelease, certificado/versionCode e upload; publicação deve ser skipped. Consultar build real, não presumir 72. Só avisar APK disponível depois do artefato real.
+3. Atualizar STATUS e este handoff com SHA/run/artefato/link/digest/expiração reais. Nenhum ganho físico de velocidade, memória, qualidade ou autonomia foi comprovado nesta sessão. Menos buffers é consequência do código, não PSS medido.
+4. No S24, comparar 3x/5x de alta resolução e Noturno5x apoiado com mesma cena, luz, foco e temperatura inicial, cinco repetições. Medir PhotoTrace, textura/grão/cor/halos/fantasmas em recortes nativos, PSS/térmica e ISO/exposição. Continuam pendentes qualidade fina, foco real, aquisição, alinhamento/SR/fusão e prévia. Não forçar lentes/ZSL que já travaram, reduzir quadros/resolução silenciosamente ou alterar atmosfera Noturna.
+
+## Mensagem pronta para Claude
+
+Continue Nova Camera em chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, pelo HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topo de docs/STATUS.md e QUALIDADE_0263_BASELINE.md. Fonte atual de app 0.26.4: 142c648dde009250527b3525d807e4625078f8c2. Consulte CIs de 96848c1/39126506961 e da fonte final; pendentes neste registro. O experimento tonal JNI foi descartado por falta de ganho consistente; não reativar. A alternativa Kotlin reutiliza coordenadas e faixa64, dispensa cópias de planos neutros preservando Food; exige pixels exatos e benchmark AB/BA. Metadados JPEG/referência e cronômetros também corrigidos. Há três fotos e diagnóstico real 0.26.3, mas nenhum ganho físico novo comprovado. Depois de fonte estável, gerar só APK de teste assinado, com publicação skipped e restauração do gatilho original; registrar artefato real. Preserve main, histórico, modelos, assinatura, oito quadros/resolução, tom Noturno e fotos fora do Git. Prévia, foco, ruído/microtexturas, aquisição e SR continuam abertos. Não declarar otimização concluída sem S24.
+
+---
+
+## Histórico preservado; atualizações acima substituem estados anteriores
+
 # Continuidade 0.26.4 — fotos reais recebidas, fonte em validação
 
 - Branch única codex/video-estabilidade-0-20, base cf6f617cee143f50b79b25cfafbc9f02f3fe6420/CI39123476501 aprovada antes de editar. Buscar HEAD remoto antes de retomar; main e assinatura permanente intactas. APK anterior confirmado0.26.3/build71/1071 no histórico abaixo. Nenhum APK0.26.4 disponível neste registro.
