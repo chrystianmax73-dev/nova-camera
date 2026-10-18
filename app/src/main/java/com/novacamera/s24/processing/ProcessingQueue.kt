@@ -254,6 +254,7 @@ object ProcessingQueue {
             val first = job.frames[0]
             if (job.frames.any { it.evIndex != first.evIndex || it.rotationDegrees != first.rotationDegrees || it.crop != first.crop }) job.frames
             else {
+                val referenceAt=android.os.SystemClock.elapsedRealtimeNanos()
                 val scores = job.frames.map { frame ->
                     val src = JpegSource(frame)
                     try {
@@ -261,6 +262,8 @@ object ProcessingQueue {
                     } finally { src.close() }
                 }
                 val index = com.novacamera.s24.core.imaging.FrameQuality.best(scores)
+                job.trace?.mark("referência por energia/ruído: quadro${index+1}, custo=${(android.os.SystemClock.elapsedRealtimeNanos()-referenceAt)/1_000_000}ms"+
+                    " · índices=${scores.map{it.detail}} · sigma=${scores.map{it.noise}}; não mede detalhe óptico")
                 session.meta.setProperty("referenceIndex", index.toString())
                 listOf(job.frames[index]) + job.frames.filterIndexed { i, _ -> i != index }
             }
@@ -340,11 +343,12 @@ object ProcessingQueue {
                     val a = timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel, temporalNoise = temporalNoise) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind.merges) {
-                        val rejected = Engine.mergeInto(sources, base, a, job.cancel, temporalNoise = temporalNoise) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
+                        val rejected = Engine.mergeInto(sources, base, a, job.cancel, temporalNoise = temporalNoise,
+                            onNoise={job.trace?.mark("fusão: sigma rejeição=${it} níveis0..255; ruído alinhamento=${a.noise} escala0..1")}) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
                         val n = a.usedFrames
                         job.trace?.mark("fusão temporal: usados=$n/${frames.size}, ruído alinhamento=${a.noise}, rejeição=$rejected, correlação=$temporalNoise, inseguro=${a.unsafe}")
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
-                               else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
+                               else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · contribuições inconsistentes em parte da cena" else ""
                     } else {
                         val n = Engine.fuseInto(sources, base, a, job.cancel, onScene = { hdrScene = it }) {
                             progress(0.2f + 0.45f * it, "Combinando exposições")
@@ -380,7 +384,8 @@ object ProcessingQueue {
                 progress(0.69f, "Estimando profundidade")
                 val depth = runCatching { timed(job,"profundidade/carga") { DepthEstimator.estimate(context, base) } }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
-                val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint) } }
+                val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint,
+                    report={job.trace?.mark(it)}) } }
                     .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
                 if (subject != null) {
                     session.saveMatte(subject.matte)

@@ -320,11 +320,13 @@ object Engine {
      * Noite/redução de ruído: fusão robusta de N quadros de mesma exposição, só com os quadros e
      * pixels confiáveis. Retorna a fração de pixels rejeitados.
      */
-    fun mergeInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, temporalNoise: Boolean = false, progress: (Float) -> Unit): Float {
+    fun mergeInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, temporalNoise: Boolean = false,
+                  onNoise:((Float)->Unit)?=null, progress: (Float) -> Unit): Float {
         val w = out.width; val h = out.height
         val sw = min(w, 1024); val sh = min(h, 1024)
         val sample = IntArray(sw * sh).also { frames[0].read((w - sw) / 2, (h - sh) / 2, sw, sh, it) }
         val sigma = Merge.estimateNoise(sample, sw, sh, correlated = temporalNoise)
+        onNoise?.invoke(sigma)
         val used = frames.indices.filter { it > 0 && a.usable[it] }
         var rejected = 0.0; var count = 0
         val total = tileCount(w, h)
@@ -636,7 +638,8 @@ object Engine {
      * Decide o assunto do retrato a partir da segmentação de pessoa (pode faltar) e da profundidade
      * estimada (pode faltar). Mesma lógica no app e na validação local. Null = sem assunto.
      */
-    fun portraitSubject(bmp: Bitmap, person: Plane?, hair: Plane?, depthRaw: Plane?, tap: Pair<Float, Float>? = null): PortraitSubject? {
+    fun portraitSubject(bmp: Bitmap, person: Plane?, hair: Plane?, depthRaw: Plane?, tap: Pair<Float, Float>? = null,
+                        report:((String)->Unit)?=null): PortraitSubject? {
         val depth = depthRaw?.let { DepthPortraitNorm.normalized(it, max(1, bmp.width / 8), max(1, bmp.height / 8)) }
         if (depth == null) return person?.let { PortraitSubject(portraitMatte(bmp, it, hair), null, null) }
         val plan = com.novacamera.s24.core.imaging.DepthPortrait.plan(depth, person, tap)
@@ -646,7 +649,12 @@ object Engine {
             tap != null -> "Assunto escolhido pelo toque (profundidade estimada)"
             else -> "Sem pessoa: assunto pela profundidade estimada (o que está mais perto no centro)"
         }
-        return PortraitSubject(portraitMatte(bmp, plan.subject, if (plan.fromPerson) hair else null), plan.blur, note)
+        val matte=portraitMatte(bmp, plan.subject, if (plan.fromPerson) hair else null)
+        report?.invoke("máscara Retrato: origem=${if(plan.fromPerson) "pessoa" else if(tap!=null) "objeto/toque" else "objeto/centro"}"+
+            " · profundidade=${depth.w}x${depth.h} · faixa relativa=${plan.far}..${plan.near}"+
+            " · máscara=${matte.w}x${matte.h} · cobertura>=0,5=${matte.data.count{it>=.5f}.toFloat()/matte.data.size}"+
+            " · valores intermediários=${matte.data.count{it>.01f && it<.99f}.toFloat()/matte.data.size}; não mede precisão de borda")
+        return PortraitSubject(matte, plan.blur, note)
     }
 
     private object DepthPortraitNorm {
