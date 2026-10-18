@@ -1,3 +1,6 @@
+# Etapa 0.27.4 (Claude) — zoom do disparador em degraus, branch `claude/nova-interface`
+- `core/ShutterZoom.kt` (meu): arraste do disparador anda em degraus da escada (paradas + inteiros), cada degrau via `NovaCamera.zoomTo(z, allowLensSwitch = false)`. `MainActivity` (onZoomStart/onZoom do disparador) só chama isso. Barra/pinça/`zoomFollow` inalterados. Sem efeito em imagem.
+
 # Etapa 0.27.2 (Claude) — confiabilidade e interface, branch `claude/nova-interface`
 
 **Codex: ao trabalhar em qualidade de imagem, estas peças são minhas e não precisam ser refeitas; se precisar mudá-las, me avise pelo handoff.**

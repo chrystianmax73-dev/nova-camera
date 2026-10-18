@@ -1,28 +1,41 @@
 package com.novacamera.s24.core
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.ln
 
 class ShutterZoomTest {
     private val stops = listOf(0.6f, 1f, 3f, 5f, 10f)
+    private fun at(start: Float, steps: Float) = ShutterZoom.target(start, steps * ShutterZoom.STEP_DP, stops, 0.6f, 30f)
 
-    @Test fun de3Para5ComCercaDeUmCentimetro() {
-        val dp = ln(5f / 3f) * ShutterZoom.DP_PER_E
-        assertTrue("menos de 70 dp", dp < 70f)
-        assertEquals(5f, ShutterZoom.target(3f, dp, stops, 0.6f, 100f), 0f)
+    @Test fun andaEmNumerosInteirosNaoEmDecimos() {
+        assertEquals(4f, at(3f, 1f), 0f)
+        assertEquals(5f, at(3f, 2f), 0f)
+        assertEquals(10f, at(3f, 7f), 0f)
+        assertEquals(2f, at(3f, -1f), 0f)
+        assertEquals(1f, at(3f, -2f), 0f)
+        assertEquals(0.6f, at(3f, -3f), 0f)
     }
 
-    @Test fun grudaNasParadasPerto() {
-        assertEquals(5f, ShutterZoom.target(3f, ln(4.8f / 3f) * ShutterZoom.DP_PER_E, stops, 0.6f, 100f), 0f)
-        assertEquals(3f, ShutterZoom.target(3f, 4f, stops, 0.6f, 100f), 0f)
-        val meio = ShutterZoom.target(3f, ln(4f / 3f) * ShutterZoom.DP_PER_E, stops, 0.6f, 100f)
-        assertEquals(4f, meio, 0.01f)
+    @Test fun menosDeUmDegrauNaoMexe() {
+        assertEquals(3f, at(3f, 0.9f), 0f)
+        assertEquals(3f, at(3f, -0.9f), 0f)
     }
 
-    @Test fun respeitaLimites() {
-        assertEquals(0.6f, ShutterZoom.target(1f, -1000f, stops, 0.6f, 100f), 0f)
-        assertEquals(100f, ShutterZoom.target(10f, 1000f, stops, 0.6f, 100f), 0f)
+    @Test fun zoomForaDaEscadaVaiParaOVizinho() {
+        assertEquals(3f, at(2.4f, 1f), 0f)
+        assertEquals(2f, at(2.4f, -1f), 0f)
+    }
+
+    @Test fun acimaDeDezEmPassosLargosERespeitaLimites() {
+        assertEquals(15f, at(10f, 1f), 0f)
+        assertEquals(30f, at(10f, 50f), 0f)
+        assertEquals(0.6f, at(1f, -50f), 0f)
+        assertEquals(listOf(0.6f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 15f, 20f, 30f), ShutterZoom.ladder(stops, 0.6f, 30f))
+    }
+
+    @Test fun paradaQuaseInteiraNaoDuplica() {
+        // Tele de 5,1×: o 5× inteiro sai (degrau de 2% não serviria); 2,7× e 3× ficam (11%).
+        val l = ShutterZoom.ladder(listOf(0.6f, 1f, 2.7f, 5.1f), 0.6f, 10f)
+        assertEquals(listOf(0.6f, 1f, 2f, 2.7f, 3f, 4f, 5.1f, 6f, 7f, 8f, 9f, 10f), l)
     }
 }

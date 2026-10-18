@@ -691,16 +691,17 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                         hint.show("Gravação bloqueada · toque no botão para finalizar")
                     }
                 }
-                override fun onZoomStart() { shutterZoomStart = zoomBar.zoom; shutterZoomDp = 0f }
+                override fun onZoomStart() { shutterZoomStart = zoomBar.zoom; shutterZoomDp = 0f; lastShutterZoom = shutterZoomStart }
                 override fun onZoom(deltaDp:Float) {
                     if (countdown != 0) return
                     val s = cameraState ?: return
                     shutterZoomDp += deltaDp
                     val z = com.novacamera.s24.core.ShutterZoom.target(shutterZoomStart, shutterZoomDp, s.zoomStops, s.zoomMin, s.zoomMax)
-                    // Vibração curta ao encaixar numa parada (3×, 5×…), como nas câmeras do sistema.
-                    if (z != lastShutterZoom && z in s.zoomStops) Haptics.tick(shutter)
+                    if (z == lastShutterZoom) return
+                    // Um degrau por vez, animado como o toque numa parada (sem trocar de câmera no meio do gesto).
+                    Haptics.tick(shutter)
                     lastShutterZoom = z
-                    camera.zoomFollow(z)
+                    camera.zoomTo(z, allowLensSwitch = false)
                 }
                 override fun onRelease() = runQuickAction(quickRecording.release())
                 override fun onCancel() = runQuickAction(quickRecording.interrupt())

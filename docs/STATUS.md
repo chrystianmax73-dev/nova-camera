@@ -1,3 +1,11 @@
+# 0.27.4 — zoom do disparador em degraus (Claude; branch `claude/nova-interface`; fonte)
+- **Teste do dono com 0.27.3:** barra, pinça e números (3/5/10) ok no vídeo; arrastar o disparador ainda "contava 1.1, 1.2…, só um pouco mais rápido". A causa não era vazão: o arraste do disparador era contínuo de propósito (curva exponencial de 0.27.1), e o dono quer a mesma resposta dos números.
+- **Mudança:** cada ~26 dp (~4 mm) de arraste sobe/desce UM degrau de `ShutterZoom.ladder` (paradas reais + inteiros 1–10 + 15/20/30/50/100, dentro dos limites; inteiro a menos de 8% de uma parada real sai). Cada degrau chama `zoomTo(z, allowLensSwitch = false)`, a mesma animação do toque numa parada, com vibração curta. Zoom fora da escada (2,4×) vai para o vizinho (3× ou 2×). Não troca de câmera no meio do gesto (sem religar sessão).
+- Barra e pinça continuam contínuas (não mudaram). Nenhum pixel/processamento alterado.
+- Testes: `core/ShutterZoomTest` reescrito (degraus inteiros, vizinho, limites, sem degrau duplicado).
+
+---
+
 # 0.27.3 — zoom do vídeo sem degraus (Claude; branch `claude/nova-interface`; APK de teste build88 entregue)
 - **[Baixar ZIP com app-release.apk — build88 (1088)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39170090511/artifacts/12152013924)**. Mesma assinatura permanente. Artefato 12152013924, 132871914 bytes; digest do ZIP sha256:a1bf46f580576a1b769bbe515d06d55215c614c85db2034372752ed9020196e4; expira 2026-11-17T22:05:34Z. [Actions 39170090511](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39170090511) com sucesso; publicação pulada (nenhuma release nova). Gatilho restaurado em 266a882 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 
