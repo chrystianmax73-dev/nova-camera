@@ -85,8 +85,14 @@ class DeviceMonitor(private val context: Context, private val onChange: (DeviceH
             // Preservar também sentinelas no bruto; EnergyLog rejeita na potência.
         val h = current
         return com.novacamera.s24.core.EnergyLog.Sample(nowMs, activity, ua, voltageMv, h.batteryTempC, h.batteryPercent,
-            h.charging, h.thermalStatus, headroom())
+            h.charging, h.thermalStatus, headroom(),
+            averageRaw=property(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE),
+            chargeCounterRaw=property(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER),
+            energyCounterRaw=property(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER))
     }
+
+    private fun property(id:Int):Long?=runCatching { batteryManager?.getLongProperty(id) }.getOrNull()
+        ?.takeIf { it!=Long.MIN_VALUE && it!=Int.MIN_VALUE.toLong() }
 
     /** Chamada na fila de IO, nunca na fila de captura/GL. Sem inferir ocupação da GPU. */
     fun performanceSample(activity: String, frames: Int, dropped: Int): com.novacamera.s24.core.SessionPerformance.Sample {

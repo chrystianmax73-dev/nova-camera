@@ -8,7 +8,7 @@ import org.junit.Test
 
 class EfficiencyTest {
     private fun s(t: Long, act: String, ua: Long?, pct: Int, charging: Boolean = false, temp: Float = 30f) =
-        EnergyLog.Sample(t, act, ua, 3900, temp, pct, charging, 0, 0.4f)
+        EnergyLog.Sample(t, act, ua, 3900, temp, pct, charging, 0, 0.4f,unitConfirmed=true)
 
     @Test fun correnteDaApiRespeitaMicroamperes() {
         assertEquals(850_000L, EnergyLog.normalizeUa(-850_000L))

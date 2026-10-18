@@ -22,9 +22,16 @@ object EnergyLog {
         val thermalStatus: Int,
         /** Previsão do Android: 1,0 ≈ limite térmico em 10 s. */
         val headroom: Float?,
+        val averageRaw:Long?=null,
+        val chargeCounterRaw:Long?=null,
+        val energyCounterRaw:Long?=null,
+        /** Somente evidência externa/controlada pode confirmar escala do firmware. */
+        val unitConfirmed:Boolean=false,
     ) {
         /** Potência em mW, só na bateria e com leitura plausível. */
-        val powerMw: Double?
+        val powerMw: Double? get() = if(unitConfirmed) nominalPowerMw else null
+        /** Hipótese documentada µA, nunca tratada como potência confiável sem confirmação. */
+        val nominalPowerMw: Double?
             get() {
                 if (charging) return null
                 val ua = normalizeUa(currentUa ?: return null) ?: return null
@@ -61,7 +68,7 @@ object EnergyLog {
             val mw = group.mapNotNull { it.powerMw }
             append("\n  $activity: ${group.size} amostras")
             if (mw.isNotEmpty()) append(String.format(Locale.US, ", %.0f mW em média (máx. %.0f; n válido=%d/%d)", mw.average(), mw.max(), mw.size, group.size))
-            else append(", consumo não medido (carregando ou sem leitura de corrente)")
+            else append(", consumo não medido (carregando, leitura ausente ou escala não confirmada)")
             group.mapNotNull { it.batteryTempC }.takeIf { it.isNotEmpty() }?.let { t ->
                 append(String.format(Locale.US, ", bateria %.1f–%.1f °C", t.min(), t.max()))
             }
@@ -70,12 +77,26 @@ object EnergyLog {
             }
             append(", estado térmico máx. ${group.maxOf { it.thermalStatus }}")
         }
+        append("\n  Escala de corrente NÃO CONFIRMADA no firmware: hipótese µA da API não é calibração; sem economia demonstrada. BatteryStats exige coleta ADB externa, não disponível pelo aplicativo sem permissão de sistema.")
         append("\n  Leituras recentes (aparelho inteiro; instantâneas, não energia integrada; módulo do sinal):")
         list.takeLast(12).forEach { s ->
-            append("\n    t=${s.tMs}ms · ${s.activity} · bruto=${s.currentUa} · unidade=µA (API, sem reescala)" +
+            append("\n    t=${s.tMs}ms · ${s.activity} · bruto=${s.currentUa} · unidade=µA apenas como hipótese/API, confiável=${s.unitConfirmed}" +
                 " · módulo válido=${s.currentUa?.let(::normalizeUa)}µA · tensão=${s.voltageMv}mV" +
                 " · potência=${s.powerMw?.let { String.format(Locale.US,"%.1f",it) } ?: "não medida"}mW" +
+                " · nominal sob hipóteseµA=${s.nominalPowerMw}mW (não usar sem confirmar escala)" +
+                " · média bruta=${s.averageRaw} · contador carga bruto=${s.chargeCounterRaw} (APIµAh) · energia bruto=${s.energyCounterRaw} (APInWh)" +
                 " · conectado=${s.charging} · bateria=${s.percent}%/${s.batteryTempC}°C · térmica=${s.thermalStatus}")
+        }
+        val valid=list.filter { !it.charging }
+        if(valid.size>=2) {
+            val a=valid.first();val b=valid.last();val dt=b.tMs-a.tMs
+            if(dt>=30000 && list.none { it.charging && it.tMs in a.tMs..b.tMs }) {
+                if(a.chargeCounterRaw!=null && b.chargeCounterRaw!=null) {
+                    val dq=a.chargeCounterRaw-b.chargeCounterRaw
+                    append("\n  Cruzamento de contadores em${dt}ms: Δcarga=$dq (unidadeAPIµAh); corrente derivada sob essa hipótese=${dq*3600000.0/dt}µA. Não confirma sozinho unidade do firmware.")
+                }
+                if(a.energyCounterRaw!=null && b.energyCounterRaw!=null)append(" · Δenergia=${a.energyCounterRaw-b.energyCounterRaw} (unidadeAPInWh, também não calibrada)")
+            }
         }
         // Queda de bateria por hora, só em trechos contínuos na bateria.
         val onBattery = list.filter { !it.charging && it.percent >= 0 }

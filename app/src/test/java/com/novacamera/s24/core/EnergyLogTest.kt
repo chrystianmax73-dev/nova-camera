@@ -2,7 +2,17 @@ package com.novacamera.s24.core
 import org.junit.Assert.*
 import org.junit.Test
 class EnergyLogTest {
-    private fun s(raw:Long?,charging:Boolean=false)=EnergyLog.Sample(1,"controle",raw,4000,30f,90,charging,0,.3f)
+    @Test fun s24ComEscalaIncertaNaoApresentaPotenciaComoValidada() {
+        val s=EnergyLog.Sample(0,"Foto",-1442,4020,38f,70,false,0,.5f,
+            averageRaw=-1510,chargeCounterRaw=3100000)
+        assertNull(s.powerMw)
+        assertEquals(5.79684,s.nominalPowerMw!!,.00001)
+        val r=EnergyLog.report(listOf(s,s.copy(tMs=60000,chargeCounterRaw=3080000)))
+        assertTrue(r.contains("NÃO CONFIRMADA"));assertTrue(r.contains("Δcarga=20000"))
+        assertTrue(r.contains("média bruta=-1510"));assertFalse(r.contains("em média (máx."))
+    }
+
+    private fun s(raw:Long?,charging:Boolean=false)=EnergyLog.Sample(1,"controle",raw,4000,30f,90,charging,0,.3f,unitConfirmed=true)
     @Test fun correnteDaApiNuncaEReescaladaPelaMagnitude() {
         assertEquals(9999L,EnergyLog.normalizeUa(-9999))
         assertEquals(10000L,EnergyLog.normalizeUa(10000))

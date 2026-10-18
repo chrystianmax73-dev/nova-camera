@@ -1,3 +1,11 @@
+# 0.25.4 — P0 etapa2: escala energética incerta
+
+- Baseline físico0.25.3 do dono registrado antes de editar emP0_ETAPA2.md; basee14795c/CI39087054435 aprovada. Retrato total79.17s/65.80s,Foto60.44s,8quadros7.41–9.10s,SR27.74–31.41s,memória962.5MiB,saídas49/28MP. Fotos/diagnóstico completo ainda não anexados nesta etapa.
+- Escala do firmware não confirmada: potência deixa de entrar nas médias confiáveis. Valor sob hipóteseµA continua explícito e não confiável; nenhuma multiplicação1000. RegistraCURRENT_NOW/AVERAGE, contadores de carga/energia e deltas com unidadesAPI como hipótese. BatteryStats requerADB externo; não adicionada permissão de sistema. Teste reproduz−1442/4.02V sem chamar5.8mW de consumo validado.
+- CI desta revisão pendente. Próximo: acelerar cálculos equivalentes, diminuir memória/decodificações, medir aquisição e foco, preservar8quadros/qualidade/escala e entregarAPK assinado após etapa estável. Sem conclusão de economia ou ganhoS24 ainda.
+
+---
+
 # 0.25.3 — P0: APK68 entregue, instrumentação e eficiência inicial
 
 - **APK de teste assinado disponível:0.25.3/build68 (1068).** [ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39086391072/artifacts/12120593095), artefato12120593095,132595692bytes, digest doZIP sha256:f4862631cc0244863fdbcaeea8699c9f505cab7e089f29c0c7abe051136940ca. Expira2026-11-17T01:32:18Z (16/11 à noite em Brasília). Mesmo certificado permanente, nenhum release publicado.
