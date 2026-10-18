@@ -1,4 +1,13 @@
-# 0.29.0 — Nova Live: foto com movimento (Claude; branch `claude/nova-interface`; fonte)
+# 0.29.1 — correções: landscape cortado, crash cinematográfico, face em TV (Claude; branch `claude/nova-interface`; fonte)
+- **Landscape "cortado":** a Activity fica travada em retrato (manifesto). Em landscape a prévia usava `FILL_CENTER` (recorte central) — o que a câmera gravava era mais largo do que o usuário via na prévia. Agora em landscape a prévia troca para `FIT_CENTER` (barras pretas em cima/embaixo, campo de visão completo). O vídeo final continua com a orientação certa (metadados de rotação no MP4).
+- **Crash nativo no cinematográfico (0.28.2):** `PortraitMaskAnalyzer.close()` chamava `depthExecutor.shutdown()` sem esperar a tarefa de profundidade em voo terminar, e logo depois agendava `DepthEstimator.release()`. Se a tarefa ainda estivesse dentro do `nativeRun`, o handle nativo podia ser fechado por baixo. Agora `close()` espera até 3 s pela tarefa terminar (`awaitTermination`) antes de liberar.
+- **Face na TV (desfoque no rosto em vez de no fundo):** o sensor detectava rostos na TV com score >= 50 e os usava como alvo do cinematográfico. Rostos numa tela de TV a 2–3 m são pequenos e de score baixo. Agora: score mínimo 75, tamanho mínimo 80×80 px no sensor, e validade de 600 ms (era 1 s). Rostos de TV ficam abaixo desses limiares na maioria dos cenários.
+- Testes: todos os existentes continuam verdes.
+
+---
+
+# 0.29.0 — Nova Live: foto com movimento (Claude; branch `claude/nova-interface`; APK de teste build93 entregue)
+- **[Baixar ZIP com app-release.apk — build93 (1093)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39177677299/artifacts/12154937026)**. Artefato 12154937026, 138680021 bytes; sha256:44d88d478d0e4aad3cde880117c89c823c709e57a875d274aee5c15b2479b497; expira 2026-11-17T23:51:42Z; sem release. Gatilho restaurado em 4a59407.
 - **Formato:** o dono abriu na Galeria do S24 os 3 arquivos de teste (Google Motion Photo, trailer Samsung, combinado) e os três tocaram. Fica o **Google Motion Photo v1** (JPEG + XMP `GCamera:MotionPhoto` + MP4 no fim; `core/MotionPhoto.kt`), também lido pelo Google Fotos.
 - **Captura:** com "Nova Live" ligado (painel de ferramentas, só na Foto), uma análise YUV ~1280×960 alimenta um codificador H.264 de hardware (6 Mb/s, quadro-chave a cada 1 s) e só os últimos ~3,2 s comprimidos ficam na memória (`camera/LiveRecorder.kt`). No disparo: 1,5 s antes + 1,5 s depois viram um MP4 (orientação do sensor).
 - **Anexo:** `processing/LiveClips.kt` liga o clipe à URI final (Job → `finish`, ou foto comum → `onImageSaved`) e anexa quando os dois estão prontos. Toda regravação por `MediaWriter.write` (acabamento, IA, revisão) anexa de novo depois do EXIF; tudo sob o mesmo lock (nunca lê JPEG pela metade).

@@ -303,9 +303,11 @@ class PortraitMaskAnalyzer(
     override fun close() {
         closed = true
         depthGeneration.incrementAndGet(); depthDone = null
-        if (cinematic) depthExecutor.shutdown()
+        if (cinematic) {
+            depthExecutor.shutdown()
+            runCatching { depthExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS) }
+        }
         runCatching { segmenter?.close() }; segmenter = null
-        // A sessão de profundidade é compartilhada com a foto: não fecha aqui, só agenda a liberação por ociosidade.
         if (depth != null) ProcessingQueue.scheduleDepthRelease()
         depth = null
         depthN=null;prevSubject=null;prevAmount=null

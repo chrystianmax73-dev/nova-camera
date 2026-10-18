@@ -1817,11 +1817,12 @@ class NovaCamera(
      */
     @Volatile private var cinemaFace: Pair<Float, Float>? = null
     @Volatile private var cinemaFaceAt = 0L
-    private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 1000L }
+    private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 600L }
 
     private fun publishFaces(result: TotalCaptureResult) {
         val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
-        if (cinematicRequested) faces.filter { it.score >= 50 }.maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
+        if (cinematicRequested) faces.filter { it.score >= 75 && it.bounds.width() >= 80 && it.bounds.height() >= 80 }
+            .maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
             cinemaFace = it.bounds.exactCenterX() to it.bounds.exactCenterY(); cinemaFaceAt = SystemClock.uptimeMillis()
         }
         if (!settings.showFaces) return

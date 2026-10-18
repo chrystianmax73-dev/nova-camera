@@ -867,6 +867,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.setRotation(CameraMath.surfaceRotationFor(deg))
         overlay.orientation = deg
         zoomBar.orientation = deg
+        val landscape = deg == 90 || deg == 270
+        preview.scaleType = if (landscape) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
+        transitionImage.scaleType = if (landscape) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
         val target = CameraMath.iconRotationFor(deg)
         listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
