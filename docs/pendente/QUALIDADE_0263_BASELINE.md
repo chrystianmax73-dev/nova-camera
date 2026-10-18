@@ -50,3 +50,22 @@ A fontecc13e31 passou noCI39126084412. Cinco paresAB/BA com aquecimento: Kotlin[
 A nova hipótese é apenasKotlin: reutilizar índices/pesos bilineares horizontais e verticais, mantendo as operações/arredondamentos, e uma faixa64linhas reutilizável no Engine (Food mantém o caminho antigo). A faixa recebe coordenadas globais iguais; último trecho e cancelamento são testados. Referência anterior preservada para comparação exata e benchmark. Não há novo JNI, modelo, thread, filtro, LUT aproximada, nitidez ou ajuste de cor.
 
 Na saída8160×6120, o buffer tonal passa de 768alocações256×256 (mais bordas) para um buffer8160×64 e um último trecho. Isto é contagem derivada do código, NÃO medição de alocações/PSS noS24. O custo dos pequenos vetores de coordenadas é adicional e entra no benchmark. Só os resultados doCI da fonte96848c1 ou posterior podem validar essa alternativa. Não tratar os testes da versão nativa descartada como validação dela.
+
+
+## Alternativa Kotlin: primeiro resultado aprovado
+
+Fonte96848c1, CI39126506961 aprovado em assembleDebug/testDebugUnitTest/lintDebug. Cinco pares de grupos3x após aquecimento, faixa8160×64, planos1024×768:
+
+- Referência anterior: [126,659;141,645;127,637;140,052;129,884]ms; mediana129,884ms.
+- Coordenadas reutilizadas: [104,304;151,087;110,713;109,444;116,103]ms; mediana110,713ms.
+
+Quatro de cinco pares favorecem a alternativa; mediana cerca de14,8% menor nesse microbenchmark. Não mede tempo total49MP, CPU/energia/GPU noS24, captura, alinhamento, SR, PSS ou autonomia. Um par regrediu; há variabilidade do servidor. Testes exigiram os mesmos pixels, incluindo cores/altas luzes/Noturno/proteção cromática/costuras/Bitmap Android/cancelamento. Não é melhoria de detalhe capturado ou redução nova de ruído.
+
+Fonte final142c648 acrescenta saída sem cópias para planos queToneMap já tratava como identidade, respeitando Food/cancelamento. Ainda consultar oCI39126725397 dessa fonte antes de gerarAPK. Comparação física permanece aberta.
+
+
+## Fonte final aprovada
+
+Fonte142c648dde009250527b3525d807e4625078f8c2, Actions39126725397/job117673304753: assembleDebug, testes e lint aprovados. Plano neutro/Food/cancelamento também passaram. Segundo ensaioAB/BA, grupos3x: referência[135,464;206,844;154,589;141,051;176,168]ms, coordenadas reutilizadas[125,825;126,244;158,417;119,638;116,313]ms; medianas154,589/125,825ms. Quatro de cinco pares favoráveis, cerca de18,6% nesse microbenchmark. Variabilidade entre runs preservada; não extrapolar para tempo total, energia ou S24. Nenhuma alteração de app posterior à aprovação.
+
+Auditoria da árvore confirmou photo_kernels.cpp e PhotoKernels.kt idênticos à0.26.3. Não há alterações de manifesto/permissões/modelos/assinatura. A geração de APK de teste ainda precisa ser acompanhada até artefato real e verificação da chave.
