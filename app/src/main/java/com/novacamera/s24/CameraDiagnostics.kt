@@ -40,6 +40,7 @@ object CameraDiagnostics {
             appendLine(com.novacamera.s24.core.TrackingLog.report())
             appendLine(com.novacamera.s24.core.CrashLog.report(context))
             appendLine(com.novacamera.s24.core.StallLog.report(context))
+            appendLine("  " + com.novacamera.s24.core.ModelLoadWindow.report())
             appendLine(com.novacamera.s24.core.VideoLog.report(context))
             appendLine(exitReport(context))
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)

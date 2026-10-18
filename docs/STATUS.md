@@ -1,3 +1,12 @@
+# 0.26.15 — travamento da prévia ao abrir o Retrato: vigia espera a carga do modelo (Claude; fonte; APK só depois do teste do 0.26.14)
+
+- **Sintoma (relato do dono + StallLog 0.26.8–0.26.13):** ao abrir o Retrato com desfoque ao vivo, a prévia para; o vigia reabre a câmera, desliga a análise do desfoque e, na 2ª parada em 1 min, desliga Tom/Temperatura **na sessão inteira** (`portraitPreviewFailed`) — eles só voltam reabrindo o app. Registro "+5004 ms prévia sem resultados; reabrindo" logo após ligar = ~2 s de quadros + 3 s (`STALL_PREVIEW_MS`).
+- **Hipótese (não confirmada):** a primeira carga da profundidade (ncnn Vulkan: instância + pipelines, 2,2–3,3 s medidos) começa ~2 s após ligar, quando a análise ao vivo pede o modelo; com a GPU ocupada a prévia GL deixa de consumir quadros e o HAL para de entregar resultados. MediaPipe roda em CPU (`Delegate.CPU`), então não é ele.
+- **Mudança:** `core/ModelLoadWindow` marca a carga do modelo de profundidade (`DepthEstimator.Session.open`). Durante a carga e 2 s depois, o vigia (`NovaCamera.watchTick`) **espera em vez de reabrir** (limite 10 s; câmera travada de verdade ainda é recuperada). Sem efeito na foto.
+- **Medição para confirmar/descartar:** diagnóstico ganha "Carga de modelos × prévia: N cargas · M com prévia sem quadros · S s sem quadros durante carga/carência"; cada linha do StallLog ganha "modelos: … carregando há X ms / última carga terminou há Y ms". Se M = 0 e as paradas continuarem, a causa é outra.
+
+---
+
 # 0.26.14 — bateria: última etapa (Claude; fonte em validação)
 
 - **Diagnóstico 0.26.13:** thread da análise **33% → 8%** (espera ativa do OpenMP confirmada e corrigida). Retrato com desfoque parado **58,4%** (0.26.7: 128%; −55%), 71,9% logo após um toque; PSS 431–463 MiB. Restante não é mais a profundidade (~5% parado, ~15% após toque): ~46 pontos espalhados entre desenho do efeito GL (~9%), binder (~9%), fluxo de análise CameraX (~7–9%), MediaPipe (~8,5%) e interface (~8%) — custo estrutural de ter o desfoque ao vivo.

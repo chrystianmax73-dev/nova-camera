@@ -111,7 +111,9 @@ object DepthEstimator {
             fun open(context: Context): Session? {
                 if (!available(context)) return null
                 val at=SystemClock.elapsedRealtime()
-                val h = nativeLoad(context.assets, PARAM, BIN, true)
+                com.novacamera.s24.core.ModelLoadWindow.begin("profundidade", SystemClock.uptimeMillis())
+                val h = try { nativeLoad(context.assets, PARAM, BIN, true) }
+                    finally { com.novacamera.s24.core.ModelLoadWindow.end(SystemClock.uptimeMillis()) }
                 return if (h == 0L) null else Session(h,SystemClock.elapsedRealtime()-at)
             }
         }

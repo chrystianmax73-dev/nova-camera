@@ -1,3 +1,13 @@
+# Etapa 0.26.15 (Claude, autorizado pelo dono) — P0 "prévia trava ao abrir o Retrato": primeira correção; fonte
+
+**Codex: esta frente era tua (P0). O dono pediu que eu atacasse e registrasse tudo aqui.**
+- Arquivos tocados: `core/ModelLoadWindow.kt` (novo), `processing/DepthEstimator.kt` (`Session.open` marca begin/end), `camera/NovaCamera.kt` (`watchTick`: ramo `ModelLoadWindow.defersStall` antes de contar a parada; linha do StallLog com `ModelLoadWindow.describe`), `CameraDiagnostics.kt` (linha de relatório), teste `ModelLoadWindowTest`.
+- **Não mexi** na escalada (`onPreviewStalled`: 1ª parada com análise → `liveBlurBlocked`; 2ª em 60 s com efeito → `portraitPreviewFailed`, que some com Tom/Temperatura até reabrir o app). Se a hipótese da carga for descartada pelo diagnóstico, a próxima suspeita é o próprio efeito GL/rebind; aí vale rever essa escalada (ex.: não derrubar Tom/Temperatura por parada que ocorreu com a análise ativa).
+- Hipótese, evidência e como ler o diagnóstico: ver STATUS 0.26.15.
+- Ao mexer em qualidade de imagem no Retrato: a profundidade é **um modelo só** compartilhado (0.26.12, `DepthEstimator.shared`); a prévia com pessoa não usa profundidade (0.26.14, `LivePortraitPolicy`); nada disso altera a foto final.
+
+---
+
 # Etapa 0.26.14 (Claude) — prévia só-pessoa, pouca energia, IA sem carga inútil; fonte em validação
 
 - `core/LivePortraitPolicy` (+ `PortraitMaskAnalyzer`, só `!cinematic`), `core/DenoiseSkip` (+ `NcnnDenoiser`), `DepthRefreshPolicy.needed(maxAgeMs)`. Testes `LivePortraitPolicyTest`.

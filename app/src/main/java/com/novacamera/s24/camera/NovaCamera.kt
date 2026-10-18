@@ -202,6 +202,11 @@ class NovaCamera(
                 watchFrames = frames; watchSince = now
             } else if (capturing && stillLease.defersRecovery(now)) {
                 watchFrames = frames; watchSince = now
+            } else if (com.novacamera.s24.core.ModelLoadWindow.defersStall(now)) {
+                // Carga de modelo na GPU: aguarda (com limite) em vez de reabrir e desligar o desfoque.
+                if (frames == watchFrames) com.novacamera.s24.core.ModelLoadWindow.noteGap()
+                watchHasFrame = watchHasFrame || frames != watchStartFrames
+                watchFrames = frames; watchSince = now
             } else if (frames != watchFrames) {
                 watchHasFrame = frames != watchStartFrames
                 watchFrames = frames; watchSince = now
@@ -268,7 +273,8 @@ class NovaCamera(
         val line = String.format(Locale.US, "%s · %s · lente %s · zoom %.2f× · efeito=%s · análise=%s · versão %s",
             SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()), mode.label, currentLens?.routeKey ?: "?",
             equivalent(zoomOnLens), portraitEffect != null || videoEffect != null, portraitAnalysis != null,
-            runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?")
+            runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?") +
+            " · modelos: " + com.novacamera.s24.core.ModelLoadWindow.describe(nowMs)
         activePhotoTrace?.mark("sem CaptureResult após prazo limitado da rajada; recuperação solicitada")
         Log.w(TAG, "prévia parada: $line")
         com.novacamera.s24.core.StallLog.add(activity, line)
