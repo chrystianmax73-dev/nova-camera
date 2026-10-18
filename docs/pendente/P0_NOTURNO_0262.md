@@ -2,7 +2,7 @@
 
 Base HEAD79b2c328f58678741c5f3df0b9fcbacec2b807a2, CI39113294053 aprovado antes de modificar o app. Gradle offline local tentou executar e retornou command not found; validação real por Actions autorizada. Mesma branch codex/video-estabilidade-0-20, main/chave permanente preservadas.
 
-O dono confirmou a versão0.26.2 e forneceu duas fotos reais: enquadramento5x e Noturno. Arquivos recebidos1280×960 sem EXIF; referências visuais de pouca luminosidade/granulação na5x e granulação/cor na noturna. Lentes e enquadramentos diferentes: não são ensaio A/B. Nenhuma imagem pessoal enviada ao Git. Configuração de modo/alta resolução e apoio ainda não identificada com precisão (resposta “sim” a pergunta composta não permite inferir esses dados).
+O dono confirmou a versão0.26.2 e forneceu duas fotos reais: enquadramento5x e Noturno. Arquivos recebidos1280×960 sem EXIF; referências visuais de pouca luminosidade/granulação na5x e granulação/cor na noturna. Lentes e enquadramentos diferentes: não são ensaio A/B. Nenhuma imagem pessoal enviada ao Git. Em esclarecimento posterior, o dono confirmou Foto na5x e Noturno apoiado. Alta resolução não foi explicitamente confirmada na pergunta separada; conferir dimensão/plano no diagnóstico.
 
 Prioridades: confirmar5x óptico versus3x recortado; reduzir ruído sem apagar textura; aproveitar quadros/ISO; preservar atmosfera; foco/nitidez naturais; evitar60–79s. Não declarar alcance físico dessas metas apenas por testes sintéticos.
 
@@ -33,7 +33,7 @@ Plano manual recusado pela câmera volta a AE antes de disparar; não é anuncia
 
 ## Validação pendente no S24
 
-- Usar mesma cena5x/noturno, luz e temperatura inicial similares; registrar Foto versus Retrato, alta resolução e apoio.
+- Repetir Foto5x e Noturno apoiado, com mesma cena/luz/temperatura inicial similares; registrar alta resolução e plano efetivo.
 - Guardar JPEG original como arquivo/ZIP e diagnóstico inteiro. Imagens enviadas aqui não preservam EXIF: não é possível confirmar retroativamente a lente das duas fotos só por elas.
 - Conferir alvo/óptica/ID confirmado ou compatível, ISO/exposição efetivos e pedidos, quantos quadros foram aceitos e rejeitados, foco e retorno da prévia.
 - Comparar grão, textura, bordas, pele, folhas, cor ambiente, fantasmas e halos no mesmo tamanho; não transformar noite em dia.

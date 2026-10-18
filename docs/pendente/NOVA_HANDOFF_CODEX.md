@@ -4,7 +4,7 @@
 - Build assinado real **71**, run https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061 , job117661716743. A previsão70 abaixo era anterior: usar número real71; versionCode esperado1071. APK ainda NÃO confirmado.
 - Workflow original já restaurado em `fa14f24431363d36c4ba8ea7f12074b6d422afb0`, blob`a82bc113b2de207b7a3e9a9660cc19af520167ff`. Não disparar outro workflow/release.
 - Próximo passo exato: consultar o job39122820061, verificar testes/lint/JPEG200MP/modelos/assembleRelease/offlineDepth=True/certificado-versionCode/upload/publicação skipped. Só depois registrar artefato real/link/digest/tamanho/expiração emSTATUS e aqui, e enviar ao dono.
-- Nova correção foi reproduzida em teste real no servidor: ruído correlacionado estático RMS11,65 inalterado→6,27 com4/4 quadros aceitos; plano ISO/tempo inviável corrigido. Isso não valida qualidade/óptica/desempenho/térmica no S24. Fotos da0.26.2 são1280×960 semEXIF. Modo/altares/apoio ainda não esclarecidos; não inventar dados a partir da resposta ambígua “sim”. Detalhes, causas e texto para Claude abaixo/P0_NOTURNO_0262.md.
+- Nova correção foi reproduzida em teste real no servidor: ruído correlacionado estático RMS11,65 inalterado→6,27 com4/4 quadros aceitos; plano ISO/tempo inviável corrigido. Isso não valida qualidade/óptica/desempenho/térmica no S24. Fotos da0.26.2 são1280×960 semEXIF. Dono confirmou depois: Foto na5x e Noturno apoiado. Alta resolução não foi explicitamente esclarecida. Detalhes, causas e texto para Claude abaixo/P0_NOTURNO_0262.md.
 
 ---
 
