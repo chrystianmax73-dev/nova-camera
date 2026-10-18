@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private val quickVideoWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler)
     // Threads com nome: o bloco "CPU por thread" do diagnóstico precisa dizer quem consome.
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-ui-io") }
+    private val contourExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-contour") }
     private val sound = MediaActionSound()
 
     // Views
@@ -455,6 +456,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         quickVideoWarmup.cancel()
+        contourGeneration++
+        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release() }
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -504,6 +507,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.release()
         sound.release()
         io.shutdown()
+        contourExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -1521,6 +1525,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.selectCinematicSubject(x,y)
         lockChip.visibility = View.GONE
         overlay.showFocusAt(x, y)
+        showTapContour(x, y)
         if (settings.videoSubjectTracking && camera.mode in setOf(CaptureMode.VIDEO,CaptureMode.VIDEO_PRO,CaptureMode.RETRATO)) {
             if (camera.beginSubjectTracking()) {
                 selectedTrackingEpoch = camera.trackingEpoch
@@ -1532,6 +1537,25 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             hint.show("Acompanhamento indisponível com estes controles; foco por toque", 2400)
         }
         camera.focusAt(x, y, lock = false)
+    }
+
+    /**
+     * Contorno ao toque (MagicTouch): uma inferência por toque na prévia reduzida, fora da thread da
+     * interface. Toques seguidos descartam o anterior. Não muda foco, foto ou rastreio: só mostra.
+     */
+    private var contourGeneration = 0
+    private fun showTapContour(x: Float, y: Float) {
+        overlay.clearContour()
+        if (!settings.tapContour || camera.isRecording || camera.mode.isPro || preview.width <= 0) return
+        val frame = runCatching { preview.bitmap }.getOrNull() ?: return
+        val gen = ++contourGeneration
+        val nx = x / preview.width; val ny = y / preview.height
+        contourExecutor.execute {
+            val r = runCatching { com.novacamera.s24.processing.ContourSegmenter.contour(this, frame, nx, ny, Nova.ACCENT_SOFT) }
+                .onFailure { com.novacamera.s24.core.CrashLog.record(this, "contorno (não fatal)", it) }.getOrNull()
+            frame.recycle()
+            if (r != null) runOnUiThread { if (gen == contourGeneration && !isDestroyed) overlay.showContour(r) }
+        }
     }
 
     override fun onLongPress(x: Float, y: Float) {

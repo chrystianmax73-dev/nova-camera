@@ -204,6 +204,8 @@ class SettingsActivity : NovaScreen() {
             { settings.autoBacklight }, { settings.autoBacklight = it })
         switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
             { settings.facePriority }, { settings.facePriority = it })
+        switch("Contorno ao tocar", "Ao tocar num assunto, desenha o contorno dele por um instante (modelo MagicTouch, no aparelho, " +
+            "um cálculo por toque). Objetos pequenos ou distantes não recebem contorno.", { settings.tapContour }, { settings.tapContour = it })
         switch("Mostrar rostos", "Marca discretamente os rostos que o próprio sensor detectou. Só aparece o que a câmera confirmou.",
             { settings.showFaces }, { settings.showFaces = it })
         val holds = listOf(4, 8, 0)

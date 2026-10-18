@@ -52,6 +52,30 @@ class ViewfinderOverlay(context: Context) : View(context) {
     private val histClipPaint = Paint().apply { color = 0xFFFF5252.toInt(); style = Paint.Style.FILL }
     private val levelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
 
+    /** Contorno do assunto tocado (MagicTouch), em coordenadas da prévia inteira; some sozinho. */
+    private var contour: android.graphics.Bitmap? = null
+    private var contourAt = 0L
+    private val contourPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val contourDst = android.graphics.RectF()
+    fun showContour(r: com.novacamera.s24.core.ContourMask.Result) {
+        contour?.recycle()
+        contour = android.graphics.Bitmap.createBitmap(r.edge, r.w, r.h, android.graphics.Bitmap.Config.ARGB_8888)
+        contourAt = android.os.SystemClock.uptimeMillis()
+        invalidate()
+    }
+    fun clearContour() { contour?.recycle(); contour = null; invalidate() }
+    private fun drawContour(canvas: Canvas) {
+        val bmp = contour ?: return
+        val age = android.os.SystemClock.uptimeMillis() - contourAt
+        if (age > CONTOUR_MS) { clearContour(); return }
+        // Visível ~1 s e some em 0,6 s: confirma o que foi entendido, sem ficar sobre a cena.
+        val fade = if (age < CONTOUR_MS - 600) 1f else (CONTOUR_MS - age) / 600f
+        contourPaint.alpha = (255 * fade).toInt()
+        contourDst.set(0f, 0f, width.toFloat(), height.toFloat())
+        canvas.drawBitmap(bmp, null, contourDst, contourPaint)
+        postInvalidateOnAnimation()
+    }
+
     var trackedSubject: com.novacamera.s24.core.SubjectTracker.Result? = null
         set(value) { field = value; invalidate() }
     /** Rostos confirmados pelo sensor (px desta view). Discretos; somem enquanto há um assunto escolhido. */
@@ -295,6 +319,7 @@ class ViewfinderOverlay(context: Context) : View(context) {
             aid = null; horizon = null
             com.novacamera.s24.core.CrashLog.record(context, "visor (não fatal)", e)
         }
+        drawContour(canvas)
         if (showGrid) {
             for (i in 1..2) {
                 val x = width * i / 3f
@@ -385,4 +410,6 @@ class ViewfinderOverlay(context: Context) : View(context) {
             canvas.drawLine(x + c * dp(6.8f), y + s * dp(6.8f), x + c * dp(9f), y + s * dp(9f), linePaint)
         }
     }
+
+    private companion object { const val CONTOUR_MS = 1600L }
 }

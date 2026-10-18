@@ -1,3 +1,8 @@
+# Etapa 0.28.0 (Claude) — pendentes da reformulação, branch `claude/nova-interface`
+- Arquivos meus nesta etapa: `core/ContourMask.kt`, `processing/ContourSegmenter.kt`, `assets/magic_touch.tflite`, `ui/LiveControls.kt` (rótulo f/), `ui/ViewfinderOverlay.kt` (contorno), modo CINEMA (`core/Modes.kt`, `NovaCamera.setMode/cinemaMode`), HDR de vídeo e recusa 4K/60 (`NovaCamera` bloco de vídeo, `NovaSettings.videoRefused/videoHdr`).
+- **Toca em imagem (atenção Codex):** (1) `autoVideoFps` agora 15–60 a 60 fps no escuro; (2) "Fundo escuro" do Retrato multiplica o fundo na foto final (depois do desfoque, antes do estilo). Ambos opcionais/ajustáveis; nada mudou no Noturno, tom, assinatura ou processamento da Foto.
+- Corrigido bug do `onTrimMemory` (UI_HIDDEN cancelava acabamento do vídeo).
+
 # Etapa 0.27.4 (Claude) — zoom do disparador em degraus, branch `claude/nova-interface`
 - `core/ShutterZoom.kt` (meu): arraste do disparador anda em degraus da escada (paradas + inteiros), cada degrau via `NovaCamera.zoomTo(z, allowLensSwitch = false)`. `MainActivity` (onZoomStart/onZoom do disparador) só chama isso. Barra/pinça/`zoomFollow` inalterados. Sem efeito em imagem.
 
