@@ -4,7 +4,7 @@
 - Prévia MediaPipe extrai só pessoa/fundo: elimina três planos Kotlin descartados (fundo intermediário/cabelo/rosto). Mesma aritmética/pixels de pessoa; foto final mantém caminho completo, rede/delegate/entrada e refino. Carga/entrada/chamada/extração e profundidade/cópias agora separadas no diagnóstico; não muda backend sem benchmarkS24.
 - GL recebe só a última máscara pendente; prazo cinematográfico750ms conta desde análise, sem renovar ao chegar à textura. Entrada nova invalida máscara/temporal/calibração antigas. Limpeza substitui upload pendente. Calibração e desfoque válidos preservados.
 - Fotografia registra callback/timeout/sucessoAF e intervalos dos timestamps dos oito buffers, separados do atraso de entrega. Marca inicial usa mesmo relógio do ShotTimer. Protege segundo disparo durante AF/rajada; libera após aquisição como antes, não espera terminar o processamento. Alta resolução8quadros/outScale2 e algoritmos preservados.
-- **CI/APK desta revisão ainda pendentes. Sem comparação física de latência, detalhe, taxaSR, GPU ou energia nesta sessão.** Não afirmar aceleração significativa/economia comprovada. Roteiro A/B inclui repetição/controle térmico, qualidade real e origem dos tempos. Nenhuma assinaturaAndroid, permissão, modelo/dependência ou mídia pessoal alterada.
+- **Fonte3634fe0 aprovada em assembleDebug/testDebugUnitTest/lintDebug no Actions39085985023. APK assinado ainda em preparação. Sem comparação física de latência, detalhe, taxaSR, GPU ou energia nesta sessão.** Não afirmar aceleração significativa/economia comprovada. Roteiro A/B inclui repetição/controle térmico, qualidade real e origem dos tempos. Nenhuma assinaturaAndroid, permissão, modelo/dependência ou mídia pessoal alterada.
 
 ---
 
