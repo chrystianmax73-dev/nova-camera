@@ -2199,10 +2199,12 @@ class NovaCamera(
     private val selectedVideoFps get() = if(portraitProfile) 30 else settings.videoFps
     private val selectedVideoStabilization get() = if(portraitProfile) false else settings.videoStabilization
     val cinematicRequested get() = com.novacamera.s24.core.CinematicPolicy.enabled(settings.cinematicVideo,portraitVideoSession,commonVideoChosen)
-    val cinematicUnavailableReason get() = if (!cinematicBound) null else
-        com.novacamera.s24.core.CinematicPolicy.unavailableReason(heat?.thermalStatus ?: 0,
+    val cinematicUnavailableReason get() = if (!cinematicBound) {
+        if(cinematicRequested) "Cinematográfico indisponível nesta sessão; nenhum vídeo com desfoque será iniciado" else null
+    } else com.novacamera.s24.core.CinematicPolicy.unavailableReason(heat?.thermalStatus ?: 0,
             com.novacamera.s24.processing.VideoFinishJob.state.running, portraitEffect?.maskReady==true)
-    val cinematicReady get() = !cinematicBound || cinematicUnavailableReason==null
+    val cinematicReady get() = com.novacamera.s24.core.CinematicPolicy.canStart(cinematicRequested,cinematicBound,cinematicUnavailableReason==null)
+    val portraitVideoThermallyBlocked get() = settings.cinematicVideo && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicThermallyBlocked get() = cinematicRequested && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicDiagnostic get() = when {
         commonVideoChosen && settings.cinematicVideo -> "cinematográfico dispensado por escolha nesta sessão"

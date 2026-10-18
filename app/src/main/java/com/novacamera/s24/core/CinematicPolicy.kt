@@ -5,6 +5,7 @@ import kotlin.math.hypot
 
 object CinematicPolicy {
     /** Vídeo normal jamais abre profundidade, mesmo com a preferência do Retrato ligada. */
+    fun canStart(requested:Boolean,bound:Boolean,maskUsable:Boolean) = (!requested && !bound) || (bound && maskUsable)
     fun enabled(preference:Boolean,portraitOrigin:Boolean,commonChosen:Boolean) = preference && portraitOrigin && !commonChosen
     fun profile(width:Int,height:Int,fps:Int,stabilized:Boolean=false) = !stabilized && minOf(width,height)==1080 && maxOf(width,height)==1920 && fps==30
     /** Calor severo bloqueia inferência; aguardar máscara nessa condição não resolve. */

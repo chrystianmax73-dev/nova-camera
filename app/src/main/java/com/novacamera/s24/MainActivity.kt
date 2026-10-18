@@ -920,6 +920,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun beginQuickRecording(): Boolean {
         if (!camera.ready || shutter.busy || countdown > 0 || quickReturnMode != null ||
             camera.mode !in setOf(CaptureMode.FOTO, CaptureMode.RETRATO)) return false
+        if(camera.mode==CaptureMode.RETRATO && camera.portraitVideoThermallyBlocked) {
+            hint.show("Vídeo cinematográfico do Retrato pausado pelo calor. Use Vídeo comum ou aguarde esfriar",4500)
+            return false
+        }
         if(camera.mode==CaptureMode.RETRATO && settings.cinematicVideo && !settings.portraitVideoProfileAccepted) {
             android.app.AlertDialog.Builder(this).setTitle("Vídeo cinematográfico do Retrato")
                 .setMessage("Usar Full HD/30 fps, sem EIS, neste modo? O Vídeo normal manterá ${settings.videoQuality.label}/${settings.videoFps} fps e sua estabilização. O efeito exige máscara atual e é experimental nas duas câmeras.")
