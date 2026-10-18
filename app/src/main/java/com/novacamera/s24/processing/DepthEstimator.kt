@@ -53,18 +53,25 @@ object DepthEstimator {
     }
 
     /** Modelo carregado uma vez (prévia ao vivo do Retrato); [close] obrigatório. */
-    class Session private constructor(private val handle: Long) : java.io.Closeable {
+    class Session private constructor(private val handle: Long,val loadMs:Long) : java.io.Closeable {
         val gpu = nativeUsesGpu(handle)
         @Volatile private var closed = false
         private val out = FloatArray(SIZE * SIZE)
+        var prepareMs=0L;private set
+        var nativeMs=0L;private set
+        var resultMs=0L;private set
 
         @Synchronized
         fun run(photo: Bitmap): Plane? {
             if (closed) return null
+            val start=SystemClock.elapsedRealtime()
             val input = Bitmap.createScaledBitmap(photo, SIZE, SIZE, true)
+            val beforeNative=SystemClock.elapsedRealtime();prepareMs=beforeNative-start
             try {
                 val ok = nativeRun(handle, input, out)
-                return if (ok && out.any { it.isFinite() && it != out[0] }) Plane(SIZE, SIZE, out.copyOf()) else null
+                val afterNative=SystemClock.elapsedRealtime();nativeMs=afterNative-beforeNative
+                return (if (ok && out.any { it.isFinite() && it != out[0] }) Plane(SIZE, SIZE, out.copyOf()) else null)
+                    .also { resultMs=SystemClock.elapsedRealtime()-afterNative }
             } finally { if (input !== photo) input.recycle() }
         }
 
@@ -74,8 +81,9 @@ object DepthEstimator {
         companion object {
             fun open(context: Context): Session? {
                 if (!available(context)) return null
+                val at=SystemClock.elapsedRealtime()
                 val h = nativeLoad(context.assets, PARAM, BIN, true)
-                return if (h == 0L) null else Session(h)
+                return if (h == 0L) null else Session(h,SystemClock.elapsedRealtime()-at)
             }
         }
     }

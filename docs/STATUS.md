@@ -1,3 +1,13 @@
+# 0.25.3 — extração leve da prévia e máscaras com idade real
+
+- Etapas0.25.1/0a2d1bb e0.25.2/b814212 aprovadas em assembleDebug/testDebugUnitTest/lintDebug nos Actions39085319391 e39085617083. Primeira0.25.1 falhou em expectativa legada de mA, corrigida conforme unidade da API, sem remover testes. Base, auditoria, fontes e limites em P0_DESEMPENHO_BASELINE.md e P0_DESEMPENHO_RESULTADOS.md.
+- Prévia MediaPipe extrai só pessoa/fundo: elimina três planos Kotlin descartados (fundo intermediário/cabelo/rosto). Mesma aritmética/pixels de pessoa; foto final mantém caminho completo, rede/delegate/entrada e refino. Carga/entrada/chamada/extração e profundidade/cópias agora separadas no diagnóstico; não muda backend sem benchmarkS24.
+- GL recebe só a última máscara pendente; prazo cinematográfico750ms conta desde análise, sem renovar ao chegar à textura. Entrada nova invalida máscara/temporal/calibração antigas. Limpeza substitui upload pendente. Calibração e desfoque válidos preservados.
+- Fotografia registra callback/timeout/sucessoAF e intervalos dos timestamps dos oito buffers, separados do atraso de entrega. Marca inicial usa mesmo relógio do ShotTimer. Protege segundo disparo durante AF/rajada; libera após aquisição como antes, não espera terminar o processamento. Alta resolução8quadros/outScale2 e algoritmos preservados.
+- **CI/APK desta revisão ainda pendentes. Sem comparação física de latência, detalhe, taxaSR, GPU ou energia nesta sessão.** Não afirmar aceleração significativa/economia comprovada. Roteiro A/B inclui repetição/controle térmico, qualidade real e origem dos tempos. Nenhuma assinaturaAndroid, permissão, modelo/dependência ou mídia pessoal alterada.
+
+---
+
 # 0.25.2 — custo do compositor e trabalho GL redundante
 
 - Etapa anterior0.25.1 corrigida aprovada em assembleDebug/testDebugUnitTest/lintDebug no Actions39085319391 (0a2d1bb). Falha histórica39084985949 preservada abaixo.

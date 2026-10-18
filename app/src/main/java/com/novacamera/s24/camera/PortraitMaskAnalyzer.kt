@@ -43,6 +43,9 @@ class PortraitMaskAnalyzer(
     private var segmenter: PersonSegmenter.Live? = null
     private var depth: DepthEstimator.Session? = null
     private var depthFailed = false
+    private val createdAt=SystemClock.uptimeMillis()
+    private var delivered=0L
+    private var analyzed=0L
     private var lastSeg = 0L
     private var lastDepth = 0L
     private val depthBudget=com.novacamera.s24.core.DepthDutyBudget()
@@ -60,7 +63,9 @@ class PortraitMaskAnalyzer(
     override fun analyze(image: ImageProxy) {
         var cameraClosed=false
         val analysisStarted=SystemClock.uptimeMillis()
-        var sampled=false;var copyMs=0L;var segmentMs=0L
+        val frameAt=SystemClock.elapsedRealtime()
+        delivered++
+        var sampled=false;var copyMs=0L;var segmentMs=0L;var transformMs=0L
         var ownedFull:Bitmap?=null;var ownedSmall:Bitmap?=null;var ownedUpright:Bitmap?=null
         try {
             if (closed) return
@@ -93,11 +98,12 @@ class PortraitMaskAnalyzer(
             val rot = image.imageInfo.rotationDegrees
             val selectedTap=tapInImage(image,rot)
             cameraClosed=true
-            sampled=true
+            sampled=true;analyzed++
             val copyStart=SystemClock.uptimeMillis()
             val full = com.novacamera.s24.core.FrameSnapshot.readAndClose(image) { image.toBitmap() }.also { ownedFull=it }
             copyMs=SystemClock.uptimeMillis()-copyStart
             // Reduz antes de girar: o modelo de pessoa vê 256 px e a máscara final tem 128 px.
+            val transformAt=SystemClock.uptimeMillis()
             val s = 256f / max(full.width, full.height)
             val small = Bitmap.createScaledBitmap(full, max(1, (full.width * s).roundToInt()), max(1, (full.height * s).roundToInt()), true).also { ownedSmall=it }
             if (small !== full) full.recycle()
@@ -105,6 +111,7 @@ class PortraitMaskAnalyzer(
             val upright = if (rot % 360 == 0) small else
                 Bitmap.createBitmap(small, 0, 0, small.width, small.height, Matrix().apply { postRotate(rot.toFloat()) }, true)
             ownedUpright=upright
+            transformMs=SystemClock.uptimeMillis()-transformAt
 
             if (cinematic) {
                 if(sceneGuard.moved(lumaGrid(upright),selectedTap)) {
@@ -115,7 +122,7 @@ class PortraitMaskAnalyzer(
             val segmentStart=SystemClock.uptimeMillis()
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
             segmentMs=SystemClock.uptimeMillis()-segmentStart
-            if(closed)return
+            if(closed || (!cinematic && captureBusy()))return
 
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
             val depthEvery = when {
@@ -130,7 +137,7 @@ class PortraitMaskAnalyzer(
                 try { session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) } }
                 finally { depthBudget.completed(started,SystemClock.uptimeMillis()) }
             }
-            if(closed)return
+            if(closed || (!cinematic && captureBusy()))return
             if (upright !== small) upright.recycle()
             small.recycle()
 
@@ -160,7 +167,7 @@ class PortraitMaskAnalyzer(
                 bytes[2 * i] = (bs.data[i].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
                 bytes[2 * i + 1] = (ba.data[i].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
             }
-            effect.updateMask(bytes, bs.w, bs.h)
+            effect.updateMask(bytes, bs.w, bs.h,frameAt)
             state(if (effect.needsCalibration) "Ajustando a prévia do desfoque…" else if(cinematic) if(d!=null) "Cinematográfico experimental · profundidade estimada" else "Cinematográfico · máscara de pessoa, sem profundidade" else null)
         } catch (e: Throwable) {
             Log.w(TAG, "máscara da prévia falhou", e)
@@ -170,7 +177,10 @@ class PortraitMaskAnalyzer(
             if(!cameraClosed) image.close()
             if(sampled && metricsToken==metricsGeneration.get()) {
                 report="Análise ao vivo do Retrato (${if(cinematic) "vídeo" else "foto"}): ${if(closed) "inativa" else "em sessão"}" +
-                    " · última cópia/liberação=${copyMs}ms · segmentação=${segmentMs}ms · total=${SystemClock.uptimeMillis()-analysisStarted}ms" +
+                    " · entregues/analisados=$delivered/$analyzed em${SystemClock.uptimeMillis()-createdAt}ms (inclui pausas) · cópia/liberação=${copyMs}ms · escala/giro/calibração=${transformMs}ms · segmentação=${segmentMs}ms · total=${SystemClock.uptimeMillis()-analysisStarted}ms" +
+                    " · pessoa CPU carga=${segmenter?.loadMs}ms, entrada/nativa/extração=${segmenter?.inputMs}/${segmenter?.nativeMs}/${segmenter?.extractionMs}ms" +
+                    " · profundidade backend=${depth?.let { if(it.gpu) "Vulkan solicitado" else "CPU" }} carga=${depth?.loadMs}ms" +
+                    " entrada/nativa-com-cópias/resultado=${depth?.prepareMs}/${depth?.nativeMs}/${depth?.resultMs}ms" +
                     " · última profundidade/carga=${depthBudget.lastCostMs}ms · máscara atual=${!closed && effect.maskReady}" +
                     " · estado=${lastState ?: "ok"}. Não mede GPU, autonomia ou pixels do MP4."
             }

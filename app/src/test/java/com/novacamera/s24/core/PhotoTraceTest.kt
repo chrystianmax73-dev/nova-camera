@@ -2,6 +2,15 @@ package com.novacamera.s24.core
 import org.junit.Assert.*
 import org.junit.Test
 class PhotoTraceTest {
+    @Test fun intervaloDosBuffersNaoConfundeAtrasoDoCallbackComCadencia() {
+        val a=PhotoTrace("oito")
+        repeat(8){a.sensor(1000000000L+it*33333333L)}
+        a.publish("fim")
+        assertTrue(PhotoTrace.report().contains("buffer8: intervalo=33.3ms"))
+        a.sensor(1);a.publish("não monotônico")
+        assertTrue(PhotoTrace.report().contains("buffer9: intervalo=não comparável/primeiro"))
+    }
+
     @Test fun correlacionaRajadaFilaEProcessamentoSemMisturarDisparos() {
         var t=0L
         val a=PhotoTrace("Retrato8",{t});a.mark("AF")

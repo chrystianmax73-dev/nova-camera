@@ -54,10 +54,35 @@ object PersonSegmenter {
     }
 
     /** Segmentador mantido aberto para a prévia ao vivo do Retrato (uma chamada por quadro analisado). */
+    class LiveResult(val person:Plane,val coverage:Float)
     class Live(context: Context) : java.io.Closeable {
+        private val loadedAt=android.os.SystemClock.elapsedRealtime()
         private val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options())
-        fun segment(frame: Bitmap): Result = run(segmenter, frame, 256)
+        val loadMs=android.os.SystemClock.elapsedRealtime()-loadedAt
+        var inputMs=0L;private set
+        var nativeMs=0L;private set
+        var extractionMs=0L;private set
+        fun segment(frame: Bitmap): LiveResult {
+            val before=android.os.SystemClock.elapsedRealtime()
+            return withOwnedInput(frame,256) { image ->
+                val nativeAt=android.os.SystemClock.elapsedRealtime();inputMs=nativeAt-before
+                val masks=segmenter.segment(image).confidenceMasks().get()
+                val extractAt=android.os.SystemClock.elapsedRealtime();nativeMs=extractAt-nativeAt
+                try {
+                    // A prévia só usa pessoa/fundo. Cabelo e rosto completos continuam na foto final.
+                    val bg=masks[BACKGROUND]
+                    val person=personFromBackground(ByteBufferExtractor.extract(bg).order(ByteOrder.nativeOrder()).asFloatBuffer(),bg.width,bg.height)
+                    LiveResult(person,person.data.count { it>0.5f }/person.data.size.toFloat())
+                } finally { masks.forEach { it.close() };extractionMs=android.os.SystemClock.elapsedRealtime()-extractAt }
+            }
+        }
         override fun close() = segmenter.close()
+    }
+
+    /** Mesma aritmética de 1−fundo, diretamente no plano final: sem três planos descartados. */
+    internal fun personFromBackground(bg:java.nio.FloatBuffer,w:Int,h:Int):Plane {
+        bg.rewind()
+        return Plane(w,h,FloatArray(w*h) { 1f-bg.get().coerceIn(0f,1f) })
     }
 
     /** MPImage toma posse do Bitmap: fechar uma imagem emprestada reciclaria o quadro do chamador. */

@@ -1722,6 +1722,7 @@ class NovaCamera(
     // ------------------------------------------------------------------ foto
 
     fun capturePhoto() {
+        if(capturing)return listener.onMessage("Concluindo a aquisição da foto anterior")
         if(nativeRun!=null)return
         if(nativePhotoSelected) return captureNativePhoto()
         val ic = imageCapture ?: return listener.onMessage("A câmera ainda não está pronta")
@@ -1917,7 +1918,8 @@ class NovaCamera(
      * O obturador fica livre assim que os quadros chegam; o processamento não bloqueia a câmera.
      */
     private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind, shot: ShotTimer? = null) {
-        val trace=com.novacamera.s24.core.PhotoTrace("${initialKind.label} · ${equivalent(zoomOnLens)}×")
+        val trace=com.novacamera.s24.core.PhotoTrace("${initialKind.label} · ${equivalent(zoomOnLens)}×",
+            { android.os.SystemClock.elapsedRealtimeNanos() },shot?.tap)
         var kind=initialKind
         if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: processando as fotos anteriores")
         val cam = camera ?: return
@@ -1986,6 +1988,7 @@ class NovaCamera(
         val baseEv = appliedEv()
         trace.mark("plano ${steps.size} quadros/outScale$outScale/SR$srFactor")
         capturing = true
+        trace.publish("aquisição em andamento")
         ic.targetRotation = targetRotation
 
         fun submit() {
@@ -2018,12 +2021,14 @@ class NovaCamera(
                             trace.mark("entrega quadro${i+1}")
                             cameraImageClosed=true
                             val frame=com.novacamera.s24.core.FrameSnapshot.readAndClose(image) {
+                                trace.sensor(image.imageInfo.timestamp)
                                 val rotation=image.imageInfo.rotationDegrees
                                 val crop=android.graphics.Rect(image.cropRect)
                                 val buffer=image.planes[0].buffer
                                 CapturedFrame(ByteArray(buffer.remaining()).also { buffer.get(it) },rotation,crop,baseEv+steps[i])
                             }
                             trace.mark("cópia/liberação quadro${i+1} (${frame.jpeg.size}bytes)")
+                            trace.publish("aquisição ${i+1}/${steps.size}")
                             val bytes=frame.jpeg
                             frames += frame
                             if(i==0) {
@@ -2133,12 +2138,12 @@ class NovaCamera(
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
             manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE)
         trace.mark("AF solicitado ${plan.target} limite${plan.waitMs}ms")
-        focusBeforeBurst(cam, plan) { trace.mark("AF liberou aquisição"); zoomOut() }
+        focusBeforeBurst(cam, plan,trace) { trace.mark("AF liberou aquisição"); zoomOut() }
     }
 
     private var burstFocusHeld = false
 
-    private fun focusBeforeBurst(cam: Camera, plan: com.novacamera.s24.core.FocusPolicy.BeforeBurst, then: () -> Unit) {
+    private fun focusBeforeBurst(cam: Camera, plan: com.novacamera.s24.core.FocusPolicy.BeforeBurst, trace:com.novacamera.s24.core.PhotoTrace, then: () -> Unit) {
         val action = when (plan.target) {
             com.novacamera.s24.core.FocusPolicy.Target.NONE -> null
             com.novacamera.s24.core.FocusPolicy.Target.POINT -> userPoint?.let {
@@ -2147,9 +2152,9 @@ class NovaCamera(
                 previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
                 FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
         }
-        if (action == null || !cam.cameraInfo.isFocusMeteringSupported(action)) return then()
+        if (action == null || !cam.cameraInfo.isFocusMeteringSupported(action)) { trace.mark("AF dispensado/não suportado");return then() }
         var done = false
-        val go = { if (!done) { done = true; then() } }
+        val go = { reason:String -> if (!done) { done = true; trace.mark(reason);then() } }
         // Novo ciclo do ponto: os retornos ao automático agendados pelo toque antigo deixam de valer.
         val token = if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT) ++focusToken else focusToken
         burstFocusHeld = plan.target == com.novacamera.s24.core.FocusPolicy.Target.CENTER
@@ -2160,9 +2165,10 @@ class NovaCamera(
                 // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
                 userPoint?.let { scheduleFocusRelease(token, it) }
             }
-            go()
+            val result=runCatching { future.get().isFocusSuccessful }.getOrNull()
+            go("AF callback: sucesso=$result")
         }, main)
-        handler.postDelayed({ go() }, plan.waitMs)
+        handler.postDelayed({ go("AF limite de espera") }, plan.waitMs)
     }
 
     /** Depois da rajada: sem ponto do usuário, AF volta ao contínuo. */
@@ -2180,7 +2186,7 @@ class NovaCamera(
 
     /** Mede um disparo a partir do toque (ver [ShutterLog]). */
     private inner class ShotTimer(ic: ImageCapture) {
-        private val tap = android.os.SystemClock.elapsedRealtimeNanos()
+        val tap = android.os.SystemClock.elapsedRealtimeNanos()
         private val mode = if (activeExtension != ExtensionMode.NONE) "extensão do fabricante" else captureModeLabel(ic.captureMode)
         @Volatile private var start: Long? = null
         fun started() { start = (android.os.SystemClock.elapsedRealtimeNanos() - tap) / 1_000_000L }

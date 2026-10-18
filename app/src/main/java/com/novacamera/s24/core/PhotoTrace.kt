@@ -4,15 +4,22 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /** Tempos wall por disparo; não são tempo de GPU nem comparação de qualidade. Sem imagens. */
-class PhotoTrace(val label:String, private val clock:()->Long = { System.nanoTime() }) {
+class PhotoTrace(val label:String, private val clock:()->Long = { System.nanoTime() },originNs:Long?=null) {
     val id=sequence.incrementAndGet()
-    private val start=clock()
+    private val start=originNs ?: clock()
     private val events=ArrayList<String>()
     private var previous=start
+    private var previousSensor:Long?=null
+    private var sensorFrames=0
     @Synchronized fun mark(name:String) {
         val now=clock()
         if(events.size<80)events += "$name@${ms(now-start)}ms(+${ms(now-previous)})"
         previous=now
+    }
+    @Synchronized fun sensor(timestampNs:Long) {
+        val old=previousSensor;sensorFrames++;previousSensor=timestampNs
+        if(events.size<80)events += "timestamp buffer$sensorFrames: intervalo="+
+            (if(old!=null && timestampNs>old) ms(timestampNs-old)+"ms" else "não comparável/primeiro")
     }
     fun <T> measure(name:String,block:()->T):T {
         val at=clock()

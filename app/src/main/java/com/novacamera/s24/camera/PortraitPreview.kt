@@ -58,7 +58,7 @@ class PortraitPreviewEffect private constructor(
         set(v) { processor.tone = v.tone; processor.warmth = v.warmth }
 
     /** Máscara em coordenadas do buffer da câmera (linha 0 = topo do quadro da análise). */
-    fun updateMask(mask: ByteArray, w: Int, h: Int) = processor.postMask(mask, w, h)
+    fun updateMask(mask: ByteArray, w: Int, h: Int,atMs:Long=android.os.SystemClock.elapsedRealtime()) = processor.postMask(mask, w, h,atMs)
 
     /** Luminância 32×24 do quadro da análise, para descobrir a orientação da máscara (uma vez). */
     fun offerCalibration(luma: FloatArray) = processor.offerCalibration(luma)
@@ -156,6 +156,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
             surfaceTexture?.release(); if (oesTex != 0) GLES20.glDeleteTextures(1, intArrayOf(oesTex), 0)
             surfaceTexture = st; oesTex = tex; inputSize = request.resolution
             needsCalibration = true
+            hasMask=false;maskBlend=0f;maskAt=0L;pendingCalibration=null
             signatureInput=null;signatureRevision++
             request.setTransformationInfoListener(executor) { info ->
                 if(!released && surfaceTexture===st) {
@@ -190,9 +191,25 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         outputs += Out(surfaceOutput, egl, surfaceOutput.size)
     }
 
-    fun postMask(mask: ByteArray?, w: Int, h: Int) = handler.post {
-        if (released || display == EGL14.EGL_NO_DISPLAY) return@post
-        if (mask == null) { hasMask = false; return@post }
+    private data class MaskUpdate(val bytes:ByteArray?,val w:Int,val h:Int,val atMs:Long)
+    private val pendingMask=com.novacamera.s24.core.LatestPending<MaskUpdate>()
+    fun postMask(mask: ByteArray?,w:Int,h:Int,atMs:Long=android.os.SystemClock.elapsedRealtime()) {
+        if(released)return
+        if(pendingMask.offer(MaskUpdate(mask,w,h,atMs))) {
+            if(!handler.post { pendingMask.take()?.let { update ->
+                try { uploadMask(update) } catch(e:Exception) { fatal(e) }
+            } })pendingMask.take()
+        }
+    }
+
+    private fun uploadMask(update:MaskUpdate) {
+        if (released || display == EGL14.EGL_NO_DISPLAY) return
+        val mask=update.bytes;val w=update.w;val h=update.h
+        if (mask == null) { hasMask = false; return }
+        // A fila GL não renova a validade de uma análise antiga.
+        if(expireMasks && !com.novacamera.s24.core.CinematicPolicy.fresh(android.os.SystemClock.elapsedRealtime(),update.atMs)) {
+            hasMask=false;return
+        }
         makeCurrent(pbuffer)
         if (maskTex == 0) {
             maskTex = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }[0]
@@ -211,7 +228,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         metrics.maskUploadBytes+=mask.size
         metrics.record(com.novacamera.s24.core.GlPerformance.UPLOAD,System.nanoTime()-uploadAt)
         hasMask = !needsCalibration
-        maskAt = android.os.SystemClock.elapsedRealtime()
+        maskAt = update.atMs
     }
 
     fun offerCalibration(luma: FloatArray) = handler.post { if (!released && needsCalibration) pendingCalibration = luma }
