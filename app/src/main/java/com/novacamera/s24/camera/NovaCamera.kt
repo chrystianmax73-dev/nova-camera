@@ -1677,6 +1677,7 @@ class NovaCamera(
                         optical.get(CaptureResult.SENSOR_EXPOSURE_TIME),optical.get(CaptureResult.CONTROL_AF_STATE),
                         optical.get(CaptureResult.CONTROL_AE_STATE),optical.get(CaptureResult.CONTROL_AWB_STATE))
                     synchronized(stillResults) { stillResults[timestamp]=sensor;while(stillResults.size>16)stillResults.remove(stillResults.keys.first()) }
+                    activePhotoTrace?.mark("sensor foto timestamp=$timestamp · físico=$physical · focal=${sensor.focalMm}mm · ISO=${sensor.iso} · exposição=${sensor.exposureNs}ns · AF/AE/AWB=${sensor.af}/${sensor.ae}/${sensor.awb}")
                 }
             }
             statsCallback.onCaptureCompleted(session,request,result)
@@ -2073,6 +2074,8 @@ class NovaCamera(
                                 val buffer=image.planes[0].buffer
                                 CapturedFrame(ByteArray(buffer.remaining()).also { buffer.get(it) },rotation,crop,baseEv+steps[i])
                             }
+                            trace.mark("cópia/liberação quadro${i+1} (${snapshot.jpeg.size}bytes)")
+                            val metadataAt=android.os.SystemClock.elapsedRealtimeNanos()
                             val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(snapshot.jpeg))
                             val jpegFocal=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH,0.0).toFloat().takeIf{it>0f}
                             val jpegEq=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,0.0).toFloat().takeIf{it>0f}
@@ -2080,7 +2083,7 @@ class NovaCamera(
                             val audit=com.novacamera.s24.core.CaptureOptics.evaluate(captureZoom,captureRoute,jpegFocal,jpegEq,sensor,captureLenses)
                             val frame=CapturedFrame(snapshot.jpeg,snapshot.rotationDegrees,snapshot.crop,snapshot.evIndex,audit)
                             trace.mark("quadro${i+1}: ${audit.report()}")
-                            trace.mark("cópia/liberação quadro${i+1} (${frame.jpeg.size}bytes)")
+                            trace.mark("metadados quadro${i+1}: ${(android.os.SystemClock.elapsedRealtimeNanos()-metadataAt)/1_000_000}ms")
                             trace.publish("aquisição ${i+1}/${steps.size}")
                             val bytes=frame.jpeg
                             frames += frame
