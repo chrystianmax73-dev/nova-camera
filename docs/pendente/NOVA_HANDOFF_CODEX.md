@@ -1,3 +1,13 @@
+# APK0.25.0 em geração — próximo passo é confirmar entrega
+
+- Fonte app503ded4df96674375121873f1f9ce387688feb18 **aprovada** em assembleDebug/testDebugUnitTest/lintDebug no [39082782966](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39082782966). Sem alterações de app posteriores.
+- **Build67/1067 em execução**, ainda sem APK confirmado: [Actions39083102925](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39083102925), fonte e8ea4f2a220fda25272f6704bf01a1c4ef8a9261. Gatilho temporário já restaurado em7e10473755fd98f5bbec15199897d73999d9b4f0 (blob originala82bc113b2de207b7a3e9a9660cc19af520167ff). Publicação deve ficar skipped. Não disparar outro build sem necessidade nem publicar release.
+- Próximo passo exato: consultar jobs/run39083102925, confirmar testes/lint/JPEG200MP/modelos NAFNet eDepth/assembleRelease/pesos/certificado-versionCode/upload reais e publicação skipped. Só entregar quando houver artefato real, registrar link/ID/digest/tamanho/expiração em STATUS/handoff. Se falhar, ler erro real; nunca anunciar APK indisponível.
+- Após confirmar, orientar: Vídeo normal semprofundidade mantém preferências; Retrato→ativar “Vídeo cinematográfico no Retrato”, confirmar perfil separadoFHD30fixo/EISoff no primeiro gesto, fazer novo gesto; toque fotografa, segurar prepara/grava, direita inicia+lock, vertical durante pressão faz zoom, tocar finaliza lock. Tracking por toque no RetratoNova; frente/trás e3x/5x/10x alcançáveis ainda requerem S24. Sem afirmar bateria/qualidade física melhor.
+- Fonte/pesquisa/testes/correções/limites e texto para continuar completos abaixo. A seção de CI ainda emexecução abaixo é histórico superado pela aprovação acima; APK continua pendente até confirmação real.
+
+---
+
 # Em validação —0.25.0, Retrato com vídeo e prioridade energética
 
 - Branch `codex/video-estabilidade-0-20`, base remota8bbb343d63d7c91681e647d5568b8e3536f8f79f e baseline39075324814 aprovados. Fonte final atual do app `503ded4df96674375121873f1f9ce387688feb18`, CI completo [39082782966](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39082782966) em execução. Buscar HEAD atualizado antes de continuar. Nenhum APK0.25.0 gerado ainda; não reenviar0.24.6 como novidade.
