@@ -1,3 +1,14 @@
+# 0.26.5 — APK de teste entregue: assunto conectado e referência noturna
+
+- **[Baixar ZIP com app-release.apk — build73 (1073)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555/artifacts/12138172823)**. Mesma assinatura permanente, instalação sobre a anterior. Artefato12138172823, 132629039 bytes; SHA-256 doZIP 9dc817152193b544f0e18231a41b3c3e30b2280b0e1b8c61441412335576ce71; expira2026-11-17T13:28:31Z. Nenhum release criado.
+- [Actions39131104555](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555), job117686274567: **301 aprovados / 5 dispensados / 0 falhas**, lint, JPEG sintético200MP, modelos NAFNet/DepthAnything, assembleRelease, profundidade offline=True, assinatura/versionCode e upload aprovados. Publicação skipped. Fonteapp4344b8ef3188471df9c005021767088e24173c2e/CI39130691263; fonteAPKe2b10b947632bfaf3eec986d2ba709885b04b8b3; gatilho restauradof3c8fcd02ded88f7afdda1d74d93c3f5c2924f8f/blob a82bc113b2de207b7a3e9a9660cc19af520167ff. Nenhum app alterado após aprovação.
+- Retrato de objeto seleciona um componente conectado perto do centro/toque; pessoas/objeto segurado preservados. Mediana3×3 evita perder estrutura2px no toque sem deixar outlier definir plano. Referência compensa ruído correlacionado e exige margem para trocar por quadro mais ruidoso, mantendo possibilidade de borda realmente melhor. Sem filtro/sharpen novo, mudança de tomNoturno/WB, exposição, quadros/resolução ou fusão/SR.
+- Regressão anterior39130459743: três falhas reproduzidas. Depois: ilha1→0, alvofino0,333→0,667 e referência limpa escolhida; testes de pessoa/bordas/fusão/SR aprovados. Resultados sintéticos, **não melhoria física comprovada nas fotos doS24**. Score3×768×576 custou27,539ms noCI fonte e116,050ms noassinado; variação de servidor, sem conclusão de autonomia ou latência total.
+- Diagnóstico agora imprime referência/ruído/custo, origem/faixa/cobertura da máscara e sigmaMerge separado doalinhamento; rejeição não é anunciada como movimento comprovado. Fotos declaradas0.26.3 e diagnóstico0.26.4 analisados separadamente em [NOTURNO_RETRATO_0265.md](pendente/NOTURNO_RETRATO_0265.md). Pessoais foraGit. Handoff e mensagem para Claude atualizados.
+- **ValidaçãoS24 pendente:** textura/grão/máscara real, recortes nativos, tempos, PSS/térmica e prévia. Continuam abertos rejeição53–60%na fusãoNoturno5x, HDR/highlights, foco/óptica confirmada, custo deSR/depth/desfoque/perfil, NAFNet abortando, congelamentos e escala energética. Não declarar qualidade premium ou economia de bateria concluídas.
+
+---
+
 # 0.26.5 — seleção de objeto e referência noturna (fonte aprovada; APK pendente)
 
 - Base c128f496/CI39127776999 aprovada. Análise individual das três fotos em NOTURNO_RETRATO_0265.md; fotos declaradas0.26.3, diagnóstico recebido0.26.4, sem associação automática entre versões. Pessoais foraGit.

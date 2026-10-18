@@ -1,3 +1,37 @@
+# Entrega 0.26.5 — APK de teste build 73 (1073)
+
+- **[Baixar ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555/artifacts/12138172823)**. Extrair e instalar sobre a versão anterior, com a mesma assinatura permanente. Artefato **12138172823**, 132629039 bytes; SHA-256 **do ZIP**: **9dc817152193b544f0e18231a41b3c3e30b2280b0e1b8c61441412335576ce71**. Expira em **2026-11-17T13:28:31Z**. Nenhum release foi publicado.
+- [Actions39131104555](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555), job **117686274567**, concluído com sucesso: **301 testes aprovados, 5 dispensados, 0 falhas**, lint, codec JPEG sintético200MP (RSS host49860KiB), NAFNet e DepthAnything, assembleRelease, profundidade offline=True, continuidade da assinatura/versionCode e upload. Publicação **skipped**. Número real73; versionName0.26.5; versionCode1073 pela fórmula1000+run_number, com verificação do APK aprovada. Testes Android do host não são execução noS24/API37.
+- Fonteapp **4344b8ef3188471df9c005021767088e24173c2e**, aprovada no CI **39130691263**; fonteAPK **e2b10b947632bfaf3eec986d2ba709885b04b8b3**. Nenhuma alteração de app após aprovação. Gatilho original já restaurado em **f3c8fcd02ded88f7afdda1d74d93c3f5c2924f8f**, blob **a82bc113b2de207b7a3e9a9660cc19af520167ff**. Não gerar outro APK sem nova etapa estável nem usar workflow_dispatch.
+
+## Ajustes entregues e evidência
+
+1. **Retrato de objeto:** uma única semente elegível próxima do toque/centro, conservando o componente inteiro; regiões desconectadas não entram só por estarem na área central. Pessoas e objetos segurados mantêm múltiplas sementes. Mediana3×3 no toque preserva estrutura2px com suporte local; pixel isolado não determina plano. Não recupera estrutura que o modelo monocular não resolveu.
+2. **Referência do Noturno/Foto/Zoom:** ruído correlacionado não deve contar como nitidez; energia é compensada no agregado e a troca por quadro mais ruidoso exige margem adicional. Bordas realmente melhores ainda podem vencer. É seleção entre quadros capturados, sem filtro novo, sharpening, detalhes inventados, aumento de tolerânciaMerge, tom/WB/exposição alterados ou redução de quadros/resolução. AlgoritmosSR, modelos e otimizações0.26.4 preservados.
+3. Diagnóstico registra índice/ruído/custo da referência, sigmaMerge em0..255 separado do alinhamento0..1 e origem/faixa relativa/cobertura da máscara. Cobertura não comprova precisão. Rejeição é descrita como contribuições inconsistentes, não movimento comprovado.
+4. **Antes/depois sintético real noCI:** regressão e1e2831/39130459743 reproduziu3falhas antes do app: ilha1,0, estrutura tocada0,3333 e referência ruidosa escolhida. Fonte final e run assinado: ilha0,0, estrutura0,6667, referência limpa escolhida. Energia limpa0,00039181/ruidosa0,00048692 após compensação; teste de borda realmente mais nítida também passa. Testes existentes de pessoa, bordas, fusão, SR e orientação passaram. Não são resultados físicos destas fotos.
+5. Custo de três scores768×576 medido nohost:27,539ms na fonte final e116,050ms no run assinado; intermediários44,168/79,023ms. Variação do servidor, sem comparação causal de latência total ou autonomia. Trabalho adicional de seleção fica no plano reduzido, sem modelo/threads/GPU novos; medir custo noS24. Não anunciar processamento gratuito nem ganho físico.
+
+## Fotos e diagnóstico: associação ainda limitada
+
+Três imagens declaradas pelo dono como0.26.3: Noturno3x, Noturno5x e Retrato5x. Cópias960×1280 semEXIF, pessoais foraGit, analisadas individualmente em **NOTURNO_RETRATO_0265.md**. O diagnóstico posterior é explicitamente **0.26.4/1072**; não tratar isso como A/B nem vincular versões por suposição.
+
+Dados desse diagnóstico: Retrato49,012s/49MP/8quadros, ISO136/16,949ms, assunto automático pelo centro, alinhamento7,493s/SR12,957s/depth5,735s/refino2,398s/perfilContraste5,009s/desfoque6,579s. Noturno5x3/3 com rejeição53–60% e13–14,7s;5/5 com rejeição16% e19,17s; Noturno3x3/3 com5% rejeição e11,93s. JPEG18,6/7,9mm compatíveis com5x/3x, ID físico não confirmado. NAFNet abortou0/192 após2,349s com temperatura1→2; não tratar como redução porIA concluída. PSSaté624,5MiB/CPU149,4%, bateriaaté40,8°C com parte da sessão carregando; sem potência confiável ou economia demonstrada. Congelamentos semGL/análise continuam.
+
+## Próximo passo exato
+
+TestarAPK73 noS24, mantendo originais e diagnósticos localmente. Se ainda estiver na0.26.4, registrar referência antes de atualizar, sem desinstalar/apagar dados para downgrade. Comparar mesma cena/luz/foco/temperatura, fora do carregador e cinco repetições: Noturno3x/5x, Retrato5x automático e por toque, curvas/vãos metálicos, estrutura fina, pessoas/cabelo/objeto segurado e frontal. Inspecionar recortes nativos de grão, estampas, costuras, halos, máscara e altas luzes; capturar novo PhotoTrace com cobertura e sigmaMerge. Conferir oito quadros/resolução quando altares ativa, tempos separados, PSS/térmica e retorno da prévia. Sem isso não declarar qualidade física premium, menor tempo ou autonomia comprovados.
+
+Continuam pendentes: fusão5x com rejeição elevada, foco real/óptica confirmada, HDR/highlights doRetrato, precisão do modelo em metal e objetos complexos, custo deSR/alinhamento/depth/blur/perfil e estilos, NAFNet carregando e abortando, congelamentos e escala energética. Não desligar perfil/estilo do usuário silenciosamente, ampliar orçamento da rede para dezenas de segundos, mudar tomNoturno, inventar detalhe ou remover8quadros/altares. Preservar main, chave, arquitetura/modelos, história e recursos.
+
+## Mensagem pronta para Claude
+
+Continue Nova Camera em chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, pelo HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topoSTATUS e NOTURNO_RETRATO_0265.md. APK0.26.5/build73/1073 entregue noActions39131104555/artefato12138172823, 301 testes aprovados/5 dispensados, lint/modelos/offlineDepth=True/assinatura/upload reais, publicação skipped. Fonteapp4344b8ef3188471df9c005021767088e24173c2e. Três causas reproduzidas antes do app corrigidas: ilha desconectada noRetrato, alvofino perdido no toque e referência favorecida por ruído. Pessoas, tomNoturno/WB/8quadros/resolução/fusão/SR preservados; diagnóstico mostra referência, máscara e sigmaMerge. Fotos declaradas0.26.3 e diagnóstico0.26.4 foram mantidos separados; testes sintéticos não comprovam qualidadeS24. Próximo: feedback físico doAPK73, originais e PhotoTrace para ruído/texturas/metal/máscaras/tempos/térmica. Rejeição alta doNoturno5x, HDR/highlights, foco, SR/depth caros, NAFNet abortando e congelamentos seguem abertos. Não declarar otimização concluída, não mudar main/assinatura/modelos, não enviar fotos aoGit nem publicar release definitivo automaticamente. Atualize handoff com evidências e próxima ação.
+
+---
+
+## Histórico preservado — estados pendentes desta etapa abaixo foram superados
+
 # APK de teste 0.26.5 — build 73 em geração (1073 esperado)
 
 - Fonte de app **4344b8ef3188471df9c005021767088e24173c2e**, aprovada em compilação/testes/lint no CI **39130691263**. Nenhuma alteração de app após essa aprovação. Três causas reproduzidas antes do aplicativo foram corrigidas nos testes: ilha desconectada, estrutura fina tocada e referência favorecida por ruído. Resultados sintéticos, não validação física de qualidade.

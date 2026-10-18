@@ -54,3 +54,10 @@ Regressão fortalecida e1e2831/CI39130459743 confirmou303totais/3falhas/5dispens
 Fonte final **4344b8ef3188471df9c005021767088e24173c2e**, CI **39130691263**, job117685060813, aprovado em assembleDebug/testDebugUnitTest/lintDebug. Resultados reais do servidor: centro1,0/ilha0,0; estrutura fina0,6667/vizinho0,0; referência limpa escolhida(índice0), energia limpa0,00039181/ruidosa0,00048692 apóscompensação. Bordas de verdade ainda podem substituir referência mais limpa. Regressões existentes de pessoa/objeto segurado, bordas, ruído/fusão, SR e orientação passaram. São cenários sintéticos, não máscaras verdadeiras destas fotos.
 
 Custo medido do score em três planos768×576:27,539ms nesta execução; anteriores44,168/79,023ms. Variação de servidor, não mediçãoS24 nem comparação de autonomia. Sem modelo/threads/GPU novos. Acrescenta trabalho de estimação na seleção reduzida; medir custo real no PhotoTrace e não chamar custo de zero. Tom, fusão, quadros e resolução mantidos. Buildassinado ainda precisa ser confirmado; nenhuma melhoria física declarada.
+
+
+## Entrega confirmada
+
+APK0.26.5/build73/versionCode1073 disponível noActions39131104555, artefato12138172823. Fonteapp4344b8ef3188471df9c005021767088e24173c2e aprovada em39130691263; fonteAPKe2b10b947632bfaf3eec986d2ba709885b04b8b3; sem app alterado depois. Gatilho original restauradof3c8fcd02ded88f7afdda1d74d93c3f5c2924f8f.
+
+Run assinado:301 testes aprovados/5 dispensados/0falhas, lint, JPEG200MP, NAFNet/DepthAnything, assembleRelease, profundidade offline=True, assinatura/versionCode e upload aprovados; publicação skipped. URL, digest doZIP e expiração no topoSTATUS/handoff. Benchmarkscore3×768×576=116,050ms nesse servidor, contra27,539ms noCI fonte; não extrapolar paraS24/autonomia. Nenhuma melhoria física das três fotos declarada. Seguir roteiro dohandoff com novas capturas doAPK73, mesmas condições e originais nativos. Pendências de ruído/fusão, HDR/highlights, foco, tempos, térmica e congelamentos permanecem.
