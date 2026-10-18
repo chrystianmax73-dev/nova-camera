@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/native-camera-resolution]
+    branches: [codex/native-camera-resolution, codex/video-estabilidade-0-20]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
