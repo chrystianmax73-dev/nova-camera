@@ -183,7 +183,14 @@ class PortraitMaskAnalyzer(
         return PreviewMaskCalibration.grid(luma, bmp.width, bmp.height)
     }
 
-    private fun state(s: String?) { if (!closed && s != lastState) { lastState = s; onState(s) } }
+    private fun state(s: String?) {
+        if (!closed && s != lastState) {
+            lastState=s
+            if(metricsToken==metricsGeneration.get())report="Análise ao vivo do Retrato (${if(cinematic) "vídeo" else "foto"}): estado=${s ?: "ok"}" +
+                " · última profundidade/carga=${depthBudget.lastCostMs}ms. Estado da análise; não mede GPU/autonomia ou pixels do MP4."
+            onState(s)
+        }
+    }
 
     /** Cancela aceitação/publicação imediatamente; liberação de modelos fica na thread proprietária. */
     fun stopAcceptingFrames() { closed=true }
