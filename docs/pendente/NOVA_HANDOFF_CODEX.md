@@ -1,5 +1,6 @@
-# Etapa 0.26.8 (Claude) — bateria: prévia do Retrato com modelo leve; fonte em validação
+# Etapa 0.26.8 (Claude) — bateria: prévia do Retrato com modelo leve; APK de teste build76 entregue
 
+- **[Baixar ZIP com app-release.apk — build76 (1076)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39138561980/artifacts/12140374817)**. Mesma assinatura permanente. Artefato 12140374817, 132853213 bytes; digest do ZIP sha256:beccb8682601389cfca34ae3c97fffc8c38c02074a6e337a717d4c10d3bc6f14; expira 2026-11-17T15:07:16Z. [Actions 39138561980](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39138561980) com sucesso; publicação skipped. Fonte do app 4ba0c51 (CI 39137984831 aprovado); fonte do APK 05ee274; gatilho restaurado em f7e6db0 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - Causa medida dos 128–155% de CPU no Retrato parado: segmentação multiclasse na prévia ao vivo ("Thread-#" ~75% + análise ~30%). Correção: `PersonSegmenter.Live(context, light = !cinematic)` usa `assets/selfie_segmenter.tflite` (250 KB) só na prévia da foto. **Codex:** foto final e cinematográfico seguem no multiclasse; se mudar a máscara da prévia, manter o modelo leve (21× menos CPU por quadro no servidor).
 - Executores nomeados e pilhas de "Thread-N" no diagnóstico (`ThreadCpu.addStacks`).
 - Próximo passo de bateria: confirmar a queda no S24; depois olhar `binder` (6–8%) e o compositor GL (`nova-portrait-g` 5–7%, também no modo Foto).
