@@ -81,6 +81,8 @@ data class JobProgress(
     val pending: Int, val finished: Boolean = false,
     val enhancedUri: Uri? = null, val originalUri: Uri? = null, val sessionId: String? = null,
     val message: String? = null,
+    /** Miniatura do quadro da câmera (antes do processamento), enviada uma vez logo após a captura. */
+    val preview: android.graphics.Bitmap? = null,
 )
 
 /**
@@ -174,6 +176,20 @@ object ProcessingQueue {
         Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "nova-processing")
     }
     private val main = Handler(Looper.getMainLooper())
+    private val thumbs = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-thumb") }
+
+    /** ~1/16 da foto (12 MP → ~255×190): suficiente para a miniatura de 48 dp, ~30 ms. */
+    internal fun previewOf(frame: CapturedFrame, mirror: Boolean): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
+        val small = BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size,
+            BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        if (frame.rotationDegrees % 360 == 0 && !mirror) return small
+        val m = android.graphics.Matrix().apply { postRotate(frame.rotationDegrees.toFloat()); if (mirror) postScale(-1f, 1f) }
+        return Bitmap.createBitmap(small, 0, 0, small.width, small.height, m, true).also { if (it !== small) small.recycle() }
+    }
     private val listeners = mutableListOf<(JobProgress) -> Unit>()
     private val queued = ArrayList<Job>()
     @Volatile private var current: Job? = null
@@ -201,6 +217,13 @@ object ProcessingQueue {
         // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
         refineCancel?.cancelled = true
         post(JobProgress(job.id, job.kind, 0f, "Na fila", pending))
+        // Fotografia progressiva (fase 1): a miniatura mostra a foto da câmera em ~1 s, sem esperar o
+        // processamento. Decodificada reduzida numa thread própria (não atrasa a fila); AUTO já está na galeria.
+        if (job.kind != JobKind.AUTO) job.frames.firstOrNull()?.let { frame -> thumbs.execute {
+            runCatching { previewOf(frame, job.mirror) }.getOrNull()?.let { bmp ->
+                post(JobProgress(job.id, job.kind, 0f, "Na fila", pending, preview = bmp))
+            }
+        } }
         executor.execute {
             synchronized(queued) { queued -= job }
             current = job

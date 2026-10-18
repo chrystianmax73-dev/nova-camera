@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var modeGrid: ModeGrid
     private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
     private lateinit var toolsButton: NovaIconView
+    /** Job cuja prévia está na miniatura enquanto é processado (fotografia progressiva, fase 1). */
+    private var processingPreview: Long? = null
     private var shutterZoomStart = 1f
     private var shutterZoomDp = 0f
     private var lastShutterZoom = 0f
@@ -1387,7 +1389,19 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun onProcessingProgress(p: JobProgress) {
         if (isDestroyed) return
         val auto = p.kind == JobKind.AUTO
+        p.preview?.let { bmp ->
+            thumbnail.setImage(bmp, animate = true)
+            thumbnail.progress = 0f
+            processingPreview = p.jobId
+            return
+        }
+        if (processingPreview == p.jobId) thumbnail.progress = if (p.finished) null else p.fraction
         if (p.finished) {
+            if (processingPreview == p.jobId) {
+                processingPreview = null
+                // Nada foi salvo (ex.: falha sem original): a miniatura volta para a última mídia real.
+                if (p.enhancedUri == null && p.originalUri == null) lastMedia?.let { (u, m) -> showMedia(u, m, animate = false) }
+            }
             if (!auto || p.pending == 0) procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
             val shown = p.enhancedUri ?: if (auto) null else p.originalUri
             // AUTO regrava a mesma foto: só atualiza a miniatura se ela ainda for a última.
@@ -1628,6 +1642,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun openLastMedia() {
+        // A miniatura já mostra a foto nova, mas a galeria só a recebe ao fim do processamento.
+        if (processingPreview != null) return hint.show("Aprimorando a foto… ela abre na galeria assim que terminar", 2200)
         val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
