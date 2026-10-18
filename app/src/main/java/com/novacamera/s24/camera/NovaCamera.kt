@@ -106,7 +106,7 @@ class NovaCamera(
 ) {
     private val main = ContextCompat.getMainExecutor(activity)
     /** Trabalho pesado fora da thread de interface (ex.: espelhar a selfie). */
-    private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-camera-io") }
     private val handler = Handler(Looper.getMainLooper())
 
     private var provider: ProcessCameraProvider? = null
@@ -308,7 +308,7 @@ class NovaCamera(
     private var videoProfile = ""
     private var videoBindingIssue: String? = null
     private var requestedVideoSize: VideoContract.Size? = null
-    private val videoInspection = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val videoInspection = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-video-insp") }
 
     // Zoom: curva com duração limitada + no máximo uma requisição em voo (ver core/ZoomEngine.kt).
     private var zoomOnLens = 1f          // valor exibido/pretendido agora (na câmera atual)
@@ -2331,7 +2331,7 @@ class NovaCamera(
     private var retiredPortraitEffect: PortraitPreviewEffect? = null
     private var portraitAnalysis: ImageAnalysis? = null
     private var portraitAnalyzer: PortraitMaskAnalyzer? = null
-    private val portraitExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val portraitExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-portrait-mask") }
     /** GL falhou nesta execução do app: sem nova tentativa até reabrir (a foto final não muda). */
     private var portraitPreviewFailed = false
 
@@ -2537,7 +2537,7 @@ class NovaCamera(
 
     private var analysis: ImageAnalysis? = null
     private var timelapse: TimelapseRun? = null
-    private val timelapseExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val timelapseExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-timelapse") }
 
     private class TimelapseRun(val plan: TimelapsePlan, val startMs: Long) {
         var encoder: TimelapseEncoder? = null

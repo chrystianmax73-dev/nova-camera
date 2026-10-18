@@ -57,6 +57,23 @@ object ThreadCpu {
 
     @Synchronized fun boundary() { last = null }
 
+    /**
+     * Threads sem nome ("Thread-N": nativas presas à JVM por bibliotecas, ex.: modelos) não dizem de
+     * quem são. A cada amostra, o topo da pilha Java delas é contado por atividade: a biblioteca
+     * aparece no nome da classe.
+     */
+    private val stacks = HashMap<String, HashMap<String, Int>>()
+
+    @Synchronized fun addStacks(activity: String, all: Map<Thread, Array<StackTraceElement>>) {
+        val byTop = stacks.getOrPut(activity) { HashMap() }
+        for ((t, frames) in all) {
+            if (!t.name.startsWith("Thread-") || t.state == Thread.State.TERMINATED) continue
+            val top = frames.take(3).joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}" }
+                .ifEmpty { "(só código nativo)" }
+            byTop.merge("${group(t.name)} [${t.state}] $top", 1, Int::plus)
+        }
+    }
+
     @Synchronized fun report(top: Int = 10): String = buildString {
         appendLine("CPU por thread (equivalentes de um núcleo; agrupadas pelo nome)")
         if (wall.isEmpty()) { appendLine("  ainda não medido"); return@buildString }
@@ -67,8 +84,11 @@ object ThreadCpu {
             g.entries.sortedByDescending { it.value }.take(top).forEach { (name, t) ->
                 appendLine(String.format(Locale.US, "    %-28s %.1f%%", name, t / HZ * 100_000.0 / ms))
             }
+            stacks[activity]?.entries?.sortedByDescending { it.value }?.take(4)?.forEach { (sig, n) ->
+                appendLine("    pilha ($n×): $sig")
+            }
         }
     }
 
-    @Synchronized internal fun resetForTest() { last = null; ticks.clear(); wall.clear() }
+    @Synchronized internal fun resetForTest() { last = null; ticks.clear(); wall.clear(); stacks.clear() }
 }

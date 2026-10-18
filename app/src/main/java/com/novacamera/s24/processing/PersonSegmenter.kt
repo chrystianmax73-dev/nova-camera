@@ -23,6 +23,13 @@ import kotlin.math.max
  */
 object PersonSegmenter {
     private const val MODEL = "selfie_multiclass_256x256.tflite"
+    /**
+     * Prévia do Retrato (foto): modelo leve de pessoa × fundo, 250 KB (Apache-2.0). O multiclasse
+     * gastava 77 ms de CPU por quadro contra 3,6 ms deste (LiteRT no servidor, 256×256, 1 thread) e,
+     * a 3–10 análises/s, era a thread que dominava a CPU da prévia (~75% no S24, diagnóstico 0.26.7).
+     * A foto final e o vídeo cinematográfico continuam com o multiclasse.
+     */
+    private const val LIVE_LIGHT_MODEL = "selfie_segmenter.tflite"
     private const val INPUT = 768
 
     // Ordem das máscaras de confiança do modelo multiclasse.
@@ -41,8 +48,8 @@ object PersonSegmenter {
         val faceCoverage: Float,
     )
 
-    private fun options() = ImageSegmenter.ImageSegmenterOptions.builder()
-        .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
+    private fun options(model: String = MODEL) = ImageSegmenter.ImageSegmenterOptions.builder()
+        .setBaseOptions(BaseOptions.builder().setModelAssetPath(model).setDelegate(Delegate.CPU).build())
         .setRunningMode(RunningMode.IMAGE)
         .setOutputConfidenceMasks(true)
         .setOutputCategoryMask(false)
@@ -55,9 +62,10 @@ object PersonSegmenter {
 
     /** Segmentador mantido aberto para a prévia ao vivo do Retrato (uma chamada por quadro analisado). */
     class LiveResult(val person:Plane,val coverage:Float)
-    class Live(context: Context) : java.io.Closeable {
+    class Live(context: Context, private val light: Boolean = false) : java.io.Closeable {
         private val loadedAt=android.os.SystemClock.elapsedRealtime()
-        private val segmenter = ImageSegmenter.createFromOptions(context.applicationContext, options())
+        private val segmenter = ImageSegmenter.createFromOptions(context.applicationContext,
+            options(if (light) LIVE_LIGHT_MODEL else MODEL))
         val loadMs=android.os.SystemClock.elapsedRealtime()-loadedAt
         var inputMs=0L;private set
         var nativeMs=0L;private set
@@ -70,13 +78,21 @@ object PersonSegmenter {
                 val extractAt=android.os.SystemClock.elapsedRealtime();nativeMs=extractAt-nativeAt
                 try {
                     // A prévia só usa pessoa/fundo. Cabelo e rosto completos continuam na foto final.
-                    val bg=masks[BACKGROUND]
-                    val person=personFromBackground(ByteBufferExtractor.extract(bg).order(ByteOrder.nativeOrder()).asFloatBuffer(),bg.width,bg.height)
+                    // Modelo leve: uma máscara só, já de "pessoa"; multiclasse: 1 − fundo.
+                    val m=masks[if (light) 0 else BACKGROUND]
+                    val buf=ByteBufferExtractor.extract(m).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                    val person=if (light) personFromConfidence(buf,m.width,m.height) else personFromBackground(buf,m.width,m.height)
                     LiveResult(person,person.data.count { it>0.5f }/person.data.size.toFloat())
                 } finally { masks.forEach { it.close() };extractionMs=android.os.SystemClock.elapsedRealtime()-extractAt }
             }
         }
         override fun close() = segmenter.close()
+    }
+
+    /** Máscara única do modelo leve: já é a confiança de pessoa. */
+    internal fun personFromConfidence(conf:java.nio.FloatBuffer,w:Int,h:Int):Plane {
+        conf.rewind()
+        return Plane(w,h,FloatArray(w*h) { conf.get().coerceIn(0f,1f) })
     }
 
     /** Mesma aritmética de 1−fundo, diretamente no plano final: sem três planos descartados. */

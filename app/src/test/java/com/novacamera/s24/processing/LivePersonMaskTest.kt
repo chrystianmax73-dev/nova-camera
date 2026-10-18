@@ -13,4 +13,10 @@ class LivePersonMaskTest {
         // Não altera o buffer fornecido pelo modelo, só sua posição de leitura.
         assertEquals(-.1f,bg[0],0f)
     }
+    @Test fun modeloLeveUsaAConfiancaDePessoaDireto() {
+        val conf=FloatArray(256*192){(it%113)/100f-.05f}
+        val actual=PersonSegmenter.personFromConfidence(FloatBuffer.wrap(conf),256,192)
+        assertArrayEquals(FloatArray(conf.size){conf[it].coerceIn(0f,1f)},actual.data,0f)
+        assertEquals(256,actual.w); assertEquals(192,actual.h)
+    }
 }

@@ -118,7 +118,9 @@ class PortraitMaskAnalyzer(
                     depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
                 }
             }
-            val seg = segmenter ?: PersonSegmenter.Live(app).also { segmenter = it }
+            // Prévia da foto: modelo leve (só mostra o desfoque; a foto usa o multiclasse). O vídeo
+            // cinematográfico grava esta máscara, então continua com o multiclasse.
+            val seg = segmenter ?: PersonSegmenter.Live(app, light = !cinematic).also { segmenter = it }
             val segmentStart=SystemClock.uptimeMillis()
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
             segmentMs=SystemClock.uptimeMillis()-segmentStart

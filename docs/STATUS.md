@@ -1,3 +1,13 @@
+# 0.26.8 — bateria: causa dos 128–155% de CPU da prévia do Retrato e correção (Claude; fonte em validação)
+
+- **Evidência (diagnóstico 0.26.7, bloco "CPU por thread", aparelho parado):** Foto 26%; Câmera inativa 5%; **Retrato 128%**, dos quais **"Thread-#" 74–78%** (thread nativa da MediaPipe), análise ao vivo ~30% (pool sem nome), `mediapipe_gl_ru` ~6%. O excedente do Retrato é a segmentação de pessoa da prévia ao vivo.
+- **Causa:** a prévia usava o mesmo modelo multiclasse da foto final (`selfie_multiclass_256x256`, 16 MB, 6 classes) a 3–10 análises/s. Medido no servidor (LiteRT, 256×256): **77 ms de CPU por quadro**; o modelo leve de pessoa × fundo (`selfie_segmenter`, 250 KB, Apache-2.0) gasta **3,6 ms (21× menos)**.
+- **Correção:** prévia do Retrato (foto) usa o modelo leve (`PersonSegmenter.Live(light = true)`, máscara única de pessoa). **Foto final e vídeo cinematográfico continuam com o multiclasse** (o cinematográfico grava a máscara; é área de imagem/Codex). Custo: a borda da máscara *na prévia* pode ser menos fina; a foto não muda.
+- **Diagnóstico mais claro:** executores do app ganharam nome (nova-ui-io, nova-camera-io, nova-portrait-mask, nova-video-insp, nova-timelapse) e o bloco "CPU por thread" registra o topo da pilha das threads "Thread-N".
+- **Esperado, não comprovado:** Retrato parado de ~128% para perto do Foto (~30–40%). Confirmar com novo diagnóstico (1 min Retrato parado).
+
+---
+
 # 0.26.7 — bateria/CPU: modelo de profundidade mantido entre fotos, CPU por thread no diagnóstico, cópias reduzidas da prévia (Claude; APK de teste build75 entregue)
 
 - **[Baixar ZIP com app-release.apk — build75 (1075)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39136130725/artifacts/12139614731)**. Mesma assinatura permanente. Artefato 12139614731, 132640136 bytes; digest do ZIP sha256:d96ff445b76e0fc84ed99a6a5b0b78113eba17c5ddd68e51b393cdd74ed75424; expira 2026-11-17T14:35:06Z. [Actions 39136130725](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39136130725) com sucesso; publicação skipped. Fonte do app 5a3038f (CI 39135581746 aprovado); fonte do APK c52a6e6; gatilho restaurado em f173471 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

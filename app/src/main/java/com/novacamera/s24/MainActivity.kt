@@ -85,7 +85,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var monitor: DeviceMonitor
     private val handler = Handler(Looper.getMainLooper())
     private val quickVideoWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler)
-    private val io = Executors.newSingleThreadExecutor()
+    // Threads com nome: o bloco "CPU por thread" do diagnóstico precisa dizer quem consome.
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-ui-io") }
     private val sound = MediaActionSound()
 
     // Views
@@ -403,6 +404,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                         val sample = runCatching { monitor.performanceSample(activity, counts.first, counts.second) }.getOrNull()
                         // Quem consome a CPU (por thread): ~100 leituras pequenas de /proc a cada 10 s.
                         runCatching { com.novacamera.s24.core.ThreadCpu.add(activity, SystemClock.elapsedRealtime(), com.novacamera.s24.core.ThreadCpu.snapshot()) }
+                        runCatching { com.novacamera.s24.core.ThreadCpu.addStacks(activity, Thread.getAllStackTraces()) }
                         handler.post {
                             performanceBusy = false
                             if (generation == performanceGeneration && sample != null)

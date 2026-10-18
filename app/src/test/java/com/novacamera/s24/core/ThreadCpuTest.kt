@@ -28,4 +28,15 @@ class ThreadCpuTest {
         assertTrue(r, r.contains("RenderThread") && r.contains("50.0%"))
         assertTrue(r, !r.contains("FOTO"))
     }
+
+    @Test fun pilhaDeThreadSemNomeApareceNoRelatorio() {
+        ThreadCpu.resetForTest()
+        ThreadCpu.add("RETRATO", 0, mapOf(1 to ("Thread-7" to 0L)))
+        ThreadCpu.add("RETRATO", 10_000, mapOf(1 to ("Thread-7" to 700L)))
+        val t = Thread({}, "Thread-7")
+        val frame = StackTraceElement("com.google.mediapipe.framework.Graph", "nativeRun", "Graph.java", 1)
+        ThreadCpu.addStacks("RETRATO", mapOf(t to arrayOf(frame)))
+        val r = ThreadCpu.report()
+        assertTrue(r, r.contains("pilha (1×): Thread-# [NEW] Graph.nativeRun"))
+    }
 }
