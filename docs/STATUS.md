@@ -1,5 +1,7 @@
 # 0.25.0 — Vídeo comum separado do cinematográfico do Retrato (17/10/2026)
 
+- Fonte atual503ded4df96674375121873f1f9ce387688feb18, CI39082782966 em execução; APK ainda não gerado. Etapas anteriores recursos/escopo/gestos/métricas/prontidão aprovadas39082038819/39082206619/39082254109/39082341619/39082511102. Conferir validação final antes de gerar e anunciar APK.
+
 - Vídeo/Vídeo Pro e vídeo rápido da Foto não abrem profundidade nem o compositor cinematográfico, mesmo com preferência ligada. Mantêm tracking opcional leve, assinatura e acabamento pós local existente. Cinematográfico fica exclusivamente na gravação iniciada no Retrato, com perfil FHD/30/EISoff separado e confirmação explícita antes do primeiro uso, sem sobrescrever qualidade/FPS/EIS do Vídeo normal. Não há redução silenciosa.
 - Retrato conserva foto por toque e gravação por pressão; aba visual continua Retrato, indicador identifica RETRATO·VÍDEO. Warmup limitado começa antes do bind, não cancela prematuramente quando a liberação GL é assíncrona, e nunca começa após soltar/cancelar. Controle normal retorna após Finalize.
 - Tracking de aparência passa ao Retrato Nova com AF contínuo de foto/AE compatíveis e seleção acompanhada para a foto/desfoque; câmera/lentes/zoom respeitam capacidade real. Extensão OEM mantém foco por toque se não oferece esse controle. Sem reidentificação semântica nem garantia de tele óptica10x (zoom10x pode ser digital).
