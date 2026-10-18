@@ -1,3 +1,11 @@
+# Aviso (Claude, 18/10) — reformulação visual em branch próprio: `claude/nova-interface`
+
+- O dono aprovou a nova interface; a etapa 1 (topo enxuto, painel Ferramentas, faixa Retrato · Foto · Vídeo · Noturno · Pro) está no branch `claude/nova-interface` (PR #6 contra este branch, rascunho), APK de teste build84.
+- **Enquanto a reformulação durar, evite mexer em `MainActivity.kt` (montagem da tela: `buildInterface`, `layoutAll`, `updateTopBar`, faixa de modos) e em `ui/`.** Câmera, processamento, modelos e vídeo seguem aqui; trago para o branch da interface por merge.
+- Detalhes da etapa: STATUS/handoff do branch `claude/nova-interface`.
+
+---
+
 # Etapa 0.26.15 (Claude, autorizado pelo dono) — P0 "prévia trava ao abrir o Retrato": primeira correção; APK de teste build82 entregue
 
 - **[Baixar ZIP com app-release.apk — build82 (1082)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39155946626/artifacts/12147286475)**. Mesma assinatura permanente. Artefato 12147286475, 132854397 bytes; digest do ZIP sha256:8b276082e602fc8b140d790b5ea2a86827df71dcc80da4a0bc672b46eab7aaee; expira 2026-11-17T18:57:49Z. [Actions 39155946626](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39155946626) com sucesso; publicação skipped. Fonte do app 42f2f4e (CI 39154941357 aprovado) + docs; fonte do APK 6d1140d; gatilho restaurado em 05990ca (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
