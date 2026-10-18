@@ -26,6 +26,8 @@ class ShutterButton(context: Context) : View(context) {
          * arrastar não fotografa). Positivo ao subir; a câmera aplica amortecimento e limites.
          */
         fun onZoom(deltaDp:Float) {}
+        /** Começo de um arraste de zoom (o alvo é calculado a partir do zoom deste momento). */
+        fun onZoomStart() {}
     }
     var quickListener: QuickListener? = null
     var quickEnabled = false
@@ -126,7 +128,7 @@ class ShutterButton(context: Context) : View(context) {
                     val dx = event.x-downX
                     val dy = event.y-downY
                     if(!held && !zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx)) {
-                        zooming=true; moved=true; quickHandler.removeCallbacks(holdTask)
+                        zooming=true; moved=true; quickHandler.removeCallbacks(holdTask); quickListener?.onZoomStart()
                     }
                     if(!held && zooming) {
                         quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
@@ -141,7 +143,7 @@ class ShutterButton(context: Context) : View(context) {
                         moved = true; quickHandler.removeCallbacks(holdTask)
                     }
                     if(held && holdAccepted) {
-                        if(!zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx))zooming=true
+                        if(!zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx)) { zooming=true; quickListener?.onZoomStart() }
                         if(zooming) {
                             quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
                         } else if(!locked && dx>=dp(64f)) { locked=true;quickListener?.onLock() }
@@ -167,6 +169,7 @@ class ShutterButton(context: Context) : View(context) {
                 val dx = event.x-downX; val dy = event.y-downY
                 if (!zooming && kotlin.math.abs(dy) >= dp(12f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
                     zooming = true
+                    quickListener?.onZoomStart()
                     parent?.requestDisallowInterceptTouchEvent(true)
                     cancelPendingInputEvents()
                 }

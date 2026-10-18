@@ -110,6 +110,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var modeGrid: ModeGrid
     private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
     private lateinit var toolsButton: NovaIconView
+    private var shutterZoomStart = 1f
+    private var shutterZoomDp = 0f
+    private var lastShutterZoom = 0f
     private lateinit var recChip: TextView
     private lateinit var statusRow: LinearLayout
     private lateinit var trackingChip: TextView
@@ -682,8 +685,16 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                         hint.show("Gravação bloqueada · toque no botão para finalizar")
                     }
                 }
+                override fun onZoomStart() { shutterZoomStart = zoomBar.zoom; shutterZoomDp = 0f }
                 override fun onZoom(deltaDp:Float) {
-                    if (countdown == 0) camera.zoomBy(kotlin.math.exp((deltaDp/240f).toDouble()).toFloat())
+                    if (countdown != 0) return
+                    val s = cameraState ?: return
+                    shutterZoomDp += deltaDp
+                    val z = com.novacamera.s24.core.ShutterZoom.target(shutterZoomStart, shutterZoomDp, s.zoomStops, s.zoomMin, s.zoomMax)
+                    // Vibração curta ao encaixar numa parada (3×, 5×…), como nas câmeras do sistema.
+                    if (z != lastShutterZoom && z in s.zoomStops) Haptics.tick(shutter)
+                    lastShutterZoom = z
+                    camera.zoomFollow(z)
                 }
                 override fun onRelease() = runQuickAction(quickRecording.release())
                 override fun onCancel() = runQuickAction(quickRecording.interrupt())
