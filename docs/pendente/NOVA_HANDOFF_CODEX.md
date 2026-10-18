@@ -1,5 +1,6 @@
-# Etapa 0.26.12 (Claude) — sessão de profundidade compartilhada prévia/foto; fonte em validação
+# Etapa 0.26.12 (Claude) — sessão de profundidade compartilhada prévia/foto; APK de teste build79 entregue (inclui 0.26.11)
 
+- **[Baixar ZIP com app-release.apk — build79 (1079)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905/artifacts/12143679020)**. Mesma assinatura permanente. Artefato 12143679020, 132851523 bytes; digest do ZIP sha256:3d9c5824e18963d0a6e7c6fdf3e9fdf8c78e405f4dcfdaf08b2ba980c49c3433; expira 2026-11-17T17:00:34Z. [Actions 39147041905](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905) com sucesso; publicação skipped. Fonte do app 67fc611 (CI 39146832594 aprovado; 0.26.11 c4fd20f CI 39146478679 aprovado); fonte do APK 698a9a6; gatilho restaurado em db184b2 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - `DepthEstimator.shared()`; `PortraitMaskAnalyzer` não abre nem fecha sessão própria (calor SEVERO → `DepthEstimator.release()`; `close()` → `ProcessingQueue.scheduleDepthRelease()`). Motivo: 1º Retrato com prévia ligada pagava 3,3 s de carga e o modelo ficava duplicado na memória (diagnóstico 0.26.10).
 - **Codex:** se mexer na profundidade da prévia/cinematográfico, não volte a usar `Session.open` direto no analisador; use `DepthEstimator.shared`.
 
