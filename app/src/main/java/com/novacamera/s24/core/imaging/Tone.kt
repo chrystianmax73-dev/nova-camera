@@ -183,11 +183,21 @@ class ToneMap(
     // Meios-tons sobem; pretos (listras escuras, cantos) ficam: sem "pretos lavados".
     private val lnMidBlackFull = ln(0.04f)
     private val lnMidBlackEnd = ln(0.13f)
+    // Constantes calculadas pelo mesmo Kotlin; não trocar precisão de log/exp ao portar o laço.
+    private val nativeSettings by lazy { floatArrayOf(params.shadowLiftEv,params.highlightCompression,
+        params.blackLevel,params.clarity,params.midLiftEv,params.lumaBlack,0f,
+        lnShadowStart,lnShadowFull,lnHighStart,lnBlackFull,lnBlackEnd,lnMidFull,lnMidEnd,lnMidBlackFull,lnMidBlackEnd) }
 
     /** Aplica a uma região [tile] (w×h) cuja origem na imagem cheia é (x0, y0). */
     fun applyTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, strength: Float = 1f, chromaProtection: Float = 0f) {
         if (params.isIdentity || strength <= 0f) return
         val s = strength.coerceIn(0f, 1f)
+        // Proteção cromática adaptativa conserva seu caminho Kotlin. Sem cache nativo permanente,
+        // ponteiros retidos, novas threads ou cópia de um Bitmap inteiro.
+        if(PhotoKernels.available && chromaProtection<=0f && (mid==null || (mid.w==base.w && mid.h==base.h))) {
+            val settings=nativeSettings.copyOf().also{it[6]=s}
+            if(PhotoKernels.tone(tile,tw,th,x0,y0,fullW,fullH,base.data,base.w,base.h,mid?.data,settings))return
+        }
         val black = params.blackLevel * s
         val bl = black * 255f
         val blScale = 1f / (1f - black)

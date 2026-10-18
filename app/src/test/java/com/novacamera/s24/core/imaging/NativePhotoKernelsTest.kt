@@ -63,4 +63,34 @@ class NativePhotoKernelsTest {
         bench(false);bench(true);val old=bench(false);val got=bench(true)
         println("P0_HOST pareado3x align/SR/shift/detail: Kotlin=${old.contentToString()}ms; JNI=${got.contentToString()}ms. Não é S24/GPU/energia.")
     }
+    @Test fun tomNativoPreservaPixelsNoturnosBordasCoresEIntensidades() {
+        val random=Random(263);val base=Plane(29,23,FloatArray(29*23){kotlin.math.ln(.004f+random.nextFloat()*.996f)})
+        val mid=Plane(29,23,FloatArray(29*23){i->base.data[i]+(random.nextFloat()-.5f)*.6f})
+        val px=IntArray(151*117){i->when(i%11){0->Px.argb(0,0,0);1->Px.argb(255,250,238);2->Px.argb(190,130,95);else->random.nextInt() or (0xFF shl 24)}}
+        for(params in listOf(ToneParams(1.2f,.35f,.07f,.18f,1.1f,.06f),ToneParams(.2f,.1f,0f),ToneParams(0f,0f,0f,.3f),ToneParams(0f,0f,0f)))
+            for(strength in listOf(0f,.3f,1f))for(protection in listOf(0f,.6f))for(m in listOf<Plane?>(null,mid)){
+                val map=ToneMap(base,params,151,117,m)
+                val old=px.copyOf();val got=px.copyOf()
+                backend(false){map.applyTile(old,151,117,0,0,strength,protection)}
+                backend(true){map.applyTile(got,151,117,0,0,strength,protection)}
+                assertArrayEquals("Tom sem alteração de pixel: $params / $strength / $protection / ${m!=null}",old,got)
+            }
+        val map=ToneMap(base,ToneParams(.8f,.2f,.02f,.2f,.5f,.03f),151,117,mid)
+        val whole=px.copyOf();backend(false){map.applyTile(whole,151,117,0,0)}
+        val tiled=px.copyOf()
+        for(y in 0 until 117 step 19)for(x in 0 until 151 step 23){
+            val w=minOf(23,151-x);val h=minOf(19,117-y);val tile=IntArray(w*h){i->px[(y+i/w)*151+x+i%w]}
+            backend(true){map.applyTile(tile,w,h,x,y)}
+            for(j in 0 until h)tile.copyInto(tiled,(y+j)*151+x,j*w,(j+1)*w)
+        }
+        assertArrayEquals("Sem costura entre blocos",whole,tiled)
+    }
+    @Test fun benchmarkTonalIncluiCopiaJniDePlanosSemAlegarGanhoFisico() {
+        val rng=Random(71);val px=IntArray(1024*512){Px.argb(rng.nextInt(256),rng.nextInt(256),rng.nextInt(256))}
+        val base=Plane(1024,768,FloatArray(1024*768){kotlin.math.ln(.004f+rng.nextFloat()*.996f)})
+        val map=ToneMap(base,ToneParams(.8f,.35f,.04f,.18f,.7f,.03f),8160,6120,base)
+        fun run(native:Boolean):Double=backend(native){val start=System.nanoTime();repeat(3){map.applyTile(px.copyOf(),1024,512,1400,2100)};(System.nanoTime()-start)/1e6}
+        run(false);run(true);val old=run(false);val got=run(true)
+        println("TONE_HOST pareado3x Kotlin=${old}ms; JNI=${got}ms (inclui cópiasJNI de planos reduzidos/bloco). Não mede49MP/S24/GPU/energia.")
+    }
 }
