@@ -1,3 +1,13 @@
+# 0.26.3 — ruído temporal, exposição segura e óptica da captura
+
+- Feedback real da0.26.2: duas fotos1280×960 sem EXIF,5x e Noturno; não permitem confirmar lente/ISO retroativamente. Configuração de modo/apoio ainda em esclarecimento. Base79b2c328f58678741c5f3df0b9fcbacec2b807a2, CI39113294053 aprovado antes de mudar app. Gradle offline local indisponível; Actions executa validação.
+- Regressões da base39121910927 reproduziram duas falhas: plano noturno ISO800/100ms subexposto e cena sintética estática com ruído correlacionado rejeitando4/4 quadros úteis, RMS11,65→11,65. Fonte corrigida5a9f660/CI39122118028 aprovada em compilação/testes/lint:4/4 aceitos, RMS11,65→6,27 nesse cenário. Não é mediçãoS24 nem prova da causa exata das fotos.
+- Estimativa limitada por diferenças1/2/4px só quando detecta platô compatível com correlação; correção na fusão do Noturno e ZoomISO≥800. Testes de ruído independente, rampas/padrões, movimento, contraste e RGB. Sem blur espacial novo, sem modelo/inferência extra; SR/HDR e kernels rápidos preservados. Não muda curva de tom, BOOST_EV, WB ou clareamento do Noturno. Plano que não consegue luz prevista mantém automático; rejeição Camera2 também restaura AE antes de capturar.
+- CaptureOptics registra por quadro/foto alvo, rota, resultado físico correlacionado por timestamp, focal do JPEG e ISO/exposição/AF/AE/AWB. Distingue ID confirmado, compatibilidade de focal, conflito e desconhecido. Pin/zoom da interface/focal35mm isolada não provam óptica5x. Rota automática não foi forçada em baixa luz sem evidência. Dados da prévia não substituem prova da captura; cache limitado16, sem espera extra.
+- Fonte final deapp7f6de132258a33827ae819e67e667a0d1237f4a1, CI39122555216 pendente; óptica intermediatecff1719/39122412407 pendente. Nenhum APK novo confirmado. Próximo: verificar fonte final, corrigir falhas concretas se houver, gerar APK assinado para teste pelo fluxo existente sem release automático, restaurar gatilho. Comparação física de qualidade/latência/temperatura ainda pendente. Detalhes emP0_NOTURNO_0262.md. P0 energética e aquisição7–9s seguem abertas.
+
+---
+
 # 0.26.2 — APK de teste entregue; P0 física ainda aberta
 
 - **[Baixar ZIP com APK assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39089635870/artifacts/12122029001): versão0.26.2/build69 (1069).** Artefato12122029001,132619077 bytes; sha256 do ZIP ba236736aac0688b8fd9f6eb317fb945f610a4c0ad6baa63568ed3f380d9ec80; expira2026-11-17T02:26:55Z. Extrair e instalar app-release.apk. Mesma chave permanente; nenhum release criado.
