@@ -170,8 +170,11 @@ class SettingsActivity : NovaScreen() {
         }
         choice("Quadros por segundo", "60 fps só é usado quando a câmera aceita a combinação escolhida.",
             listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
-        switch("Quadros automáticos com pouca luz", "A 30 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 5× e 10×). Com luz boa continua em 30 fps.",
+        switch("Quadros automáticos com pouca luz", "A 30 ou 60 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 3×, 5× e 10×). Com luz boa continua no fps escolhido. 24 fps fica fixo.",
             { settings.videoAutoFps }, { settings.videoAutoFps = it })
+        if (settings.videoHdrSeen) switch("Vídeo HDR (HLG 10 bits)", "A câmera anunciou HDR. Mais brilho e cor em telas HDR; " +
+            "em apps/telas sem HDR pode parecer apagado. Sem assinatura no vídeo enquanto ligado. Também no painel de ferramentas do Vídeo.",
+            { settings.videoHdr }, { settings.videoHdr = it })
         switch("Vídeo cinematográfico no Retrato", "Experimental, frontal/traseira: no Retrato, segure ou arraste o obturador à direita. " +
             "Perfil separado Full HD/30, sem EIS, confirmado antes do primeiro uso; não altera as configurações do Vídeo normal. " +
             "Profundidade na prévia e no MP4 exige máscara atual; calor ou perda podem pausar o efeito com aviso.",

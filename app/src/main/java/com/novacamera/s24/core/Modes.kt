@@ -80,12 +80,15 @@ object ModeResolver {
         ranges.filter { (lo, hi) -> hi in 15..30 && lo in 1 until 15 }.minOfOrNull { it.first }
 
     /**
-     * Vídeo a 30 fps com pouca luz: faixa variável (ex.: 15–30) para o automático alongar a exposição
-     * em vez de escurecer. Com luz boa a câmera continua em 30 fps; o quadro só fica mais longo
-     * quando falta luz (tele 5× e 10× escura). Mínimo de 15 fps — abaixo disso o movimento trava.
+     * Vídeo a 30 ou 60 fps com pouca luz: faixa variável (ex.: 15–30, 15–60) para o automático alongar
+     * a exposição em vez de escurecer. Com luz boa a câmera continua no alvo; o quadro só fica mais
+     * longo quando falta luz (tele 3×/5×/10× escura: a 60 fps fixos cada quadro tinha no máximo 1/60 s).
+     * Mínimo de 15 fps — abaixo disso o movimento trava. 24 fps fica fixo (escolha de cinema).
      */
-    fun autoVideoFps(ranges: List<Pair<Int, Int>>): Pair<Int, Int>? =
-        ranges.filter { (lo, hi) -> hi == 30 && lo in 15..24 }.minByOrNull { it.first }
+    fun autoVideoFps(ranges: List<Pair<Int, Int>>, target: Int = 30): Pair<Int, Int>? {
+        if (target != 30 && target != 60) return null
+        return ranges.filter { (lo, hi) -> hi == target && lo in 15..(target * 4 / 5) }.minByOrNull { it.first }
+    }
 
     /** Índices de compensação para o bracketing do HDR Nova (0, ≈−2 EV, ≈+1 EV), dentro da faixa. */
     fun hdrBracket(stepNum: Int, stepDen: Int, min: Int, max: Int): List<Int> {

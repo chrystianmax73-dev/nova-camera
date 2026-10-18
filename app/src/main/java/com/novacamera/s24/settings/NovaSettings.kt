@@ -99,6 +99,25 @@ class NovaSettings(context: Context) {
     var slowMotionFps get() = int("slow_motion_fps", 120); set(v) = put("slow_motion_fps", v)
     var videoStabilization get() = bool("video_stabilization", true); set(v) = put("video_stabilization", v)
     var videoAutoFps get() = bool("video_auto_fps", true); set(v) = put("video_auto_fps", v)
+    /** Vídeo HDR (HLG 10-bit), só onde a câmera anuncia. Desligado por padrão: nem todo app/tela exibe HLG. */
+    var videoHdr get() = bool("video_hdr", false); set(v) = put("video_hdr", v)
+    /** A câmera já anunciou HLG alguma vez (Ajustes só mostram a opção depois disso). */
+    var videoHdrSeen get() = bool("video_hdr_seen", false); set(v) = put("video_hdr_seen", v)
+    /**
+     * Combinações câmera/resolução/fps que a SESSÃO recusou mesmo sem EIS e sem efeitos (ex.: 4K/60
+     * no S24 Ultra). Os seletores deixam de oferecê-las. Chave inclui o build do sistema: uma
+     * atualização do Android volta a testar.
+     */
+    fun videoRefused(cameraId: String, quality: VideoQualityOption): Set<Int> =
+        (prefs.getStringSet("video_refused", null) ?: emptySet()).mapNotNull {
+            val parts = it.split('|')
+            if (parts.size == 4 && parts[0] == android.os.Build.ID && parts[1] == cameraId && parts[2] == quality.name) parts[3].toIntOrNull() else null
+        }.toSet()
+    fun markVideoRefused(cameraId: String, quality: VideoQualityOption, fps: Int) {
+        val all = (prefs.getStringSet("video_refused", null) ?: emptySet()).filter { it.startsWith(android.os.Build.ID + "|") }.toMutableSet()
+        all += "${android.os.Build.ID}|$cameraId|${quality.name}|$fps"
+        prefs.edit().putStringSet("video_refused", all).apply()
+    }
     var recordAudio get() = bool("record_audio", true); set(v) = put("record_audio", v)
     /** Vídeo sem ponto escolhido mede a exposição pelo centro (menos saltos ao aproximar). */
     var videoCenterMetering get() = bool("video_center_metering", true); set(v) = put("video_center_metering", v)

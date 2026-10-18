@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var settingsButton: NovaIconView
     private lateinit var ratioChip: TextChip
     private lateinit var hdrChip: TextChip
+    private lateinit var videoHdrChip: TextChip
     private lateinit var qualityChip: TextChip
     private lateinit var fpsChip: TextChip
     private lateinit var resChip: TextChip
@@ -508,7 +509,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun signature() = listOf(settings.cinematicVideo, settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
         settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
         settings.signatureEnabled, settings.signatureVideo, settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
-        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
+        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf, settings.videoHdr).joinToString()
 
     // ------------------------------------------------------------------ interface
 
@@ -554,6 +555,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
         resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
+        videoHdrChip = TextChip(this).apply { text = "HDR"; setOnClickListener { toggleVideoHdr() }; contentDescription = "Vídeo HDR (HLG 10 bits)" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
         // Topo enxuto: flash à esquerda; formato do vídeo e ferramentas à direita. O centro fica livre
         // (câmera frontal do S24 no meio da tela). O resto foi para o painel de ferramentas.
@@ -577,6 +579,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("Proporção", ratioChip)
             add("Resolução", resChip)
             add("HDR", hdrChip)
+            add("HDR vídeo", videoHdrChip)
             add("RAW", rawChip)
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
@@ -847,7 +850,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.orientation = deg
         zoomBar.orientation = deg
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -1153,14 +1156,31 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }, 1800)
     }
 
+    /** Vídeo HDR (HLG 10-bit): só aparece onde a câmera anunciou; sem assinatura no vídeo enquanto ligado. */
+    private fun toggleVideoHdr() {
+        if (camera.isRecording) return hint.show("Pare a gravação para trocar HDR", 1600)
+        settings.videoHdr = !settings.videoHdr
+        settingsSignature = signature()
+        showTransition()
+        camera.requestRebind()
+        hint.show(if (settings.videoHdr) "Vídeo HDR (HLG 10 bits) · sem assinatura no vídeo" else "Vídeo SDR", 2200)
+    }
+
     /** Percorre só as resoluções que esta câmera realmente grava. */
     private fun cycleVideoQuality() {
         val options = cameraState?.videoQualityOptions?.takeIf { it.isNotEmpty() } ?: return
         val i = options.indexOf(settings.videoQuality)
         settings.videoQuality = options[(i + 1) % options.size]
+        // 60 fps em FHD e depois 4K: se esta câmera já recusou 4K/60, pede 4K/30 em vez de abrir só a prévia.
+        val refused = camera.refusedVideoFps(settings.videoQuality)
+        val note = if (cameraState?.mode != CaptureMode.CAMERA_LENTA && settings.videoFps in refused) {
+            val before = settings.videoFps
+            settings.videoFps = listOf(60, 30, 24).firstOrNull { it < before && it !in refused } ?: 30
+            " · $before fps não é aceito nesta resolução; usando ${settings.videoFps} fps"
+        } else ""
         showTransition()
         camera.requestRebind()
-        hint.show("Vídeo: ${settings.videoQuality.label}", 1400)
+        hint.show("Vídeo: ${settings.videoQuality.label}$note", if (note.isEmpty()) 1400 else 3000)
     }
 
     /** Percorre só as taxas aceitas (24/30/60; 120/240 na câmera lenta). */
@@ -1173,7 +1193,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             camera.bind()
             return hint.show("1 quadro a cada ${TimelapsePlan.intervalLabel(plan.intervalMs)} · ${plan.speedup}× mais rápido", 1800)
         }
-        val options = s.videoFpsOptions.takeIf { it.isNotEmpty() }
+        val refused = if (s.mode == CaptureMode.CAMERA_LENTA) emptySet() else camera.refusedVideoFps(settings.videoQuality)
+        val options = s.videoFpsOptions.filter { it !in refused }.takeIf { it.isNotEmpty() }
             ?: return hint.show("Nenhuma taxa disponível nesta combinação; escolha outra resolução", 1800)
         if (options.size == 1 && s.videoFps in options)
             return hint.show("Esta câmera só oferece ${options.single()} fps aqui", 1600)
@@ -1243,7 +1264,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip.isEnabled=!(camera.portraitVideoSession && settings.cinematicVideo)
         fpsChip.isEnabled=qualityChip.isEnabled
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
-        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) "15–30 fps alvo" else "${s?.videoFps ?: 30} fps alvo"
+        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) (s.videoFpsRange?.let { "${it.first}–${it.second} fps alvo" } ?: "fps variável") else "${s?.videoFps ?: 30} fps alvo"
         hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
         hdrChip.active = s?.hdr != null && s.hdr != HdrOption.OFF
         hdrChip.text = when(s?.hdr) { HdrOption.AUTO -> "AUTO"; HdrOption.OEM -> "HDR·S"; else -> "HDR" }
@@ -1253,9 +1274,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         resChip.text = res?.let(::mp) ?: ""
         resChip.contentDescription = resChip.text.toString() + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
+        videoHdrChip.visibility = if (video && s?.videoHdrAvailable == true) View.VISIBLE else View.GONE
+        videoHdrChip.active = s?.videoHdr == true
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
-        listOf<View>(hdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        listOf<View>(hdrChip, videoHdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
         toolsPanel.sync()
     }
 

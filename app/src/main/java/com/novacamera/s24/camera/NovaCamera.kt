@@ -321,6 +321,16 @@ class NovaCamera(
     /** Faixa 15–30 fps aplicada nesta ligação do vídeo; bloqueada na sessão se a câmera recusar. */
     private var autoFpsApplied = false
     private var autoFpsBlocked = false
+    /** Faixa variável realmente pedida (15–30 ou 15–60); o chip mostra esta, não um texto fixo. */
+    private var autoFpsRange: Pair<Int, Int>? = null
+    /**
+     * Vídeo HDR (HLG 10-bit): só quando o Recorder desta câmera anuncia HLG para a resolução escolhida.
+     * Sem assinatura nem Retrato (o desenho em GL é 8-bit). Recusado pela sessão → SDR e aviso.
+     */
+    private var videoHdrAvailable = false
+    private var videoHdrBound = false
+    private var videoHdrBlocked = false
+    private var dynamicRangesLogged = false
     /** Vídeo: fps e estabilização da ligação atual; desligados na sessão se a prévia parar com eles. */
     private var boundVideoFps = 30
     private var boundVideoStabilization = false
@@ -604,9 +614,9 @@ class NovaCamera(
             return
         }
         val info = runCatching { p.getCameraInfo(baseSelector) }.getOrNull() ?: return
-        val profile = "${Camera2CameraInfo.from(info).cameraId}/${selectedVideoQuality}/${selectedVideoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}/${cinematicRequested}/${portraitVideoSession}"
+        val profile = "${Camera2CameraInfo.from(info).cameraId}/${selectedVideoQuality}/${selectedVideoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}/${cinematicRequested}/${portraitVideoSession}/hdr=${settings.videoHdr}"
         if (profile != videoProfile) {
-            videoProfile = profile; videoStabilizationBlocked = false
+            videoProfile = profile; videoStabilizationBlocked = false; videoHdrBlocked = false
             videoEffectFailed = profile in failedVideoEffectProfiles
         }
         currentLens = lenses.firstOrNull { it.routeKey == currentLensId }
@@ -731,6 +741,20 @@ class NovaCamera(
                 else QualitySelector.fromOrderedList(wanted, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
             val recorder = Recorder.Builder().setQualitySelector(selectorForVideo).build()
             val vb = VideoCapture.Builder(recorder)
+            val hlg = DynamicRange.HLG_10_BIT
+            val dynamicRanges = runCatching { capabilities.supportedDynamicRanges }.getOrDefault(emptySet())
+            if (!dynamicRangesLogged) {
+                dynamicRangesLogged = true
+                com.novacamera.s24.core.VideoLog.add(activity, "Faixas dinâmicas anunciadas (câmera ${Camera2CameraInfo.from(info).cameraId}): " +
+                    dynamicRanges.joinToString { "${it.encoding}/${it.bitDepth}bit" } +
+                    " · HLG por qualidade: " + runCatching { capabilities.getSupportedQualities(hlg).joinToString() }.getOrDefault("—"))
+            }
+            videoHdrAvailable = hlg in dynamicRanges && chosen != null &&
+                runCatching { chosen in capabilities.getSupportedQualities(hlg) }.getOrDefault(false)
+            if (videoHdrAvailable) settings.videoHdrSeen = true
+            videoHdrBound = settings.videoHdr && videoHdrAvailable && !videoHdrBlocked && !portraitProfile &&
+                !cinematicRequested && mode != CaptureMode.TIMELAPSE
+            if (videoHdrBound) vb.setDynamicRange(hlg)
                 .setTargetRotation(targetRotation)
                 .setMirrorMode(if (settings.mirrorFrontVideo) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             if (selectedVideoStabilization && !videoStabilizationBlocked) {
@@ -750,12 +774,11 @@ class NovaCamera(
             if (limitVideo && requestedFps > 30)
                 videoBindingIssue = "${requestedFps} fps bloqueado por temperatura/economia; escolha 30 fps ou aguarde"
             val wantedFps = requestedFps.takeIf { it in fpsOptions } ?: 30 // só prévia quando bloqueado
-            if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
-            else if (settings.videoAutoFps && !portraitProfile && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
-                ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
-                    ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
-            }
-            if (wantedFps == 30 && !autoFpsApplied) vb.setTargetFrameRate(Range(30, 30))
+            fps = wantedFps
+            autoFpsRange = if (settings.videoAutoFps && !portraitProfile && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE)
+                ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper }, wantedFps) else null
+            autoFpsRange?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
+            if (!autoFpsApplied) vb.setTargetFrameRate(Range(wantedFps, wantedFps))
             boundVideoFps = fps; boundVideoStabilization = stabilization
             videoCapture = vb.build()
         } else if (support.canCapture) {
@@ -831,7 +854,7 @@ class NovaCamera(
             } ?: listener.onPortraitPreview(null)
             val sig = signatureStyle()
             // O renderizador compensa recorte, rotação e espelho para manter o texto legível.
-            if (videoBindingIssue==null && !cinematicBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
+            if (videoBindingIssue==null && !cinematicBound && !videoHdrBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) {
                 videoEffects.replace { signatureEffect(sig) }
             }
@@ -853,8 +876,7 @@ class NovaCamera(
             }.onFailure {
                 com.novacamera.s24.core.VideoLog.add(activity, "Consulta da sessão indisponível: ${it.javaClass.simpleName}: ${it.message}")
             }.getOrNull()
-            val automaticRange = ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
-            if (autoFpsApplied && ranges != null && automaticRange !in ranges) {
+            if (autoFpsApplied && ranges != null && autoFpsRange !in ranges) {
                 autoFpsBlocked = true
                 listener.onMessage("Faixa automática recusada pela sessão; tentando 30 fps fixos")
                 handler.post { if (!released && !paused) bind() }
@@ -864,6 +886,12 @@ class NovaCamera(
             com.novacamera.s24.core.VideoLog.add(activity,
                 "Sessão ${videoProfile} · zoom=${equivalent(pendingZoomOnLens ?: zoomOnLens)}× · EIS=$stabilization · assinatura=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · cinematográfico=$cinematicBound · FPS da sessão=${ranges ?: "consulta indisponível"}")
             if (selectedVideoFps !in fpsOptions && videoBindingIssue == null) {
+                if (videoHdrBound) {
+                    videoHdrBlocked = true
+                    listener.onMessage("HDR recusado em ${selectedVideoQuality.label}/${selectedVideoFps} fps; gravando em SDR")
+                    handler.post { if (!released && !paused) bind() }
+                    return
+                }
                 if (stabilization) {
                     videoStabilizationBlocked = true
                     listener.onMessage("Tentando ${selectedVideoQuality.label}/${selectedVideoFps} fps sem estabilização eletrônica")
@@ -879,6 +907,9 @@ class NovaCamera(
                     return
                 }
                 videoBindingIssue = "${selectedVideoQuality.label}/${selectedVideoFps} fps não aceito pela sessão desta câmera"
+                // Recusa da sessão base (sem EIS, sem assinatura, sem Retrato): os seletores param de oferecer.
+                if (ranges != null && !cinematicBound && !portraitVideoSession && selectedVideoQuality != VideoQualityOption.AUTO)
+                    settings.markVideoRefused(Camera2CameraInfo.from(info).cameraId, selectedVideoQuality, selectedVideoFps)
                 suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(selectedVideoFps, fpsOptions)
             }
             if (videoBindingIssue != null && (videoRecovery.exhausted || selectedVideoFps !in fpsOptions) && !limitVideo &&
@@ -923,6 +954,12 @@ class NovaCamera(
             if (mode.isVideo) com.novacamera.s24.core.VideoLog.add(activity,
                 "Bind recusado: $videoProfile · EIS=$stabilization · assinatura=${videoEffect != null} · ${e.javaClass.simpleName}: ${e.message}")
             camera = null
+            if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoHdrBound) {
+                videoHdrBlocked = true
+                listener.onMessage("HDR recusado nesta combinação; gravando em SDR")
+                handler.post { if (!released && !paused) bind() }
+                return
+            }
             if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && stabilization) {
                 videoStabilizationBlocked = true
                 listener.onMessage("Esta combinação recusou EIS; tentando a mesma resolução e FPS sem EIS")
@@ -1059,14 +1096,15 @@ class NovaCamera(
             oemHdrActive = wantedExtension == ExtensionMode.HDR,
             extensionActive = wantedExtension != ExtensionMode.NONE,
             canLockExposure = wantedExtension == ExtensionMode.NONE && caps!!.aeLockAvailable,
-            videoQualityLabel = qualityLabel, videoFps = fps, stabilization = stabilization,
+            videoQualityLabel = qualityLabel?.let { if (videoHdrBound && videoCapture != null) "$it HDR" else it }, videoFps = fps,
+            videoHdrAvailable = videoHdrAvailable && !portraitVideoSession, videoHdr = videoHdrBound && videoCapture != null, stabilization = stabilization,
             screenFlash = isFront && !cam.cameraInfo.hasFlashUnit(),
             photoResolution = if (nativePhotoSelected) chosenSize?.let { android.util.Size(it.width,it.height) } else imageCapture?.resolutionInfo?.resolution,
             photoSizeOptions = if (mode == CaptureMode.FOTO || processingKind(support) == null) sizeOptions else emptyList(),
             photoSize = chosenSize, photoNativeCapture=nativePhotoSelected, photoSizeBlocked = sizeBlocked,
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
-            videoFpsVariable = autoFpsApplied, videoCaptureProblem = videoBindingIssue,
+            videoFpsVariable = autoFpsApplied, videoFpsRange = autoFpsRange.takeIf { autoFpsApplied }, videoCaptureProblem = videoBindingIssue,
             videoSuggestedFps = suggestedVideoFps,
             timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
         )
@@ -1297,6 +1335,12 @@ class NovaCamera(
         future.addListener({
             if (camera === cam) zoomGate.completed(generation, sequence, SystemClock.uptimeMillis())?.let(::sendZoom)
         }, main)
+    }
+
+    /** Taxas que a sessão desta câmera já recusou para [quality] (ver [NovaSettings.videoRefused]). */
+    fun refusedVideoFps(quality: VideoQualityOption): Set<Int> {
+        val info = camera?.cameraInfo ?: return emptySet()
+        return settings.videoRefused(Camera2CameraInfo.from(info).cameraId, quality)
     }
 
     /** Nome da lente física ativa, quando a câmera informa (LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID). */
