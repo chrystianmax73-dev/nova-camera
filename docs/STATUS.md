@@ -1,3 +1,12 @@
+# 0.25.1 — investigação P0: energia e etapas da captura
+
+- Baseline antes das alterações: P0_DESEMPENHO_BASELINE.md, base c56ee20/CI39083686479 aprovado. Feedback positivo da0.25.0 preservado; sem benchmark físico controlado.
+- CURRENT_NOW respeita µA da API, sem inferência de mA por magnitude. Diagnóstico expõe bruto/sinal/tensão/unidade/potência/conexão/temperatura e n válido por grupo. Não explica sozinho14W anteriores nem prova economia.
+- Retrato mantém oito quadros/saída2× e algoritmos. JPEG fecha ImageProxy antes de EXIF/análises; prévia suspende novas inferências enquanto fotografia captura/processa, sem rebind. Operação nativa já em voo termina. Fotos continuam na fila existente e obturador é liberado após aquisição.
+- Tempos correlacionados por disparo: AF, pedidos/inícios/entregas/cópias de cada quadro, rajada, fila, decode/orientação, alinhamento, SR/quadros usados/saída, segmentação/profundidade/refino, render e codificação/gravação. Tempos wall, nãoGPU. CI desta etapa pendente; latência/qualidade/autonomia antes/depois exigemS24.
+
+---
+
 # 0.25.0 — Vídeo comum separado do cinematográfico do Retrato (17/10/2026)
 
 - **APK de teste disponível:0.25.0, build67 (1067).** [Baixar ZIP com app-release.apk assinado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39083102925/artifacts/12119587294), disponível até16/11/2026 à noite (Brasília). [Build39083102925 aprovado](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39083102925): **254 aprovados,5 dispensados,0 falhas**, lint, JPEG sintético200MP, modelos NAFNet/DepthAnything, assembleRelease, pesos offline/profundidade=True, certificado/versionCode/upload conferidos. Publicação skipped; nenhum release criado.

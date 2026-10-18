@@ -37,6 +37,7 @@ class PortraitMaskAnalyzer(
     private val onState: (String?) -> Unit,
     private val cinematic: Boolean = false,
     private val tapSensor: () -> Pair<Float,Float>? = { null },
+    private val captureBusy: () -> Boolean = { false },
 ) : ImageAnalysis.Analyzer, java.io.Closeable {
     private val app = context.applicationContext
     private var segmenter: PersonSegmenter.Live? = null
@@ -63,6 +64,14 @@ class PortraitMaskAnalyzer(
         var ownedFull:Bitmap?=null;var ownedSmall:Bitmap?=null;var ownedUpright:Bitmap?=null
         try {
             if (closed) return
+            // A rajada e o processamento da foto têm prioridade; sem rebind nem descarregar modelos.
+            // Uma inferência nativa já em voo termina; a próxima não começa durante a aquisição.
+            if(!cinematic && captureBusy()) {
+                if(lastState!="Análise da prévia pausada: prioridade da fotografia") {
+                    effect.clearMask();depthN=null;prevSubject=null;prevAmount=null;stillFrames=0
+                }
+                state("Análise da prévia pausada: prioridade da fotografia");return
+            }
             if(cinematic && com.novacamera.s24.processing.VideoFinishJob.state.running) {
                 if(lastState!="Desfoque pausado durante acabamento local")effect.clearMask()
                 depth?.close();depth=null;depthN=null;prevSubject=null;prevAmount=null

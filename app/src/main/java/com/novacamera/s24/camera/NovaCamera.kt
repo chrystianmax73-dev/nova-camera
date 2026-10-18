@@ -156,7 +156,7 @@ class NovaCamera(
     private var backlightBoost = 0
     private fun appliedEv() = evIndex + backlightBoost
     /** Captura em andamento (rajada/bracketing): a contraluz automática não mexe no EV no meio. */
-    private var capturing = false
+    @Volatile private var capturing = false
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
     /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */
@@ -1917,6 +1917,7 @@ class NovaCamera(
      * O obturador fica livre assim que os quadros chegam; o processamento não bloqueia a câmera.
      */
     private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind, shot: ShotTimer? = null) {
+        val trace=com.novacamera.s24.core.PhotoTrace("${initialKind.label} · ${equivalent(zoomOnLens)}×")
         var kind=initialKind
         if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: processando as fotos anteriores")
         val cam = camera ?: return
@@ -1983,10 +1984,12 @@ class NovaCamera(
         val mirror = isFront && settings.mirrorFrontPhoto
         val frames = ArrayList<CapturedFrame>()
         val baseEv = appliedEv()
+        trace.mark("plano ${steps.size} quadros/outScale$outScale/SR$srFactor")
         capturing = true
         ic.targetRotation = targetRotation
 
         fun submit() {
+            trace.mark("rajada concluída ${frames.size}/${steps.size}");trace.publish("aquisição concluída, processamento pendente")
             capturing = false
             if (nightOverride != null) { nightOverride = null; applyInterop() }
             if (srFactor > 1f && camera === cam) cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
@@ -1998,21 +2001,31 @@ class NovaCamera(
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = equivalent(zoomOnLens), srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
-                subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null))
+                subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
             listener.onProcessingQueued(kind)
         }
 
         fun shoot(i: Int) {
             if (i == steps.size || camera !== cam) return submit()
             val take = {
+                trace.mark("solicitação quadro${i+1}")
                 ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
-                    override fun onCaptureStarted() { if (i == 0) { shot?.started(); handler.post { listener.onCaptureStarted() } } }
+                    override fun onCaptureStarted() { trace.mark("início quadro${i+1}"); if (i == 0) { shot?.started(); handler.post { listener.onCaptureStarted() } } }
                     override fun onCaptureSuccess(image: ImageProxy) {
                         if (i == 0) shot?.done(image.imageInfo.timestamp)
+                        var cameraImageClosed=false
                         try {
-                            val buffer = image.planes[0].buffer
-                            val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
-                            frames += CapturedFrame(bytes, image.imageInfo.rotationDegrees, android.graphics.Rect(image.cropRect), baseEv + steps[i])
+                            trace.mark("entrega quadro${i+1}")
+                            cameraImageClosed=true
+                            val frame=com.novacamera.s24.core.FrameSnapshot.readAndClose(image) {
+                                val rotation=image.imageInfo.rotationDegrees
+                                val crop=android.graphics.Rect(image.cropRect)
+                                val buffer=image.planes[0].buffer
+                                CapturedFrame(ByteArray(buffer.remaining()).also { buffer.get(it) },rotation,crop,baseEv+steps[i])
+                            }
+                            trace.mark("cópia/liberação quadro${i+1} (${frame.jpeg.size}bytes)")
+                            val bytes=frame.jpeg
+                            frames += frame
                             if(i==0) {
                                 val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
                                 captureFacts=captureFacts.copy(
@@ -2072,7 +2085,7 @@ class NovaCamera(
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "quadro $i inválido", e)
-                        } finally { image.close() }
+                        } finally { if(!cameraImageClosed)image.close() }
                         handler.post {
                             if (steps.size > 1 && i + 1 < steps.size) listener.onBurstProgress(i + 1, steps.size)
                             shoot(i + 1)
@@ -2119,7 +2132,8 @@ class NovaCamera(
             night = kind == JobKind.NIGHT, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
             manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE)
-        focusBeforeBurst(cam, plan) { zoomOut() }
+        trace.mark("AF solicitado ${plan.target} limite${plan.waitMs}ms")
+        focusBeforeBurst(cam, plan) { trace.mark("AF liberou aquisição"); zoomOut() }
     }
 
     private var burstFocusHeld = false
@@ -2324,7 +2338,7 @@ class NovaCamera(
         val analysisGeneration=videoEffectGeneration
         val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post {
             if(analysisGeneration==videoEffectGeneration && !released && !paused)listener.onPortraitPreview(s)
-        } },tapSensor={cinematicTap})
+        } },tapSensor={cinematicTap},captureBusy={capturing || ProcessingQueue.pending>0})
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis

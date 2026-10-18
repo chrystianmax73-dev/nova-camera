@@ -37,14 +37,13 @@ object EnergyLog {
     private val samples = ArrayDeque<Sample>()
 
     /**
-     * Alguns aparelhos informam mA em vez de µA: abaixo de 10 000 em módulo (10 mA em µA é
-     * implausível com a câmera aberta), tratamos como mA.
+     * Unidade documentada pela API: µA, sem reescala heurística. Preserva bruto/sinal no diagnóstico.
+     * Zero, sentinelas e leitura fora da faixa são indisponíveis, não consumo nulo.
      */
     fun normalizeUa(raw: Long): Long? {
-        val a = abs(raw)
-        if (a == 0L) return null
-        val ua = if (a < 10_000) a * 1000 else a
-        return ua.takeIf { it in 10_000L..15_000_000L }
+        if(raw==Long.MIN_VALUE || raw==Int.MIN_VALUE.toLong()) return null
+        // BatteryManager.CURRENT_NOW define µA; magnitude não permite inferir outra unidade.
+        return abs(raw).takeIf { it in 1L..15_000_000L }
     }
 
     @Synchronized fun add(s: Sample) { samples.addLast(s); while (samples.size > KEEP) samples.removeFirst() }
@@ -61,7 +60,7 @@ object EnergyLog {
         list.groupBy { it.activity }.forEach { (activity, group) ->
             val mw = group.mapNotNull { it.powerMw }
             append("\n  $activity: ${group.size} amostras")
-            if (mw.isNotEmpty()) append(String.format(Locale.US, ", %.0f mW em média (máx. %.0f)", mw.average(), mw.max()))
+            if (mw.isNotEmpty()) append(String.format(Locale.US, ", %.0f mW em média (máx. %.0f; n válido=%d/%d)", mw.average(), mw.max(), mw.size, group.size))
             else append(", consumo não medido (carregando ou sem leitura de corrente)")
             group.mapNotNull { it.batteryTempC }.takeIf { it.isNotEmpty() }?.let { t ->
                 append(String.format(Locale.US, ", bateria %.1f–%.1f °C", t.min(), t.max()))
@@ -70,6 +69,13 @@ object EnergyLog {
                 append(String.format(Locale.US, ", folga térmica pior %.2f", h.max()))
             }
             append(", estado térmico máx. ${group.maxOf { it.thermalStatus }}")
+        }
+        append("\n  Leituras recentes (aparelho inteiro; instantâneas, não energia integrada; módulo do sinal):")
+        list.takeLast(12).forEach { s ->
+            append("\n    t=${s.tMs}ms · ${s.activity} · bruto=${s.currentUa} · unidade=µA (API, sem reescala)" +
+                " · módulo válido=${s.currentUa?.let(::normalizeUa)}µA · tensão=${s.voltageMv}mV" +
+                " · potência=${s.powerMw?.let { String.format(Locale.US,"%.1f",it) } ?: "não medida"}mW" +
+                " · conectado=${s.charging} · bateria=${s.percent}%/${s.batteryTempC}°C · térmica=${s.thermalStatus}")
         }
         // Queda de bateria por hora, só em trechos contínuos na bateria.
         val onBattery = list.filter { !it.charging && it.percent >= 0 }

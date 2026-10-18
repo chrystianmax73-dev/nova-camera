@@ -69,6 +69,7 @@ class Job(
     val srFactor: Float = 1f,
     /** Alta resolução na tele: saída [outScale]× maior que o quadro (2 = ~48 MP), por super-resolução. */
     val outScale: Float = 1f,
+    val trace: com.novacamera.s24.core.PhotoTrace? = null,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -202,7 +203,7 @@ object ProcessingQueue {
             synchronized(queued) { queued -= job }
             current = job
             started[job.id] = android.os.SystemClock.elapsedRealtime() to heat
-            try { run(app, job) } finally { current = null; started.remove(job.id) }
+            try { job.trace?.mark("saída da fila");run(app, job) } finally { job.trace?.publish("processamento encerrado (consultar resultado)");current = null; started.remove(job.id) }
         }
     }
 
@@ -222,6 +223,11 @@ object ProcessingQueue {
         File(sessionsDir(context), id).takeIf { it.isDirectory }?.let(::Session)
 
     private fun stamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+
+    private inline fun <T> timed(job:Job,name:String,block:()->T):T {
+        val t=android.os.SystemClock.elapsedRealtimeNanos()
+        try { return block() } finally { job.trace?.mark("$name concluído (${(android.os.SystemClock.elapsedRealtimeNanos()-t)/1_000_000}ms)") }
+    }
 
     private fun run(context: Context, job: Job) {
         val resolver = context.contentResolver
@@ -261,10 +267,10 @@ object ProcessingQueue {
             if (job.kind == JobKind.AUTO) { runAuto(context, job, session, name); return }
             // 1. Original (quadro de referência, sem processamento) — salvo primeiro, sempre.
             progress(0.02f, "Salvando original")
-            var orig = Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror)
+            var orig = timed(job,"decode/orientação original") { Engine.orient(JpegSource(frame0).let { s -> s.decodeFull().also { s.close() } }, frame0.rotationDegrees, job.mirror) }
             // Super-resolução: o "original" é o que o zoom digital de um quadro daria (centro ampliado).
             if (job.srFactor > 1.05f) orig = Engine.cropCenter(orig, job.srFactor)
-            MediaWriter.writeFile(session.original, orig, 95)
+            timed(job,"codificação/gravação original") { MediaWriter.writeFile(session.original, orig, 95) }
             // Original byte a byte (o JPEG da câmera, sem recompressão) em "Originais".
             if (keepOriginals) originalUri = MediaWriter.insertBytes(resolver, frame0.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS)
             session.originalUri = originalUri
@@ -290,13 +296,14 @@ object ProcessingQueue {
                 try {
                     val a = if (sources.size > 1) {
                         progress(0.05f, "Alinhando ${frames.size} quadros")
-                        Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
+                        timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     } else null
                     // Alta resolução só com memória folgada (a foto de 48 MP ocupa ~190 MB); senão 1,5× ou normal.
                     val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
-                    val (out, n) = Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
+                    val (out, n) = timed(job,"super-resolução") { Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
                         progress(0.2f + 0.45f * it, "Super-resolução")
-                    }
+                    } }
+                    job.trace?.mark("SR $n/${frames.size} quadros · ${out.width}x${out.height}")
                     base = out
                     val z = String.format(java.util.Locale.US, "%.1f", job.srFactor).replace('.', ',')
                     val mp = (out.width.toLong() * out.height / 1_000_000L)
@@ -312,7 +319,7 @@ object ProcessingQueue {
                 val sources = frames.map(::JpegSource)
                 try {
                     progress(0.05f, "Alinhando ${frames.size} quadros")
-                    val a = Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") }
+                    val a = timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind.merges) {
                         val rejected = Engine.mergeInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
@@ -342,19 +349,19 @@ object ProcessingQueue {
             // Não em fotos de alta resolução (~48 MP): tempo e memória da rede fora de proporção.
             val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context) &&
                 base.width.toLong() * base.height <= 16_500_000L
-            MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95)
+            timed(job,"codificação/gravação base") { MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95) }
 
             // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
             if (job.kind == JobKind.PORTRAIT) {
                 progress(0.68f, "Separando pessoa e fundo")
-                val seg = runCatching { PersonSegmenter.segment(context, base) }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
+                val seg = runCatching { timed(job,"segmentação/carga") { PersonSegmenter.segment(context, base) } }.onFailure { Log.w(TAG, "segmentação falhou", it) }.getOrNull()
                 val person = seg?.takeIf { it.coverage >= 0.03f }
                 // Profundidade estimada: assunto inteiro (pessoa ou objeto do centro) nítido e desfoque
                 // crescendo com a distância até ele.
                 progress(0.69f, "Estimando profundidade")
-                val depth = runCatching { DepthEstimator.estimate(context, base) }
+                val depth = runCatching { timed(job,"profundidade/carga") { DepthEstimator.estimate(context, base) } }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
-                val subject = runCatching { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint) }
+                val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint) } }
                     .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
                 if (subject != null) {
                     session.saveMatte(subject.matte)
@@ -372,13 +379,14 @@ object ProcessingQueue {
             session.save()
 
             // 4. Acabamento (tom, desfoque) e gravação da versão aprimorada.
-            render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") }
+            timed(job,"tom/detalhe/desfoque") { render(session, base, session.tone, session.blur, job.cancel) { progress(0.7f + 0.25f * it, "Ajustando tons") } }
             job.signature?.let { Signature.draw(base, it.withExif(session.exif)) }
             UltraHdr.attach(session, base)
             progress(0.96f, "Salvando")
             val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
-            val enhanced = MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
-                "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "")
+            val enhanced = timed(job,"codificação/gravação final") { MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
+                "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "") }
+            job.trace?.mark("resultado: $note")
             base.recycle()
             session.enhancedUri = enhanced
             if (aiLater) session.meta.setProperty(AI_KEY, AI_PENDING)
