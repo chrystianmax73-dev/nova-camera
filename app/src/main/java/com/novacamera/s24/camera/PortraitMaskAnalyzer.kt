@@ -53,9 +53,13 @@ class PortraitMaskAnalyzer(
     private var stillFrames = 0
     @Volatile private var closed = false
     private var lastState: String? = "init"
+    private val metricsToken=metricsGeneration.incrementAndGet()
+    init { report="Análise ao vivo do Retrato: preparando ${if(cinematic) "vídeo" else "foto"}" }
 
     override fun analyze(image: ImageProxy) {
         var cameraClosed=false
+        val analysisStarted=SystemClock.uptimeMillis()
+        var sampled=false;var copyMs=0L;var segmentMs=0L
         var ownedFull:Bitmap?=null;var ownedSmall:Bitmap?=null;var ownedUpright:Bitmap?=null
         try {
             if (closed) return
@@ -68,7 +72,7 @@ class PortraitMaskAnalyzer(
             val status = heat()?.thermalStatus ?: 0
             if (status >= ThermalPolicy.SEVERE) {
                 if(lastState!="Prévia do desfoque pausada: aparelho quente") effect.clearMask()
-                if(cinematic) { depth?.close();depth=null; segmenter?.close();segmenter=null; depthN=null;prevSubject=null;prevAmount=null }
+                depth?.close();depth=null; segmenter?.close();segmenter=null; depthN=null;prevSubject=null;prevAmount=null
                 state("Prévia do desfoque pausada: aparelho quente"); return
             }
             // Cena parada: a máscara não muda, então 3 Hz bastam (economia de CPU/GPU); qualquer
@@ -80,7 +84,10 @@ class PortraitMaskAnalyzer(
             val rot = image.imageInfo.rotationDegrees
             val selectedTap=tapInImage(image,rot)
             cameraClosed=true
+            sampled=true
+            val copyStart=SystemClock.uptimeMillis()
             val full = com.novacamera.s24.core.FrameSnapshot.readAndClose(image) { image.toBitmap() }.also { ownedFull=it }
+            copyMs=SystemClock.uptimeMillis()-copyStart
             // Reduz antes de girar: o modelo de pessoa vê 256 px e a máscara final tem 128 px.
             val s = 256f / max(full.width, full.height)
             val small = Bitmap.createScaledBitmap(full, max(1, (full.width * s).roundToInt()), max(1, (full.height * s).roundToInt()), true).also { ownedSmall=it }
@@ -96,7 +103,10 @@ class PortraitMaskAnalyzer(
                 }
             }
             val seg = segmenter ?: PersonSegmenter.Live(app).also { segmenter = it }
+            val segmentStart=SystemClock.uptimeMillis()
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
+            segmentMs=SystemClock.uptimeMillis()-segmentStart
+            if(closed)return
 
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
             val depthEvery = when {
@@ -111,6 +121,7 @@ class PortraitMaskAnalyzer(
                 try { session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) } }
                 finally { depthBudget.completed(started,SystemClock.uptimeMillis()) }
             }
+            if(closed)return
             if (upright !== small) upright.recycle()
             small.recycle()
 
@@ -148,6 +159,12 @@ class PortraitMaskAnalyzer(
             // Aliases (sem giro/escala) são possíveis; isRecycled impede liberação duplicada.
             listOf(ownedUpright,ownedSmall,ownedFull).forEach { if(it!=null && !it.isRecycled)it.recycle() }
             if(!cameraClosed) image.close()
+            if(sampled && metricsToken==metricsGeneration.get()) {
+                report="Análise ao vivo do Retrato (${if(cinematic) "vídeo" else "foto"}): ${if(closed) "inativa" else "em sessão"}" +
+                    " · última cópia/liberação=${copyMs}ms · segmentação=${segmentMs}ms · total=${SystemClock.uptimeMillis()-analysisStarted}ms" +
+                    " · última profundidade/carga=${depthBudget.lastCostMs}ms · máscara atual=${!closed && effect.maskReady}" +
+                    " · estado=${lastState ?: "ok"}. Não mede GPU, autonomia ou pixels do MP4."
+            }
         }
     }
 
@@ -166,19 +183,26 @@ class PortraitMaskAnalyzer(
         return PreviewMaskCalibration.grid(luma, bmp.width, bmp.height)
     }
 
-    private fun state(s: String?) { if (s != lastState) { lastState = s; onState(s) } }
+    private fun state(s: String?) { if (!closed && s != lastState) { lastState = s; onState(s) } }
+
+    /** Cancela aceitação/publicação imediatamente; liberação de modelos fica na thread proprietária. */
+    fun stopAcceptingFrames() { closed=true }
 
     /** Chamar na mesma thread da análise (depois de [ImageAnalysis.clearAnalyzer]). */
     override fun close() {
         closed = true
         runCatching { segmenter?.close() }; segmenter = null
         runCatching { depth?.close() }; depth = null
+        depthN=null;prevSubject=null;prevAmount=null
+        if(metricsToken==metricsGeneration.get())report="Análise ao vivo do Retrato: inativa · modelos liberados"
     }
 
-    private companion object {
-        const val TAG = "NovaPortraitMask"
+    companion object {
+        private val metricsGeneration=java.util.concurrent.atomic.AtomicLong()
+        @Volatile var report="Análise ao vivo do Retrato: ainda não executada";private set
+        private const val TAG = "NovaPortraitMask"
         /** Diferença média da máscara entre quadros abaixo disso = parado. */
-        const val STILL_DIFF = 0.006f
-        const val STILL_AFTER = 10
+        private const val STILL_DIFF = 0.006f
+        private const val STILL_AFTER = 10
     }
 }

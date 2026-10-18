@@ -2255,6 +2255,7 @@ class NovaCamera(
         val a = portraitAnalysis; val an = portraitAnalyzer
         portraitAnalysis = null; portraitAnalyzer = null
         a?.clearAnalyzer()
+        an?.stopAcceptingFrames()
         an?.let { portraitExecutor.execute { it.close() } }
     }
 
@@ -2318,7 +2319,10 @@ class NovaCamera(
                 .build())
         pinned?.let { Camera2Interop.Extender(ab).setPhysicalCameraId(it) }
         val analysis = ab.build()
-        val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post { listener.onPortraitPreview(s) } },tapSensor={cinematicTap})
+        val analysisGeneration=videoEffectGeneration
+        val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post {
+            if(analysisGeneration==videoEffectGeneration && !released && !paused)listener.onPortraitPreview(s)
+        } },tapSensor={cinematicTap})
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis
