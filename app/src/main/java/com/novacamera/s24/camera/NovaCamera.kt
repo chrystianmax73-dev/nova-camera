@@ -167,6 +167,18 @@ class NovaCamera(
         override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { motion.stop() }
     }.also { activity.lifecycle.addObserver(it) }
     /**
+     * App visível (iniciado). Fora disso o CameraX fecha a câmera de propósito (galeria, outra tela,
+     * tela apagada) e a falta de quadros NÃO é prévia parada. Antes desta marca o vigia tratava a ida
+     * à galeria como travamento: reabria a câmera com o app escondido (sem efeito), repetia a cada
+     * ~11 s e, na 2ª vez, desligava o desfoque e Tom/Temperatura até reabrir o app — os trios de
+     * "prévia parada" com efeito=false análise=false dos diagnósticos 0.26.8–0.27.1.
+     */
+    @Volatile private var visible = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+    private val visibilityLifecycle = object : androidx.lifecycle.DefaultLifecycleObserver {
+        override fun onStart(owner: androidx.lifecycle.LifecycleOwner) { visible = true }
+        override fun onStop(owner: androidx.lifecycle.LifecycleOwner) { visible = false }
+    }.also { activity.lifecycle.addObserver(it) }
+    /**
      * Vigia da prévia (thread própria): se a câmera está aberta e os resultados de captura param por
      * [STALL_PREVIEW_MS], registra o contexto ([com.novacamera.s24.core.StallLog]) e reabre a câmera;
      * no Retrato, a reabertura vem sem a análise do desfoque ao vivo nesta sessão (a foto segue com
@@ -198,8 +210,10 @@ class NovaCamera(
                 watchedCamera = cam; sampledGeneration = generation
                 watchStartFrames = frames; watchHasFrame = false
                 watchFrames = frames; watchSince = now
-            } else if (cam == null || cam !== camera || paused || released) {
+            } else if (cam == null || cam !== camera || paused || released || !visible) {
                 watchFrames = frames; watchSince = now
+                // Ao voltar, a câmera reabre do zero: vale o prazo do primeiro quadro (10 s), não o de 3 s.
+                if (!visible) { watchStartFrames = frames; watchHasFrame = false }
             } else if (capturing && stillLease.defersRecovery(now)) {
                 watchFrames = frames; watchSince = now
             } else if (com.novacamera.s24.core.ModelLoadWindow.defersStall(now)) {
@@ -234,7 +248,7 @@ class NovaCamera(
 
     private fun onPreviewStalled(cam: Camera) {
         if (capturing && stillLease.defersRecovery(SystemClock.uptimeMillis())) return
-        if (cam !== camera || cam !== watchCamera || released || paused) return
+        if (cam !== camera || cam !== watchCamera || released || paused || !visible) return
         if (mode.isVideo) {
             if ((mode==CaptureMode.VIDEO || mode==CaptureMode.VIDEO_PRO) && videoCapture==null) return
             val action = videoRecovery.stalled(isRecording, boundVideoStabilization)
