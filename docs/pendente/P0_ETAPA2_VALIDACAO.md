@@ -53,3 +53,11 @@ Em trechos contínuos sem carregar, cruzar tendência de NOW/AVERAGE com Δcarga
 Se houver ADB autorizado pelo dono, coletar localmente `adb shell dumpsys battery` e `adb shell dumpsys batterystats --charged com.novacamera.s24` antes/depois de ensaios comparáveis. Não resetar BatteryStats, não solicitar root/permissão de sistema/segredos e não publicar logs pessoais. Bateria mede o aparelho inteiro; CPU e estimativas BatteryStats não isolam a energia do compositor. Ausência de medição GPU continua explícita.
 
 Comparações separadas: vídeo comum, rastreamento, compositor sem máscara, profundidade ativa e acabamento posterior, mesma duração/FPS/resolução/luz/tela/conexão/temperatura inicial. Não declarar melhoria de autonomia antes dessa comparação.
+
+## Por que os cálculos são caros no código
+
+No alinhamento, o plano de trabalho de4080×3060/fator2 tem3.121.200 amostras. Buscas hierárquicas,49 candidatos por região e refinamento repetem leituras sobre esses planos para sete quadros móveis. Na SR2×, a saída8160×6120 é construída em520 blocos (incluindo bordas); cada bloco cheio lê referência169×169 e mede25 candidatos SSD por quadro móvel, mais vizinhos da parábola. Só a busca pode representar bilhões de diferenças/leituras no conjunto da foto. Isso explica a escala de trabalho, não mede tempo de CPU de cada instrução no S24.
+
+O núcleo nativo preserva a busca e as amostras. Na fusão, mínimo/máximo3×3 da referência era recalculado para cada amostra de cada quadro móvel; agora é calculado uma vez por região e consultado. Evita leituras/luminâncias repetidas com o mesmo resultado. Loops de detalhe mantêm luminância original pré-calculada e dispensam uma cópia de saída, sem realimentar vizinhos modificados. Não foi introduzido paralelismo irrestrito que multiplicaria memória/calor.
+
+Não foram portados tons/clareamento/crominância/desfoque inteiro nesta etapa. Os novos subtimings devem apontar qual domina o acabamento no aparelho antes de outro kernel, preservando especialmente o tom do Noturno. Modelos/backend não foram substituídos. O novo total de processamento físico ainda é desconhecido.

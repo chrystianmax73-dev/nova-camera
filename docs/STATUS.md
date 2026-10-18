@@ -5,6 +5,7 @@
 - Callbacks/timeoutAF antigos não alteram captura nova: identidade do PhotoTrace protege vigia, restauração de foco/EV/zoom e estado do obturador. Troca intencional de modo não é bloqueada pelo vigia.
 - Diagnóstico de STILL_CAPTURE via callback de sessão registra lógico, físico anunciado/solicitado, focal, AF e timestamp quando HAL entrega; EXIF da referência independente, sem confundir com óptica da prévia. Não obriga lente não suportada. Congelamentos fora da rajada ainda requerem registro físico.
 - Alta qualidade com estado severo é adiada explicitamente antes da rajada; se aquecer durante aquisição, preserva original em vez de processar só1 dos8 e reduzir qualidade. Noturno fora deste perfil mantém algoritmo/tom. Listas JPEG da captura liberadas após transferência à fila/coleta. Interface avisa “Foto capturada · processando” ao terminar aquisição.
+- Fonte finalbeb201f aprovada em assembleDebug/testDebugUnitTest/lintDebug no Actions39089312391; etapas39089067201/39089230751 também aprovadas. APK de teste ainda não confirmado.
 - Não alterado agendamento CameraX para oito pedidos simultâneos: sem evidência de suporte/benefício e risco HAL/memória. Os7,4–9,1s ainda precisam dos intervalos pedido/início/entrega do diagnóstico completo. Não afirmar aceleração da aquisição nem solução geral de congelamentos. CI e teste S24 pendentes.
 
 ---

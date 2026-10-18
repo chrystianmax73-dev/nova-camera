@@ -1,3 +1,9 @@
+# Atualização: fonte 0.26.2 aprovada; APK ainda não confirmado
+
+Fonte app `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b`, CI final39089312391 aprovado em assembleDebug/testDebugUnitTest/lintDebug. CIs intermediários39089067201 e39089230751 aprovados. Nenhuma alteração de app posterior. Preparar apenas APK assinado para teste pelo fluxo autorizado, mantendo publicação skipped; ainda não informar APK disponível. Handoff completo e texto para Claude logo abaixo, com estados antigos de CI superados por esta atualização. P0 física continua aberta.
+
+---
+
 # P0 etapa 2 — 0.26.2 em validação, otimização física ainda aberta
 
 ## Estado para continuar com Claude ou Codex
