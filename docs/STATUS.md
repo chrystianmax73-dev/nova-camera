@@ -1,5 +1,6 @@
-# 0.27.1 — zoom arrastando o botão de disparo (Claude; branch `claude/nova-interface`; fonte)
+# 0.27.1 — zoom arrastando o botão de disparo (Claude; branch `claude/nova-interface`; APK de teste build85 entregue)
 
+- **[Baixar ZIP com app-release.apk — build85 (1085)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39162809572/artifacts/12149497794)**. Mesma assinatura permanente. Artefato 12149497794, 132857718 bytes; digest do ZIP sha256:4287c9d1382141b9b2a3d1ef8ea764a73e8e3f8dd8709dd064254b5733872f0a; expira 2026-11-17T20:25:36Z. [Actions 39162809572](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39162809572) com sucesso; publicação pulada (nenhuma release nova). Gatilho restaurado em 4d46379 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - Pedido do dono: arrastar o disparador para cima aproxima, para baixo afasta, em todos os modos (antes só durante a gravação rápida). Soltar depois de arrastar não fotografa; toque simples fotografa como antes; segurar parado continua iniciando a gravação rápida. Mesma curva da gravação rápida (240 dp ≈ ×e) e mesmos limites de zoom da câmera. Teste `ShutterZoomTest`.
 
 ---
