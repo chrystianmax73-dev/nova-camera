@@ -7,7 +7,8 @@
 
 ---
 
-# 0.28.1 — correções do teste do 0.28.0 (Claude; branch `claude/nova-interface`; fonte)
+# 0.28.1 — correções do teste do 0.28.0 (Claude; branch `claude/nova-interface`; APK de teste build91 gerado, substituído pelo 0.28.2)
+- [ZIP build91 (1091)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39176712295/artifacts/12155010938): artefato 12155010938, 138668870 bytes, sha256:bb026a7bb9278a18c7ce6d482338eb72207379f601ff3a1935e461dc4c7844ef, expira 2026-11-17T23:35:03Z; sem release. Gatilho restaurado em bf0bedd.
 - **Teste do dono (0.28.0):** HDR funcionou (Diagnóstico: HLG anunciado para UHD/FHD/HD/SD; gravados FHD HDR/60 e 4K HDR/30 em HEVC, 59,7 e 30,0 fps). 4K/60 ainda mostrou o cartão de erro na 1ª vez (a recusa só passou a ser lembrada depois — no log, as trocas seguintes em 4K já pularam o 60). CINEMA: "A máscara ainda não está pronta ou perdeu validade" numa cena sem pessoa.
 - **Causa do Cinema:** sem pessoa, a máscara depende da profundidade (~1,4 s de parede no S24). Ela rodava dentro do quadro de análise: esse quadro passava de 650 ms e a máscara era apagada ("análise atrasada"), e entre cálculos a máscara anterior vencia (750 ms). Resultado: quase nunca "pronta". **Correção:** no cinematográfico a profundidade roda em thread própria (`nova-cine-depth`); a análise continua a cada quadro e a profundidade nova entra quando termina; movimento da cena descarta a que está em curso. Foto/Retrato inalterados (continuam no fluxo antigo).
 - **Gravar no Cinema sem máscara pronta:** aguarda até 4 s ("Preparando o desfoque…") e grava sozinho quando fica pronta; só depois disso mostra o diálogo de vídeo comum.
