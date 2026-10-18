@@ -283,6 +283,10 @@ object ProcessingQueue {
         session.zoom = job.zoom
         session.signature = job.signature
         try {
+            // Núcleos para alinhamento e super-resolução nesta foto (um só com calor ou economia).
+            Parallel.workers = heat.let { hh -> com.novacamera.s24.core.Workers.count(hh?.thermalStatus ?: 0, hh?.powerSave == true,
+                Runtime.getRuntime().availableProcessors()) }
+            job.trace?.mark("núcleos de processamento: ${Parallel.workers}")
             if (job.kind == JobKind.AUTO) { runAuto(context, job, session, name); return }
             // 1. Original (quadro de referência, sem processamento) — salvo primeiro, sempre.
             progress(0.02f, "Salvando original")

@@ -182,7 +182,12 @@ object Engine {
         fields += Array(gx * gy) { Shift(0, 0) }; luts += ExposureLut.IDENTITY; rel += null; unsafe += 0f
         val fieldsF = ArrayList<Array<FShift>>()
         fieldsF += Array(gx * gy) { FShift(0f, 0f) }
-        for (i in 1 until frames.size) {
+        // Cada quadro é alinhado à referência de forma independente: em paralelo ([Parallel]), com o
+        // resultado montado na ordem dos quadros (igual ao de um núcleo só).
+        class One(val field: Array<Shift>, val lut: ExposureLut, val rel: Plane?, val unsafe: Float, val fieldF: Array<FShift>?)
+        val doneFrames = java.util.concurrent.atomic.AtomicInteger()
+        val each = Parallel.map(frames.size - 1) { j ->
+            val i = j + 1
             if (cancel.cancelled) throw CancelledException()
             val mov = frames[i].luma(factor)
             val lut = ExposureLut.match(ref, mov)
@@ -190,9 +195,14 @@ object Engine {
             val global = Align.globalShift(ref, movN, maxShift = max(ref.w, ref.h) / 20)
             val field = Align.tileShifts(ref, movN, global, gx, gy, radius = 3)
             val r = Consistency.reliability(ref, mov, field, gx, gy, lut, noise)
-            fields += field; luts += lut; rel += if (retainReliability) r else null; unsafe += Consistency.unsafeFraction(r, ref)
-            if (subpixel) fieldsF += Align.refineField(ref, movN, field, global, gx, gy)
-            progress(i.toFloat() / frames.size)
+            val one = One(field, lut, if (retainReliability) r else null, Consistency.unsafeFraction(r, ref),
+                if (subpixel) Align.refineField(ref, movN, field, global, gx, gy) else null)
+            progress(doneFrames.incrementAndGet().toFloat() / frames.size)
+            one
+        }
+        for (o in each) {
+            fields += o.field; luts += o.lut; rel += o.rel; unsafe += o.unsafe
+            o.fieldF?.let { fieldsF += it }
         }
         return Alignment(fields, gx, gy, factor.toFloat(), ref.w, ref.h, luts, rel, unsafe, noise, if (subpixel) fieldsF else null)
     }
@@ -417,28 +427,48 @@ object Engine {
         val total = ((ow + tile - 1) / tile) * ((oh + tile - 1) / tile)
         var done = 0
         val margin = 4
-        for (oy0 in 0 until oh step tile) for (ox0 in 0 until ow step tile) {
-            if (cancel.cancelled) throw CancelledException()
-            val otw = min(tile, ow - ox0); val oth = min(tile, oh - oy0)
-            val rx0 = (cropX + ox0 / factor).toInt() - margin; val ry0 = (cropY + oy0 / factor).toInt() - margin
-            val rw = (otw / factor).toInt() + 2 * margin + 1; val rh = (oth / factor).toInt() + 2 * margin + 1
-            val refPx = IntArray(rw * rh).also { readClamped(frames[0], rx0, ry0, rw, rh, it) }
-            val ref = com.novacamera.s24.core.imaging.SuperRes.Region(refPx, rx0, ry0, rw, rh)
-            val list = ArrayList<Pair<com.novacamera.s24.core.imaging.SuperRes.Region, Pair<Float, Float>>>()
-            list += ref to (0f to 0f)
-            if (a != null) for (k in used) {
-                if (k == 0) continue
-                val cx = (rx0 + rw / 2f) / a.scale; val cy = (ry0 + rh / 2f) / a.scale
-                val g = a.fieldsF?.let { Align.shiftAtF(it[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale) }
-                    ?: Align.shiftAt(a.fields[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale).let { FShift(it.dx.toFloat(), it.dy.toFloat()) }
-                val gx = kotlin.math.round(g.x).toInt(); val gy = kotlin.math.round(g.y).toInt()
-                val m = 3
-                val movPx = IntArray((rw + 2 * m) * (rh + 2 * m)).also { readClamped(frames[k], rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m, it) }
-                val mov = com.novacamera.s24.core.imaging.SuperRes.Region(movPx, rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m)
-                list += mov to com.novacamera.s24.core.imaging.SuperRes.estimateShift(ref, mov, gx, gy)
+        // Por fileira de blocos: as leituras ficam em série (o JPEG é decodificado em faixas, na ordem
+        // das fileiras, e a faixa não muda dentro da fileira), o cálculo de cada bloco roda em paralelo ([Parallel]) e a gravação volta em
+        // série, na mesma ordem — a foto sai idêntica à de um núcleo só.
+        class TileJob(val ox0: Int, val oy0: Int, val otw: Int, val oth: Int, val ref: com.novacamera.s24.core.imaging.SuperRes.Region,
+                      val movs: List<Triple<com.novacamera.s24.core.imaging.SuperRes.Region, Int, Int>>)
+        // Lote de poucos blocos por vez (não a fileira inteira): memória de trabalho pequena mesmo a 48 MP.
+        val batch = 2 * Parallel.workers
+        val xs = (0 until ow step tile).toList()
+        for (oy0 in 0 until oh step tile) for (chunk in xs.chunked(batch)) {
+            val row = ArrayList<TileJob>()
+            for (ox0 in chunk) {
+                if (cancel.cancelled) throw CancelledException()
+                val otw = min(tile, ow - ox0); val oth = min(tile, oh - oy0)
+                val rx0 = (cropX + ox0 / factor).toInt() - margin; val ry0 = (cropY + oy0 / factor).toInt() - margin
+                val rw = (otw / factor).toInt() + 2 * margin + 1; val rh = (oth / factor).toInt() + 2 * margin + 1
+                val refPx = IntArray(rw * rh).also { readClamped(frames[0], rx0, ry0, rw, rh, it) }
+                val ref = com.novacamera.s24.core.imaging.SuperRes.Region(refPx, rx0, ry0, rw, rh)
+                val movs = ArrayList<Triple<com.novacamera.s24.core.imaging.SuperRes.Region, Int, Int>>()
+                if (a != null) for (k in used) {
+                    if (k == 0) continue
+                    val cx = (rx0 + rw / 2f) / a.scale; val cy = (ry0 + rh / 2f) / a.scale
+                    val g = a.fieldsF?.let { Align.shiftAtF(it[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale) }
+                        ?: Align.shiftAt(a.fields[k], a.gx, a.gy, a.lw, a.lh, cx, cy, a.scale).let { FShift(it.dx.toFloat(), it.dy.toFloat()) }
+                    val gx = kotlin.math.round(g.x).toInt(); val gy = kotlin.math.round(g.y).toInt()
+                    val m = 3
+                    val movPx = IntArray((rw + 2 * m) * (rh + 2 * m)).also { readClamped(frames[k], rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m, it) }
+                    movs += Triple(com.novacamera.s24.core.imaging.SuperRes.Region(movPx, rx0 + gx - m, ry0 + gy - m, rw + 2 * m, rh + 2 * m), gx, gy)
+                }
+                row += TileJob(ox0, oy0, otw, oth, ref, movs)
             }
-            sink(com.novacamera.s24.core.imaging.SuperRes.mergeTile(otw, oth, ox0, oy0, factor, cropX, cropY, list, noise), ox0, oy0, otw, oth)
-            done++; progress(done.toFloat() / total)
+            val results = Parallel.map(row.size) { i ->
+                if (cancel.cancelled) throw CancelledException()
+                val t = row[i]
+                val list = ArrayList<Pair<com.novacamera.s24.core.imaging.SuperRes.Region, Pair<Float, Float>>>()
+                list += t.ref to (0f to 0f)
+                for ((mov, gx, gy) in t.movs) list += mov to com.novacamera.s24.core.imaging.SuperRes.estimateShift(t.ref, mov, gx, gy)
+                com.novacamera.s24.core.imaging.SuperRes.mergeTile(t.otw, t.oth, t.ox0, t.oy0, factor, cropX, cropY, list, noise)
+            }
+            for ((i, t) in row.withIndex()) {
+                sink(results[i], t.ox0, t.oy0, t.otw, t.oth)
+                done++; progress(done.toFloat() / total)
+            }
         }
         return used.size
     }

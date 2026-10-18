@@ -1,3 +1,12 @@
+# 0.26.6 — alinhamento e super-resolução em vários núcleos (Claude; fonte em validação)
+
+- Até agora todo o processamento da foto rodava em **um núcleo**. Alinhamento (cada quadro contra a referência) e super-resolução (blocos da saída) são trabalhos independentes: passam a usar até **4 núcleos** (`core/Workers.kt`, `processing/Parallel.kt`). Calor ≥ MODERADO: 2; ≥ SEVERO ou economia de energia: 1, como antes. O diagnóstico registra "núcleos de processamento: N".
+- **Mesma foto, pixel a pixel:** leituras do JPEG continuam em série e na ordem das faixas (cache intacto); só o cálculo de cada bloco é paralelo, e a gravação volta na mesma ordem. `ParallelEngineTest` compara 1×4 núcleos: campos de alinhamento, quadros usados e pixels idênticos. Nenhum limiar, quadro, resolução, tom ou algoritmo mudou.
+- Medido no servidor (Kotlin, 4 núcleos, 6 quadros, alta resolução 2×): 640×480 572→293 ms; 2000×1500 **7,2→2,3 s (3,2×)**. **Não é medida do S24.** Lá alinhamento (7,5–8,5 s) + SR (13–13,7 s) eram ~21 s no diagnóstico 0.26.4; a expectativa é cair a uma fração disso, a confirmar no PhotoTrace.
+- Custo: potência de pico maior durante menos tempo; energia total não comprovada. Memória: lotes de 2×núcleos blocos (não a fileira inteira) para não pesar a 48 MP.
+
+---
+
 # 0.26.5 — APK de teste entregue: assunto conectado e referência noturna
 
 - **[Baixar ZIP com app-release.apk — build73 (1073)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555/artifacts/12138172823)**. Mesma assinatura permanente, instalação sobre a anterior. Artefato12138172823, 132629039 bytes; SHA-256 doZIP 9dc817152193b544f0e18231a41b3c3e30b2280b0e1b8c61441412335576ce71; expira2026-11-17T13:28:31Z. Nenhum release criado.

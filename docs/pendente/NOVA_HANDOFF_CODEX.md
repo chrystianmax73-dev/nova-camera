@@ -1,3 +1,15 @@
+# Etapa 0.26.6 (Claude) — alinhamento e super-resolução em vários núcleos; fonte em validação
+
+- Branch **codex/video-estabilidade-0-20**, base 6266847 (APK 0.26.5/build73). Dono pediu: Claude e Codex no mesmo branch, **sem os dois editarem ao mesmo tempo**; buscar o HEAD remoto antes de retomar.
+- **Causa medida do tempo:** todo o processamento rodava em 1 núcleo. Diagnóstico 0.26.4: alinhamento 7,5–8,5 s + SR 13–13,7 s ≈ 21 s de 38–49 s. Ambos são trabalhos independentes (quadro × referência; blocos da saída).
+- **Mudança:** `core/Workers.kt` (núcleos por calor: frio até 4, MODERADO 2, SEVERO/economia 1) e `processing/Parallel.kt` (pool fixo de 4 threads daemon, resultado na ordem dos índices). `Engine.align` alinha os quadros 1..N em paralelo; `Engine.superResTiles` lê em série (cache de faixas do JPEG intacto), calcula lotes de 2×núcleos blocos em paralelo e grava em série na mesma ordem. `ProcessingQueue` define `Parallel.workers` por foto e marca no PhotoTrace. Núcleos C++ são sem estado (seguros entre threads). **Isto revoga conscientemente a regra "sem threads novas"**, pelo pedido do dono de priorizar tempo; com calor volta ao comportamento antigo.
+- **Evidência local (servidor, não S24):** `ParallelEngineTest` — campos de alinhamento, quadros usados e pixels idênticos com 1 e 4 núcleos; 640×480 572→293 ms; 2000×1500 7,2→2,3 s (3,2×). Suíte completa e lint aprovados localmente; CI do commit a conferir.
+- **Não comprovado:** tempo real no S24, temperatura, energia. Próximo passo físico: PhotoTrace de Foto 5× alta resolução e Retrato 5× com "núcleos de processamento: 4", comparar alinhamento/SR com 0.26.4/0.26.5.
+- **Pendente de Claude fora deste branch:** 0.21.0 (branch ccr-7443eaac-tqygyg, commit aaa2a8e) — Noturno com SR no 10× (só na mão) e núcleo adaptativo da SR em pouca luz (área lisa ~3 dB menos granulada no teste sintético). Não portado: o `mergeTile` daqui usa `PhotoKernels.merge` em C++; portar exige o núcleo largo no C++ e teste de igualdade Kotlin×C++.
+- Próximos candidatos de tempo (mesma abordagem, depois de medir): perfil de contraste (4,4–5,0 s), desfoque do Retrato (6,6 s), estilo (2,3 s).
+
+---
+
 # Entrega 0.26.5 — APK de teste build 73 (1073)
 
 - **[Baixar ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39131104555/artifacts/12138172823)**. Extrair e instalar sobre a versão anterior, com a mesma assinatura permanente. Artefato **12138172823**, 132629039 bytes; SHA-256 **do ZIP**: **9dc817152193b544f0e18231a41b3c3e30b2280b0e1b8c61441412335576ce71**. Expira em **2026-11-17T13:28:31Z**. Nenhum release foi publicado.
