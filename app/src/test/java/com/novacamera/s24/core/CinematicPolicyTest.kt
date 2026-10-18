@@ -2,6 +2,13 @@ package com.novacamera.s24.core
 import org.junit.Assert.*
 import org.junit.Test
 class CinematicPolicyTest {
+    @Test fun cinemaSoAbreNaOrigemRetratoSemAlterarPreferenciaDoVideoNormal() {
+        assertFalse(CinematicPolicy.enabled(true,false,false))
+        assertTrue(CinematicPolicy.enabled(true,true,false))
+        assertFalse(CinematicPolicy.enabled(false,true,false))
+        assertFalse(CinematicPolicy.enabled(true,true,true))
+    }
+
     @Test fun pausaSemAnaliseNaoExecutaBlurNemImpedeCalibracaoDaPrimeiraMascara() {
         assertEquals(CinematicPolicy.RenderWork(false,false),CinematicPolicy.renderWork(true,true,false,0f,false))
         assertEquals(CinematicPolicy.RenderWork(true,false),CinematicPolicy.renderWork(true,true,false,0f,true))

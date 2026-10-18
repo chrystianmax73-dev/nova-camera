@@ -89,6 +89,7 @@ class NovaSettings(context: Context) {
     var instantShutter get() = bool("instant_shutter", true); set(v) = put("instant_shutter", v)
 
     // Vídeo
+    var portraitVideoProfileAccepted get() = bool("portrait_video_profile_accepted", false); set(v) = put("portrait_video_profile_accepted",v)
     var cinematicVideo get() = bool("cinematic_video", false); set(v) = put("cinematic_video", v)
     var mirrorFrontVideo get() = bool("mirror_front_video", true); set(v) = put("mirror_front_video", v)
     /** Seleção por gesto; nenhuma análise roda sem assunto selecionado. */

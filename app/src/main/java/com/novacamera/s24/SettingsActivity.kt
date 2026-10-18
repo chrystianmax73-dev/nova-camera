@@ -172,9 +172,9 @@ class SettingsActivity : NovaScreen() {
             listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
         switch("Quadros automáticos com pouca luz", "A 30 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 5× e 10×). Com luz boa continua em 30 fps.",
             { settings.videoAutoFps }, { settings.videoAutoFps = it })
-        switch("Vídeo cinematográfico (experimental)", "Profundidade estimada na prévia e no MP4, frontal/traseira. " +
-            "Selecione Full HD, 30 fps e desligue Estabilização explicitamente; outras qualidades continuam no vídeo comum ao desativar. " +
-            "Aguarde a máscara antes de gravar. Na perda ou no calor, o desfoque pausa com aviso; não reduz a qualidade do vídeo.",
+        switch("Vídeo cinematográfico no Retrato", "Experimental, frontal/traseira: no Retrato, segure ou arraste o obturador à direita. " +
+            "Perfil separado Full HD/30, sem EIS, confirmado antes do primeiro uso; não altera as configurações do Vídeo normal. " +
+            "Profundidade na prévia e no MP4 exige máscara atual; calor ou perda podem pausar o efeito com aviso.",
             { settings.cinematicVideo }, { settings.cinematicVideo = it })
         switch("Estabilização", "Usa a estabilização anunciada pela câmera (pode recortar levemente as bordas).",
             { settings.videoStabilization }, { settings.videoStabilization = it })
@@ -192,7 +192,7 @@ class SettingsActivity : NovaScreen() {
             { settings.videoCenterMetering }, { settings.videoCenterMetering = it })
 
         section("Foco e exposição")
-        switch("Acompanhar assunto no vídeo", "Experimental: toque em pessoa ou objeto com textura no Vídeo/Vídeo Pro. " +
+        switch("Acompanhar assunto", "Experimental: toque em pessoa ou objeto com textura no Vídeo/Vídeo Pro ou Retrato Nova. " +
             "Acompanha pequenos movimentos e prioriza AF/AE onde a lente permite; na perda volta ao automático. " +
             "Toque longo continua bloqueando foco. Desative para usar só foco por toque e comparar consumo.",
             { settings.videoSubjectTracking }, { settings.videoSubjectTracking = it })

@@ -1,3 +1,12 @@
+# 0.25.0 — Vídeo comum separado do cinematográfico do Retrato (17/10/2026)
+
+- Vídeo/Vídeo Pro e vídeo rápido da Foto não abrem profundidade nem o compositor cinematográfico, mesmo com preferência ligada. Mantêm tracking opcional leve, assinatura e acabamento pós local existente. Cinematográfico fica exclusivamente na gravação iniciada no Retrato, com perfil FHD/30/EISoff separado e confirmação explícita antes do primeiro uso, sem sobrescrever qualidade/FPS/EIS do Vídeo normal. Não há redução silenciosa.
+- Retrato conserva foto por toque e gravação por pressão; aba visual continua Retrato, indicador identifica RETRATO·VÍDEO. Warmup limitado começa antes do bind, não cancela prematuramente quando a liberação GL é assíncrona, e nunca começa após soltar/cancelar. Controle normal retorna após Finalize.
+- Tracking de aparência passa ao Retrato Nova com AF contínuo de foto/AE compatíveis e seleção acompanhada para a foto/desfoque; câmera/lentes/zoom respeitam capacidade real. Extensão OEM mantém foco por toque se não oferece esse controle. Sem reidentificação semântica nem garantia de tele óptica10x (zoom10x pode ser digital).
+- Inclui recursos0.24.7; gestos direita/zoom vertical e testes de regressão são próxima alteração desta etapa. CI pendente, sem APK novo ainda. Qualidade visual, temperatura e autonomia no S24 continuam sem comprovação desta revisão; não declarar otimização completa.
+
+---
+
 # 0.24.7 — recursos da análise e prioridade energética (17/10/2026)
 
 - Base8bbb343d63d7c91681e647d5568b8e3536f8f79f conferida; baseline Actions39075324814 aprovado antes de editar. Novo pedido autoriza Vídeo comum sem cinema e gravação cinematográfica no Retrato, gestos/zoom/tracking, bateria primeiro. Próxima etapa0.25.0 fará essa separação; ainda não concluída nesta entrada.

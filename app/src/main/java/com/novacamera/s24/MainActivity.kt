@@ -371,7 +371,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     !camera.ready -> "Câmera inativa"
                     camera.isRecording -> "${camera.mode.label} (gravando)"
                     else -> camera.mode.label
-                } + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
+                } + (if(camera.portraitVideoSession) " · origem Retrato" else "") + (camera.state?.takeIf { it.mode.isVideo }?.let { " · ${it.videoQualityLabel}/${it.videoFps} alvo · EIS=${it.stabilization} · ${if (it.isFront) "frontal" else "traseira"}" } ?: "") +
                     (if (::tracking.isInitialized && tracking.active) " · rastreamento ativo" else " · sem rastreamento") +
                     (" · " + camera.cinematicDiagnostic) +
                     (if (com.novacamera.s24.processing.VideoFinishJob.state.running) " + acabamento de vídeo" else "") +
@@ -917,8 +917,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun beginQuickRecording(): Boolean {
         if (!camera.ready || shutter.busy || countdown > 0 || quickReturnMode != null ||
             camera.mode !in setOf(CaptureMode.FOTO, CaptureMode.RETRATO)) return false
-        if (camera.cinematicThermallyBlocked) {
-            hint.show("Cinematográfico pausado pelo calor. No modo Vídeo, toque para escolher vídeo comum",4500)
+        if(camera.mode==CaptureMode.RETRATO && settings.cinematicVideo && !settings.portraitVideoProfileAccepted) {
+            android.app.AlertDialog.Builder(this).setTitle("Vídeo cinematográfico do Retrato")
+                .setMessage("Usar Full HD/30 fps, sem EIS, neste modo? O Vídeo normal manterá ${settings.videoQuality.label}/${settings.videoFps} fps e sua estabilização. O efeito exige máscara atual e é experimental nas duas câmeras.")
+                .setNegativeButton("Continuar fotografando",null)
+                .setPositiveButton("Usar esse perfil") { _,_ ->
+                    settings.portraitVideoProfileAccepted=true
+                    hint.show("Perfil do Retrato confirmado. Segure ou arraste à direita novamente para gravar",4500)
+                }.show()
             return false
         }
         if (settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -930,20 +936,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
         if (!quickRecording.hold()) return false
         quickReturnMode = camera.mode
-        hint.show("Preparando vídeo · solte para parar · arraste para bloquear")
+        hint.show(if(quickReturnMode==CaptureMode.RETRATO && settings.cinematicVideo)
+            "Retrato · preparando profundidade FHD/30 · solte para cancelar" else "Preparando vídeo · solte para parar · arraste à direita para bloquear")
         Haptics.confirm(shutter)
         showTransition()
-        camera.setMode(CaptureMode.VIDEO, rebind = false, remember = false)
-        refreshStrip(CaptureMode.VIDEO)
-        relayoutThenBind {
-            if (quickReturnMode != null && quickRecording.active) {
-                camera.bind()
-                if (!camera.ready || camera.state?.videoCaptureProblem != null) {
-                    quickRecording.finished()
-                    restoreQuickMode()
+        camera.setMode(CaptureMode.VIDEO, rebind = false, remember = false,portraitVideo=quickReturnMode==CaptureMode.RETRATO)
+        refreshStrip(quickReturnMode ?: CaptureMode.VIDEO)
+        quickVideoWarmup.await(
+            valid={quickReturnMode!=null && camera.mode==CaptureMode.VIDEO && !isDestroyed && !isFinishing},
+            ready={camera.ready && camera.state?.mode==CaptureMode.VIDEO && camera.state?.videoCaptureProblem==null && camera.cinematicReady},
+            start={
+                if(quickRecording.ready()==com.novacamera.s24.core.QuickRecording.Action.START) {
+                    camera.startRecording()
+                    if(!camera.isRecording) { quickRecording.finished();restoreQuickMode() }
                 }
-            }
-        }
+            },
+            expired={
+                val reason=camera.cinematicUnavailableReason ?: camera.state?.videoCaptureProblem ?: "A câmera não ficou pronta"
+                quickRecording.finished();restoreQuickMode();hint.show("$reason. Nenhum vídeo iniciado",4500)
+            })
+        relayoutThenBind { if(quickReturnMode!=null && quickRecording.active)camera.bind() }
         return true
     }
 
@@ -1131,6 +1143,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ratioChip.text = settings.aspect.label
         qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
         qualityChip.text = s?.videoQualityLabel ?: ""
+        qualityChip.isEnabled=!(camera.portraitVideoSession && settings.cinematicVideo)
+        fpsChip.isEnabled=qualityChip.isEnabled
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
         fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) "15–30 fps alvo" else "${s?.videoFps ?: 30} fps alvo"
         hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
@@ -1152,7 +1166,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onCameraState(state: CameraState) {
         if (::tracking.isInitialized) tracking.stop()
         cameraState = state
-        refreshStrip(state.mode)
+        refreshStrip(quickReturnMode ?: state.mode)
         shutter.quickEnabled = state.support.canCapture && quickReturnMode == null &&
             (state.mode == CaptureMode.FOTO || state.mode == CaptureMode.RETRATO)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
@@ -1205,20 +1219,6 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateEvChip(state.evIndex)
         updateTopBar()
         layoutAll(state.mode)
-        quickVideoWarmup.cancel()
-        if(quickReturnMode!=null && state.mode==CaptureMode.VIDEO) {
-            if(camera.cinematicBound && !camera.cinematicReady)hint.show("Preparando profundidade · solte para cancelar",2500)
-            quickVideoWarmup.await(
-                valid={quickReturnMode!=null && camera.mode==CaptureMode.VIDEO && state.videoCaptureProblem==null},
-                ready={camera.ready && camera.cinematicReady},
-                start={
-                    if(quickRecording.ready()==com.novacamera.s24.core.QuickRecording.Action.START) {
-                        camera.startRecording()
-                        if(!camera.isRecording) { quickRecording.finished();restoreQuickMode() }
-                    }
-                },
-                expired={quickRecording.finished();restoreQuickMode();hint.show("Profundidade não ficou pronta; tente novamente ou desative o efeito",3000)})
-        }
 
     }
 
@@ -1318,7 +1318,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val active = phase != RecordingPhase.IDLE
         shutter.recording = active
         recChip.visibility = if (active) View.VISIBLE else View.GONE
-        recChip.text = (if (phase == RecordingPhase.PAUSED) "❚❚  " else if (quickRecording.locked) "🔒  " else "●  ") + CameraMath.formatDuration(seconds)
+        recChip.text = (if(camera.portraitVideoSession) "RETRATO · " else "") + (if (phase == RecordingPhase.PAUSED) "❚❚  " else if (quickRecording.locked) "🔒  " else "●  ") + CameraMath.formatDuration(seconds)
         recChip.background = Nova.pill(if (phase == RecordingPhase.PAUSED) Nova.SURFACE else Nova.REC, dp(14f))
         topBar.visibility = if (active) View.INVISIBLE else View.VISIBLE
         modeStrip.isEnabled = !active
@@ -1362,7 +1362,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.selectCinematicSubject(x,y)
         lockChip.visibility = View.GONE
         overlay.showFocusAt(x, y)
-        if (settings.videoSubjectTracking && (camera.mode == CaptureMode.VIDEO || camera.mode == CaptureMode.VIDEO_PRO)) {
+        if (settings.videoSubjectTracking && camera.mode in setOf(CaptureMode.VIDEO,CaptureMode.VIDEO_PRO,CaptureMode.RETRATO)) {
             if (camera.beginSubjectTracking()) {
                 selectedTrackingEpoch = camera.trackingEpoch
                 trackingChip.text = "SELECIONANDO ASSUNTO  ✕"
