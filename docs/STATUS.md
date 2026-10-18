@@ -1,3 +1,13 @@
+# 0.26.2 — foco honesto e proteção limitada da rajada
+
+- Foco por toque só fica marcado como confirmado se CameraX retornar sucesso AF. Antes, bastava o callback existir ou solicitar FLAG_AF. Razões distintas para AF dispensado (manual/bloqueio/ponto confirmado/OEM/contínuo) e pedido não suportado/rejeitado. Mantém foco automático e não inventa foco no ponto.
+- Vigia não reabre a câmera durante pausa legítima da aquisição: janela limitada por pedido (10s ou exposição longa+3s) e total (30s ou orçamento da rajada, máximo180s). Pedidos não renovam o prazo total; liberação após aquisição/pause/release/bind. Não desliga a recuperação de falha real. Testes de oito entregas, ausência de entrega, limite total e exposição longa.
+- Diagnóstico de STILL_CAPTURE via callback de sessão registra lógico, físico anunciado/solicitado, focal, AF e timestamp quando HAL entrega; EXIF da referência independente, sem confundir com óptica da prévia. Não obriga lente não suportada. Congelamentos fora da rajada ainda requerem registro físico.
+- Alta qualidade com estado severo é adiada explicitamente antes da rajada; se aquecer durante aquisição, preserva original em vez de processar só1 dos8 e reduzir qualidade. Noturno fora deste perfil mantém algoritmo/tom. Listas JPEG da captura liberadas após transferência à fila/coleta. Interface avisa “Foto capturada · processando” ao terminar aquisição.
+- Não alterado agendamento CameraX para oito pedidos simultâneos: sem evidência de suporte/benefício e risco HAL/memória. Os7,4–9,1s ainda precisam dos intervalos pedido/início/entrega do diagnóstico completo. Não afirmar aceleração da aquisição nem solução geral de congelamentos. CI e teste S24 pendentes.
+
+---
+
 # 0.26.1 — memória da super-resolução e diagnóstico do acabamento
 
 - SR deixa de reter sete mapas de confiabilidade que não consulta: a confiabilidade continua calculada para selecionar quadros, campos subpixel e fusão não mudam. Em 4080×3060/fator2, ~83,3 MiB deixam de permanecer retidos durante SR. Isto é contagem de buffers, não PSS medido no aparelho. Outros caminhos mantêm seus mapas.

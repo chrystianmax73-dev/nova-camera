@@ -286,11 +286,12 @@ object ProcessingQueue {
             session.originalUri = originalUri
             val h = heat
             val critical = h != null && h.thermalStatus >= ThermalPolicy.CRITICAL
-            if (critical) {
+            val highQualityTooHot = h != null && h.thermalStatus >= ThermalPolicy.SEVERE && (job.outScale>1f || job.srFactor>1f)
+            if (critical || highQualityTooHot) {
                 if (originalUri == null && job.kind != JobKind.AUTO)
                     originalUri = MediaWriter.insert(resolver, orig, "NOVA_$name.jpg", MediaWriter.GALLERY, session.exif, null)
                 orig.recycle()
-                finish(job, session, null, originalUri, "Aparelho muito quente: salvo só o original, sem processamento")
+                finish(job, session, null, originalUri, "Aparelho muito quente: salvo só o original, sem processamento nem reduzir a resolução escolhida")
                 return
             }
             // Com aquecimento severo, a fusão multiquadro é pulada (um quadro só, processamento leve).

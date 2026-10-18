@@ -175,6 +175,8 @@ class NovaCamera(
     private val watchdogThread by lazy { android.os.HandlerThread("nova-watchdog").also { it.start() } }
     private val watchdog by lazy { Handler(watchdogThread.looper) }
     private val previewProgress = com.novacamera.s24.core.CaptureProgress()
+    private val stillLease = com.novacamera.s24.core.StillCaptureLease()
+    @Volatile private var activePhotoTrace: com.novacamera.s24.core.PhotoTrace? = null
     private var watchFrames = -1L
     private var watchSince = 0L
     @Volatile private var watchGeneration = 0L
@@ -196,6 +198,8 @@ class NovaCamera(
                 watchStartFrames = frames; watchHasFrame = false
                 watchFrames = frames; watchSince = now
             } else if (cam == null || cam !== camera || paused || released) {
+                watchFrames = frames; watchSince = now
+            } else if (capturing && stillLease.defersRecovery(now)) {
                 watchFrames = frames; watchSince = now
             } else if (frames != watchFrames) {
                 watchHasFrame = frames != watchStartFrames
@@ -263,6 +267,7 @@ class NovaCamera(
             SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(Date()), mode.label, currentLens?.routeKey ?: "?",
             equivalent(zoomOnLens), portraitEffect != null || videoEffect != null, portraitAnalysis != null,
             runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?")
+        activePhotoTrace?.mark("sem CaptureResult após prazo limitado da rajada; recuperação solicitada")
         Log.w(TAG, "prévia parada: $line")
         com.novacamera.s24.core.StallLog.add(activity, line)
         when {
@@ -347,6 +352,7 @@ class NovaCamera(
         if (isRecording || paused || nativeRun != null || released) return
         endSubjectTracking()
         paused = true
+        stillLease.end();activePhotoTrace=null
         nativeRun?.cancel()
         synchronized(telemetry) { telemetry.breakStream() }
         provider?.unbindAll()
@@ -363,6 +369,7 @@ class NovaCamera(
         if (released) return
         invalidateSubjectTracking()
         released = true
+        stillLease.end();activePhotoTrace=null
         watchCamera = null
         runCatching { watchdog.removeCallbacks(watchTick); watchdogThread.quitSafely() }
         motion.stop(); motionWanted = false
@@ -497,6 +504,7 @@ class NovaCamera(
 
     fun bind() {
         val p = provider ?: return
+        if (capturing && stillLease.defersRecovery(SystemClock.uptimeMillis())) return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
         if (!settings.cinematicVideo) commonVideoChosen=false
@@ -993,7 +1001,7 @@ class NovaCamera(
 
         val exposure = cam.cameraInfo.exposureState
         evIndex = evIndex.coerceIn(exposure.exposureCompensationRange.lower, exposure.exposureCompensationRange.upper)
-        capturing = false
+        capturing = false; stillLease.end(); activePhotoTrace=null
         backlightBoost = backlightBoost.coerceIn(0, maxOf(0, exposure.exposureCompensationRange.upper - evIndex))
         if (exposure.isExposureCompensationSupported) cam.cameraControl.setExposureCompensationIndex(appliedEv())
         applyInterop()
@@ -1435,7 +1443,7 @@ class NovaCamera(
                 return@addListener
             }
             val ok = result.isFocusSuccessful
-            afAtPoint = userPointFlags and FocusMeteringAction.FLAG_AF != 0
+            afAtPoint = ok && userPointFlags and FocusMeteringAction.FLAG_AF != 0
             if (lock) {
                 aeLocked = true
                 applyInterop()
@@ -1655,6 +1663,9 @@ class NovaCamera(
     private fun progressCallback(generation:Long) = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session:CameraCaptureSession,request:CaptureRequest,result:TotalCaptureResult) {
             if (generation!=watchGeneration || !previewProgress.frame(generation)) return
+            if(request.get(CaptureRequest.CONTROL_CAPTURE_INTENT)==CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
+                activePhotoTrace?.mark("sensor foto: lógico=${session.device.id} · físico=${result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)} · solicitado=${currentLens?.physicalCameraId} · focal=${result.get(CaptureResult.LENS_FOCAL_LENGTH)} · AF=${result.get(CaptureResult.CONTROL_AF_STATE)} · timestamp=${result.get(CaptureResult.SENSOR_TIMESTAMP)}")
+            }
             statsCallback.onCaptureCompleted(session,request,result)
         }
     }
@@ -1983,15 +1994,26 @@ class NovaCamera(
             captureNote = "Alta resolução: $SR_FRAMES quadros"
             listener.onMessage("Segure firme · alta resolução")
         }
+        if ((outScale>1f || srFactor>1f) && h!=null && h.thermalStatus>=ThermalPolicy.SEVERE) {
+            trace.mark("alta qualidade adiada: estado térmico severo");trace.publish("não capturada")
+            listener.onPhotoSaved(null)
+            listener.onMessage("Aguarde esfriar para capturar os oito quadros em alta qualidade; nenhuma resolução foi reduzida")
+            return
+        }
         val mirror = isFront && settings.mirrorFrontPhoto
         val frames = ArrayList<CapturedFrame>()
         val baseEv = appliedEv()
         trace.mark("plano ${steps.size} quadros/outScale$outScale/SR$srFactor")
         capturing = true
+        stillLease.begin(SystemClock.uptimeMillis(), (nightPlan?.exposureNs ?: 0L)/1_000_000L,steps.size)
+        activePhotoTrace=trace
+        val submitted=java.util.concurrent.atomic.AtomicBoolean(false)
         trace.publish("aquisição em andamento")
         ic.targetRotation = targetRotation
 
         fun submit() {
+            if(!submitted.compareAndSet(false,true))return
+            stillLease.end();activePhotoTrace=null
             trace.mark("rajada concluída ${frames.size}/${steps.size}");trace.publish("aquisição concluída, processamento pendente")
             capturing = false
             if (nightOverride != null) { nightOverride = null; applyInterop() }
@@ -2005,12 +2027,14 @@ class NovaCamera(
                 zoom = equivalent(zoomOnLens), srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
+            frames.clear() // Job e coleta já possuem listas próprias.
             listener.onProcessingQueued(kind)
         }
 
         fun shoot(i: Int) {
             if (i == steps.size || camera !== cam) return submit()
             val take = {
+                stillLease.request(SystemClock.uptimeMillis())
                 trace.mark("solicitação quadro${i+1}")
                 ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureStarted() { trace.mark("início quadro${i+1}"); if (i == 0) { shot?.started(); handler.post { listener.onCaptureStarted() } } }
@@ -2033,6 +2057,7 @@ class NovaCamera(
                             frames += frame
                             if(i==0) {
                                 val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+                                trace.mark("JPEG referência: focal=${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH)} · dimensões=${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_WIDTH)}x${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_LENGTH)}; EXIF não confirma ID físico")
                                 captureFacts=captureFacts.copy(
                                     iso=exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,0).takeIf { it>0 },
                                     exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
@@ -2152,20 +2177,27 @@ class NovaCamera(
                 previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
                 FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
         }
-        if (action == null || !cam.cameraInfo.isFocusMeteringSupported(action)) { trace.mark("AF dispensado/não suportado");return then() }
+        if (action == null) { trace.mark("AF sem novo pedido: ${if(aeLocked) "bloqueio do usuário" else if(afAtPoint) "ponto já confirmado" else if(mode.isPro && manual.focusDiopters!=null) "foco manual" else if(activeExtension!=ExtensionMode.NONE) "extensão OEM" else "AF contínuo/ponto indisponível"}");return then() }
+        if (!cam.cameraInfo.isFocusMeteringSupported(action)) {
+            trace.mark("AF pedido ${plan.target} não suportado; não confirmado no ponto; preservado foco automático")
+            return then()
+        }
         var done = false
         val go = { reason:String -> if (!done) { done = true; trace.mark(reason);then() } }
         // Novo ciclo do ponto: os retornos ao automático agendados pelo toque antigo deixam de valer.
         val token = if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT) ++focusToken else focusToken
         burstFocusHeld = plan.target == com.novacamera.s24.core.FocusPolicy.Target.CENTER
-        val future = cam.cameraControl.startFocusAndMetering(action)
+        val future = try { cam.cameraControl.startFocusAndMetering(action) } catch(e:Exception) {
+            burstFocusHeld=false;trace.mark("AF rejeitado: ${e.javaClass.simpleName}; sem confirmação");return then()
+        }
         future.addListener({
-            if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
-                afAtPoint = true
-                // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
-                userPoint?.let { scheduleFocusRelease(token, it) }
-            }
             val result=runCatching { future.get().isFocusSuccessful }.getOrNull()
+            if (camera !== cam) return@addListener
+            if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
+                afAtPoint = result == true
+                // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
+                if(afAtPoint) userPoint?.let { scheduleFocusRelease(token, it) }
+            }
             go("AF callback: sucesso=$result")
         }, main)
         handler.postDelayed({ go("AF limite de espera") }, plan.waitMs)

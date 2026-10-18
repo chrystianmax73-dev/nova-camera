@@ -1291,6 +1291,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onProcessingQueued(kind: JobKind) {
         shutter.busy = false
+        hint.show("Foto capturada · processando", 1200)
     }
 
     private fun onProcessingProgress(p: JobProgress) {
