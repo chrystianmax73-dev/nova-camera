@@ -1,3 +1,10 @@
+# Etapa 0.26.11 (Claude) — profundidade ao vivo só com cena nova; fonte em validação
+
+- `core/DepthRefreshPolicy` + `PortraitMaskAnalyzer` (só `!cinematic`): recalcula profundidade se luminância por bloco mudou > 0,045 desde o último cálculo, se o toque mudou (> 0,04) ou após 15 s. Motivo medido: profundidade era ~23% de um núcleo com a câmera parada (diagnóstico 0.26.10).
+- Medições de bateria até aqui (Retrato parado com desfoque): 128% (0.26.7) → 95% (0.26.9, modelo leve) → 65% (0.26.10, sem espera OpenMP). Sem desfoque: ~12%.
+
+---
+
 # Etapa 0.26.10 (Claude) — análise ao vivo por etapa + ncnn sem espera ativa; APK de teste build78 entregue
 
 - **[Baixar ZIP com app-release.apk — build78 (1078)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39144239874/artifacts/12143221335)**. Mesma assinatura permanente. Artefato 12143221335, 132851127 bytes; digest do ZIP sha256:5891955c7d02e153e79d95d2d418c8247f8554b8f913f88a2f2eb88c758c5f37; expira 2026-11-17T16:25:13Z. [Actions 39144239874](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39144239874) com sucesso; publicação skipped. Fonte do app eb9b71a (CI 39143628291 aprovado); fonte do APK 93ef47b; gatilho restaurado em 25ef88e (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

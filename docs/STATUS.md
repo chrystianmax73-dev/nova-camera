@@ -1,3 +1,11 @@
+# 0.26.11 — bateria: profundidade ao vivo só quando a cena muda (Claude; fonte em validação)
+
+- **Diagnóstico 0.26.10 (prévia do desfoque ativa, parado, térmico 0):** Retrato **95% → 65%** do processo; thread da análise **60% → 27%** (fim da espera ativa do OpenMP confirmado). Por etapa (CPU da própria thread): cópia 1,4%, segmentação 0,9%, **profundidade 6,3% + ~17% em threads auxiliares OpenMP** (27,3% − 10,7% das etapas), máscara 2,1%. Profundidade: 23 cálculos em 93 s, ~0,9 s de CPU e 0,87 s de parede cada.
+- **Correção:** na prévia da foto, a profundidade só é recalculada quando o enquadramento mudou desde o último cálculo (luminância média por bloco > 0,045, mesma régua do vigia do cinematográfico), quando o toque mudou, ou a cada 15 s (`core/DepthRefreshPolicy`). O cinematográfico não muda (grava a máscara; Codex). Câmera parada → quase nenhum cálculo de profundidade; ao reenquadrar, o próximo cálculo segue as regras de antes.
+- Esperado (não comprovado): Retrato parado com desfoque perto de ~40%; o resto é câmera/compositor/rastreamento. Restante da análise sem profundidade ≈ 5%.
+
+---
+
 # 0.26.10 — bateria: análise ao vivo do Retrato medida por etapa; ncnn sem espera ativa (Claude; APK de teste build78 entregue)
 
 - **[Baixar ZIP com app-release.apk — build78 (1078)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39144239874/artifacts/12143221335)**. Mesma assinatura permanente. Artefato 12143221335, 132851127 bytes; digest do ZIP sha256:5891955c7d02e153e79d95d2d418c8247f8554b8f913f88a2f2eb88c758c5f37; expira 2026-11-17T16:25:13Z. [Actions 39144239874](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39144239874) com sucesso; publicação skipped. Fonte do app eb9b71a (CI 39143628291 aprovado); fonte do APK 93ef47b; gatilho restaurado em 25ef88e (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

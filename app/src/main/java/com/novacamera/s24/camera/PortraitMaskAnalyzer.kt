@@ -49,6 +49,8 @@ class PortraitMaskAnalyzer(
     private var lastSeg = 0L
     private var lastDepth = 0L
     private val depthBudget=com.novacamera.s24.core.DepthDutyBudget()
+    /** Prévia da foto: profundidade só quando a cena mudou (a etapa mais cara da análise ao vivo). */
+    private val depthRefresh=com.novacamera.s24.core.DepthRefreshPolicy()
     private val sceneGuard=com.novacamera.s24.core.CinematicSceneGuard()
     private var depthN: Plane? = null
     private var prevSubject: FloatArray? = null
@@ -139,8 +141,13 @@ class PortraitMaskAnalyzer(
                 still -> 2500L
                 else -> 900L
             }
-            if (!depthFailed && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+            // Foto: com a cena parada a profundidade daria o mesmo resultado; só recalcula se o enquadramento
+            // ou o toque mudou desde o último cálculo. O cinematográfico mantém a regra própria (grava a máscara).
+            val sceneLuma = if (!cinematic && depthN != null) lumaGrid(upright) else null
+            val sceneChanged = sceneLuma == null || depthRefresh.needed(now, sceneLuma, selectedTap)
+            if (!depthFailed && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
+                if (!cinematic) depthRefresh.done(now, sceneLuma ?: lumaGrid(upright), selectedTap)
                 val started=SystemClock.uptimeMillis()
                 val depthCpu0=SystemClock.currentThreadTimeMillis()
                 val session = depth ?: DepthEstimator.Session.open(app).also { if (it == null) depthFailed = true; depth = it }
