@@ -132,8 +132,23 @@ class ModeResolverTest {
 
     @Test
     fun unimplementedModesDoNotCapture() {
-        for (m in listOf(CaptureMode.PANORAMA, CaptureMode.VIDEO_RETRATO))
-            assertFalse(ModeResolver.resolve(m, DeviceModeFacts(true, true, 10)).canCapture)
+        assertFalse(ModeResolver.resolve(CaptureMode.PANORAMA, DeviceModeFacts(true, true, 10)).canCapture)
+    }
+
+    @Test
+    fun cinemaIsPrimaryAndUsesNovaDepthVideo() {
+        assertTrue(CaptureMode.VIDEO_RETRATO.primary)
+        assertEquals("CINEMA", CaptureMode.VIDEO_RETRATO.label)
+        assertEquals(ModeEngine.NOVA, ModeResolver.resolve(CaptureMode.VIDEO_RETRATO, DeviceModeFacts(false, false, null)).engine)
+    }
+
+    @Test
+    fun lowLightVideoFpsAlsoAt60() {
+        val s24 = listOf(15 to 15, 24 to 24, 15 to 30, 30 to 30, 15 to 60, 60 to 60)
+        assertEquals(15 to 30, ModeResolver.autoVideoFps(s24))
+        assertEquals(15 to 60, ModeResolver.autoVideoFps(s24, 60))
+        assertEquals(null, ModeResolver.autoVideoFps(s24, 24))
+        assertEquals(null, ModeResolver.autoVideoFps(listOf(30 to 30, 60 to 60), 60))
     }
 
     @Test

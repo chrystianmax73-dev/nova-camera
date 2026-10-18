@@ -477,7 +477,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        // UI_HIDDEN (20) e BACKGROUND (40) chegam só por sair para a galeria/outro app (no Android 14+ são
+        // os ÚNICOS níveis entregues): não são falta de memória. Antes, `>= RUNNING_LOW` cancelava o
+        // acabamento do vídeo e o rastreio toda vez que a pessoa abria o vídeo recém-gravado.
+        val pressure = level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE
+        if (pressure) {
             if (::tracking.isInitialized) tracking.stop("Memória limitada")
             com.novacamera.s24.processing.VideoFinishJob.cancel("Memória limitada; acabamento cancelado e original preservado")
             ProcessingQueue.trimModelMemory()
@@ -1261,7 +1267,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ratioChip.text = settings.aspect.label
         qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
         qualityChip.text = s?.videoQualityLabel ?: ""
-        qualityChip.isEnabled=!(camera.portraitVideoSession && settings.cinematicVideo)
+        qualityChip.isEnabled=!(camera.portraitVideoSession && (settings.cinematicVideo || camera.cinemaMode))
         fpsChip.isEnabled=qualityChip.isEnabled
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
         fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) (s.videoFpsRange?.let { "${it.first}–${it.second} fps alvo" } ?: "fps variável") else "${s?.videoFps ?: 30} fps alvo"
@@ -1288,7 +1294,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.faces = emptyList() // nova sessão/lente: rostos da anterior não valem mais
         if (::tracking.isInitialized) tracking.stop()
         cameraState = state
-        refreshStrip(quickReturnMode ?: state.mode)
+        refreshStrip(quickReturnMode ?: if (camera.cinemaMode) CaptureMode.VIDEO_RETRATO else state.mode)
         shutter.quickEnabled = state.support.canCapture && quickReturnMode == null &&
             (state.mode == CaptureMode.FOTO || state.mode == CaptureMode.RETRATO)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
@@ -1702,7 +1708,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private const val TAG = "NovaCamera"
         private const val TOP_BAR_DP = 52
         /** Faixa principal (proposta de interface aprovada): Retrato · Foto · Vídeo · Noturno · Pro. */
-        private val PRIMARY_MODES = listOf(CaptureMode.RETRATO, CaptureMode.FOTO, CaptureMode.VIDEO, CaptureMode.NOITE, CaptureMode.PRO)
+        private val PRIMARY_MODES = listOf(CaptureMode.RETRATO, CaptureMode.FOTO, CaptureMode.VIDEO, CaptureMode.VIDEO_RETRATO, CaptureMode.NOITE, CaptureMode.PRO)
         private val EXTRA_MODES = CaptureMode.entries.filterNot { it in PRIMARY_MODES }
         private const val IDLE_CHECK_MS = 10_000L
         private const val ENERGY_EVERY_MS = 10_000L

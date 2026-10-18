@@ -118,7 +118,7 @@ class NovaCamera(
     private var paused = false
     private var freshSessionRequested = false
 
-    var mode: CaptureMode = settings.lastMode; private set
+    var mode: CaptureMode = settings.lastMode.let { if (it == CaptureMode.VIDEO_RETRATO) CaptureMode.VIDEO else it }; private set
     var isFront = false; private set
     var state: CameraState? = null; private set
     var recordingPhase = RecordingPhase.IDLE; private set
@@ -433,10 +433,15 @@ class NovaCamera(
      * o ViewPort precisa ser lido depois do novo layout para a foto corresponder ao enquadramento.
      */
     fun setMode(m: CaptureMode, rebind: Boolean = true, remember: Boolean = true, portraitVideo: Boolean = false) {
-        if (isRecording || nativeRun != null || m == mode) return
+        // CINEMA é a mesma sessão do vídeo cinematográfico do Retrato, como modo próprio da faixa.
+        val cinema = m == CaptureMode.VIDEO_RETRATO
+        val target = if (cinema) CaptureMode.VIDEO else m
+        if (isRecording || nativeRun != null || (target == mode && cinema == cinemaMode && !portraitVideo)) return
         videoRecovery.reset()
-        portraitVideoSession=portraitVideo && m==CaptureMode.VIDEO
-        mode = m
+        cinemaMode = cinema
+        commonVideoChosen = false
+        portraitVideoSession=(portraitVideo || cinema) && target==CaptureMode.VIDEO
+        mode = target
         if (remember) settings.lastMode = m
         resetFocusState()
         evIndex = 0; backlightBoost = 0
@@ -538,7 +543,7 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
-        if (!settings.cinematicVideo) commonVideoChosen=false
+        if (!cinematicPreference) commonVideoChosen=false
         if(cinematicRequested && commonEffectPending) {
             cinematicClosing=true;invalidateSubjectTracking();watchCamera=null;watchGeneration++;videoEffectGeneration++
             p.unbindAll();camera=null
@@ -2388,21 +2393,24 @@ class NovaCamera(
     private var portraitEffect: PortraitPreviewEffect? = null
     var cinematicBound = false; private set
     private var commonVideoChosen = false
-    var portraitVideoSession=false;private set
-    private val portraitProfile get() = portraitVideoSession && settings.cinematicVideo
+    var portraitVideoSession=settings.lastMode == CaptureMode.VIDEO_RETRATO;private set
+    /** Modo CINEMA da faixa: liga o cinematográfico mesmo com a preferência do Retrato desligada. */
+    var cinemaMode=settings.lastMode == CaptureMode.VIDEO_RETRATO;private set
+    private val cinematicPreference get() = settings.cinematicVideo || cinemaMode
+    private val portraitProfile get() = portraitVideoSession && cinematicPreference
     private val selectedVideoQuality get() = if(portraitProfile) VideoQualityOption.FHD else settings.videoQuality
     private val selectedVideoFps get() = if(portraitProfile) 30 else settings.videoFps
     private val selectedVideoStabilization get() = if(portraitProfile) false else settings.videoStabilization
-    val cinematicRequested get() = com.novacamera.s24.core.CinematicPolicy.enabled(settings.cinematicVideo,portraitVideoSession,commonVideoChosen)
+    val cinematicRequested get() = com.novacamera.s24.core.CinematicPolicy.enabled(cinematicPreference,portraitVideoSession,commonVideoChosen)
     val cinematicUnavailableReason get() = if (!cinematicBound) {
         if(cinematicRequested) "Cinematográfico indisponível nesta sessão; nenhum vídeo com desfoque será iniciado" else null
     } else com.novacamera.s24.core.CinematicPolicy.unavailableReason(heat?.thermalStatus ?: 0,
             com.novacamera.s24.processing.VideoFinishJob.state.running, portraitEffect?.maskReady==true)
     val cinematicReady get() = com.novacamera.s24.core.CinematicPolicy.canStart(cinematicRequested,cinematicBound,cinematicUnavailableReason==null)
-    val portraitVideoThermallyBlocked get() = settings.cinematicVideo && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
+    val portraitVideoThermallyBlocked get() = cinematicPreference && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicThermallyBlocked get() = cinematicRequested && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicDiagnostic get() = when {
-        commonVideoChosen && settings.cinematicVideo -> "cinematográfico dispensado por escolha nesta sessão"
+        commonVideoChosen && cinematicPreference -> "cinematográfico dispensado por escolha nesta sessão"
         cinematicBound && cinematicUnavailableReason!=null -> "cinematográfico ligado, máscara suspensa/indisponível"
         cinematicBound -> "cinematográfico com máscara atual"
         else -> "sem cinematográfico"

@@ -1,14 +1,16 @@
 package com.novacamera.s24.core
 
 /**
- * Modos da câmera. [primary] = faixa principal (Retrato · Foto · Vídeo · Noturno · Pro; a ordem da faixa
+ * Modos da câmera. [primary] = faixa principal (Retrato · Foto · Vídeo · Cinema · Noturno · Pro; a ordem da faixa
  * está em MainActivity.PRIMARY_MODES); os demais ficam no painel MAIS / Ferramentas › Mais modos.
  * Um modo só captura quando há implementação real no aparelho (ver [ModeResolver]).
  */
 enum class CaptureMode(val label: String, val primary: Boolean = false) {
     RETRATO("RETRATO", true), FOTO("FOTO", true), VIDEO("VÍDEO", true),
     PRO("PRO", true), VIDEO_PRO("VÍDEO PRO"), NOITE("NOTURNO", true), CAMERA_LENTA("CÂMERA LENTA"),
-    PANORAMA("PANORÂMICA"), TIMELAPSE("TIMELAPSE"), FOOD("FOOD"), VIDEO_RETRATO("VÍDEO RETRATO");
+    PANORAMA("PANORÂMICA"), TIMELAPSE("TIMELAPSE"), FOOD("FOOD"),
+    /** CINEMA: vídeo com fundo desfocado por profundidade ao vivo (sessão cinematográfica do Retrato). */
+    VIDEO_RETRATO("CINEMA", true);
 
     val isVideo get() = this == VIDEO || this == VIDEO_PRO || this == CAMERA_LENTA || this == VIDEO_RETRATO || this == TIMELAPSE
     val isPro get() = this == PRO || this == VIDEO_PRO
@@ -71,8 +73,9 @@ object ModeResolver {
         CaptureMode.TIMELAPSE -> ModeSupport(mode, ModeEngine.NOVA,
             "Timelapse: um quadro por intervalo (toque no botão de intervalo para mudar), vídeo a 30 fps sem áudio. " +
                 "Apoie o aparelho e mantenha o app aberto.")
-        CaptureMode.VIDEO_RETRATO -> ModeSupport(mode, ModeEngine.UNAVAILABLE,
-            "Em desenvolvimento: o desfoque de fundo em vídeo exige segmentação a 30 fps; ainda não implementado.")
+        CaptureMode.VIDEO_RETRATO -> ModeSupport(mode, ModeEngine.NOVA,
+            "Cinema: fundo desfocado por profundidade ao vivo, Full HD 30 fps sem estabilização eletrônica. " +
+                "Toque no assunto para escolher o foco. Calor alto pausa o desfoque.")
     }
 
     /** Escolhe a faixa de fps de AE que mais estende a exposição sem passar de 30 fps. */
