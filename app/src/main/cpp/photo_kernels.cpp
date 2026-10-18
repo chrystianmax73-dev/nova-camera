@@ -116,3 +116,31 @@ extern "C" JNIEXPORT jint JNICALL Java_com_novacamera_s24_core_imaging_PhotoKern
         e->SetIntArrayRegion(input,0,n,px.data());return changed;
     } catch(const std::bad_alloc&) {auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do detalhe nativo");return 0;}
 }
+extern "C" JNIEXPORT jfloatArray JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_smooth(JNIEnv* e,jclass,jintArray input,jint w,jint h){
+    if(w<=0||h<=0||e->GetArrayLength(input)!=w*h)return nullptr;
+    try {int n=w*h;std::vector<jint> px(n);std::vector<float> lum(n),out(n);e->GetIntArrayRegion(input,0,n,px.data());if(e->ExceptionCheck())return nullptr;
+        for(int i=0;i<n;i++)lum[i]=luma(px[i]);
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++){float s=0;int count=0;
+            for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){int xx=x+dx,yy=y+dy;if(xx>=0&&xx<w&&yy>=0&&yy<h){s+=lum[yy*w+xx];count++;}}
+            out[y*w+x]=s/count;
+        }
+        auto a=e->NewFloatArray(n);if(a)e->SetFloatArrayRegion(a,0,n,out.data());return a;
+    }catch(const std::bad_alloc&){auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do deslocamento SR");return nullptr;}
+}
+extern "C" JNIEXPORT jfloatArray JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_estimate(JNIEnv* e,jclass,jfloatArray ra,jfloatArray ma,jintArray ga,jint gx,jint gy,jint radius){
+    if(e->GetArrayLength(ga)!=8||radius<0)return nullptr;
+    jint g[8];e->GetIntArrayRegion(ga,0,8,g);int rw=g[2],rh=g[3],mw=g[6],mh=g[7];
+    if(rw<=0||rh<=0||mw<=0||mh<=0||e->GetArrayLength(ra)!=rw*rh||e->GetArrayLength(ma)!=mw*mh)return nullptr;
+    try {
+        std::vector<float> r(rw*rh),m(mw*mh);e->GetFloatArrayRegion(ra,0,rw*rh,r.data());e->GetFloatArrayRegion(ma,0,mw*mh,m.data());if(e->ExceptionCheck())return nullptr;
+        auto ssd=[&](int dx,int dy){double err=0;int n=0;
+            for(int y=0;y<rh;y++){int my=g[1]+y+dy-g[5];if(my<0||my>=mh)continue;
+                for(int x=0;x<rw;x++){int mx=g[0]+x+dx-g[4];if(mx>=0&&mx<mw){float d=r[y*rw+x]-m[my*mw+mx];err+=d*d;n++;}}
+            }return n==0?std::numeric_limits<double>::max():err/n;};
+        int bx=gx,by=gy;double best=std::numeric_limits<double>::max();
+        for(int dy=gy-radius;dy<=gy+radius;dy++)for(int dx=gx-radius;dx<=gx+radius;dx++){double cost=ssd(dx,dy);if(cost<best){best=cost;bx=dx;by=dy;}}
+        auto vertex=[](double a,double b,double c){double den=a-2*b+c;return den<=1e-12?0.f:std::max(-.5f,std::min(.5f,static_cast<float>(.5*(a-c)/den)));};
+        float xy[2]={bx+vertex(ssd(bx-1,by),best,ssd(bx+1,by)),by+vertex(ssd(bx,by-1),best,ssd(bx,by+1))};
+        auto out=e->NewFloatArray(2);if(out)e->SetFloatArrayRegion(out,0,2,xy);return out;
+    }catch(const std::bad_alloc&){auto c=e->FindClass("java/lang/OutOfMemoryError");if(c)e->ThrowNew(c,"Memória do refinamento SR");return nullptr;}
+}

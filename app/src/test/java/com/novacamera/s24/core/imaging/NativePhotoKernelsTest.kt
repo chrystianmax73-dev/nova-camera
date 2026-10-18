@@ -17,6 +17,14 @@ class NativePhotoKernelsTest {
     private fun <T> backend(native:Boolean,block:()->T):T {
         PhotoKernels.useNativeForTest(native);try{return block()}finally{PhotoKernels.useNativeForTest(true)}
     }
+    @Test fun deslocamentoSRMantemSuavizacaoEParabolaFracionaria() {
+        val rng=Random(22);val a=IntArray(90*70){Px.argb(rng.nextInt(256),rng.nextInt(256),rng.nextInt(256))}
+        val old=backend(false){SuperRes.Region(a,0,0,90,70).smooth}
+        val got=backend(true){SuperRes.Region(a,0,0,90,70).smooth}
+        assertArrayEquals(old,got,0f)
+        val ref=SuperRes.Region(a,0,0,90,70);val mov=SuperRes.Region(a,1,-1,90,70)
+        assertEquals(backend(false){SuperRes.estimateShift(ref,mov,0,0)},backend(true){SuperRes.estimateShift(ref,mov,0,0)})
+    }
     @Test fun alinhamentoPreservaBuscaBordasERegioes() {
         val random=Random(10);val ref=Plane(128,96,FloatArray(128*96){random.nextFloat()})
         val mov=Plane(128,96,FloatArray(ref.data.size){i->ref.data[(i+3)%ref.data.size]})
@@ -48,10 +56,11 @@ class NativePhotoKernelsTest {
         fun bench(native:Boolean):DoubleArray=backend(native){
             val t=System.nanoTime();repeat(3){Align.search(ref,mov,5)};val a=System.nanoTime()
             repeat(3){SuperRes.mergeTile(320,256,0,0,2f,0f,0f,frames,.01f)};val b=System.nanoTime()
+            repeat(3){for(k in 1..7)SuperRes.estimateShift(frames[0].first,frames[k].first,0,0)};val c=System.nanoTime()
             repeat(3){Detail.applyBand(IntArray(1024*262){i->Px.argb(i%256,(i*7)%256,(i*13)%256)},1024,262,.4f,1f)}
-            doubleArrayOf((a-t)/1e6,(b-a)/1e6,(System.nanoTime()-b)/1e6)
+            doubleArrayOf((a-t)/1e6,(b-a)/1e6,(c-b)/1e6,(System.nanoTime()-c)/1e6)
         }
         bench(false);bench(true);val old=bench(false);val got=bench(true)
-        println("P0_HOST pareado3x align/SR/detail: Kotlin=${old.contentToString()}ms; JNI=${got.contentToString()}ms. Não é S24/GPU/energia.")
+        println("P0_HOST pareado3x align/SR/shift/detail: Kotlin=${old.contentToString()}ms; JNI=${got.contentToString()}ms. Não é S24/GPU/energia.")
     }
 }

@@ -31,7 +31,7 @@ object SuperRes {
          * quadros (justamente o que a SR aproveita) enviesa a parábola do erro na imagem crua.
          */
         val smooth: FloatArray by lazy {
-            FloatArray(px.size) { i ->
+            if(PhotoKernels.available) PhotoKernels.smooth(px,w,h) else FloatArray(px.size) { i ->
                 val x = i % w; val y = i / w
                 var s = 0f; var n = 0
                 for (dy in -1..1) for (dx in -1..1) {
@@ -49,6 +49,11 @@ object SuperRes {
      * da parábola do erro quadrático em cada eixo. [mov] deve cobrir [ref] com margem ≥ radius + |g| + 1.
      */
     fun estimateShift(ref: Region, mov: Region, gx: Int, gy: Int, radius: Int = 2): Pair<Float, Float> {
+        if(PhotoKernels.available) {
+            val g=intArrayOf(ref.x0,ref.y0,ref.w,ref.h,mov.x0,mov.y0,mov.w,mov.h)
+            val xy=PhotoKernels.estimate(ref.smooth,mov.smooth,g,gx,gy,radius)
+            return xy[0] to xy[1]
+        }
         val step = 1
         val rs = ref.smooth; val ms = mov.smooth
         fun ssd(dx: Int, dy: Int): Double {
