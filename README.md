@@ -4,7 +4,7 @@
 **Repositório:** https://github.com/chrystianmax73-dev/nova-camera  
 **Situação em 14/10/2026:** protótipo experimental, NÃO validado em dispositivos; nenhuma promessa de ganho de qualidade sobre a câmera Samsung.  
 **Dispositivos de referência:** Galaxy S24 Ultra e Galaxy S25 Ultra, Android atual de cada aparelho.  
-**Visibilidade:** manter PRIVADO durante desenvolvimento; publicação futura somente após auditoria, testes e licenciamento.  
+**Visibilidade:** código aberto sob **GPL-3.0-or-later** (arquivo `LICENSE`). Quem distribuir versões modificadas precisa abrir o código delas também.  
 **Nome comercial:** **Nova Camera**. Identidade visual independente, sem se passar por Samsung, Apple, Google ou Vivo.
 
 ## 1. Visão do produto
@@ -105,11 +105,21 @@ Construir **um aplicativo de câmera realmente funcional, fluido e confiável**,
 
 ## 6. Estado do repositório (não confundir proposta e implementação)
 
-A base atual (v0.3.0 experimental) tem: tela de câmera com CameraX, captura JPEG, vídeo MP4, zoom via CameraControl, foco por toque, alternância frontal/traseira, checagem de extensões OEM, slider Bokeh se disponível, indicadores térmico/bateria, diagnóstico Camera2, ícone vetorial e workflows GitHub Actions.
+**Versão 0.8.0 (experimental).** Matriz completa, recurso a recurso, em **[docs/STATUS.md](docs/STATUS.md)** — separa o que está implementado, o que foi validado por compilação/testes automatizados e o que ainda exige teste no aparelho.
 
-**Ainda não foi testada em S24 Ultra/S25 Ultra. Não existe pós-processamento super-resolução, fusão multiquadro própria, IA de retrato ou edição pós-vídeo.** Design atual é protótipo e precisa ser redesenhado com qualidade premium.
+Resumo: nova interface própria (visor WYSIWYG 4:3/16:9/tela cheia, áreas seguras, controles que giram com o aparelho); foco por toque com medição preservada, bloqueio AE/AF real via Camera2, exposição por gesto, prioridade a rostos quando suportada; selfie salva como visualizada (EXIF, sem recodificar); zoom suave com paradas reais; modos OEM só quando o fabricante libera (caso contrário o modo aparece indisponível e não captura); Noite básica por exposição estendida; Pro com ISO/velocidade/foco/balanço/EV reais; vídeo com qualidade/fps/estabilização conforme suporte; monitor térmico que distingue carregamento; diagnóstico ampliado.
 
-**Registro de compilação:** GitHub Actions run 38560342521 (14/10/2026) falhou em compileDebugKotlin, pois o MainActivity.kt não importava ImageCaptureException. A correção de import foi incluída no commit que atualizou este README; **aguardar resultado da nova execução para confirmar**. Primeiro erro anterior de setup do Android SDK foi corrigido adotando setup-android@v4. Verificar novamente os logs se houver falha, sem supor APK disponível.
+**0.5:** motor de zoom refeito (curva com duração limitada, uma requisição em voo, registro da lente física e da latência), OIS explícita, exposição estável no zoom em vídeo, correção da tela preta no ISO do Pro, selfie espelhada nos pixels, resolução máxima real, 1:1, resolução/FPS de vídeo reais, Câmera lenta, Vídeo Pro, RAW (DNG) e painel MAIS.
+
+**0.6:** motor próprio de processamento no aparelho — Noturno multiquadro (alinhamento + fusão robusta + tom), HDR por fusão de exposições com antifantasma, Retrato Nova (segmentação offline + borda refinada + desfoque gradual, sem suavizar a pele), Food, Timelapse (H.264 no aparelho), original sempre preservado, fila em segundo plano com progresso/cancelamento, tela de revisão Original × Nova com intensidade/desfoque ajustáveis, resolução por lente a partir do que cada câmera anuncia (o bloqueado pelo fabricante é informado).
+
+**0.7:** correções dos defeitos do teste da 0.6 — fusão HDR/Noturno sem fantasmas (verificação por pixel e recuo para o quadro de referência), tom adaptativo com proteção contra piora (pretos firmes, pano verde intacto), multiquadro só quando a cena pede, FOTO pronta automaticamente com comparação opcional (tocar e segurar a miniatura), assinatura Nova Camera opcional. Avaliação open-source/licenças em docs/OPEN_SOURCE.md.
+
+**0.8:** Retrato com MediaPipe (cabelo e óculos protegidos), alinhamento subpixel na fusão, assinatura também no vídeo e redução de ruído por IA experimental (ncnn + NAFNet, Vulkan). Licenças em docs/THIRD_PARTY.md.
+
+**Não implementado ainda:** Panorâmica, Vídeo Retrato, pós-processamento de vídeo, super-resolução 20×/30×, 200 MP via modo de resolução máxima do sensor. **Nada da 0.8 foi testado em aparelho físico** — a validação foi por testes automatizados e por quadros reais do dossiê processados localmente (ver docs/STATUS.md).
+
+**Arquitetura:** `core/` (lógica pura testada), `camera/` (sessão CameraX + interop Camera2), `device/` (temperatura/bateria), `settings/`, `ui/` (componentes desenhados em Canvas), `MainActivity`, `SettingsActivity`/`DiagnosticsActivity`. O teste `MainScreenRenderTest` renderiza a tela real via Robolectric e grava PNGs em `app/build/ui-renders`.
 
 ## 7. Fluxo GitHub / distribuição privada
 
@@ -153,3 +163,13 @@ Comparação justa com câmera Samsung: mesma cena, luz, enquadramento, lente/fa
 ## 10. Restrições e princípios de desenvolvimento
 
 Não modificar projetos não relacionados (especialmente NEXO). Não usar credenciais no código. Não criar pagamentos, backend ou serviços pagos. Não usar servidor para tratar fotos/vídeos. Não prometer 200 MP/RAW/HDR10/4K60 em lentes inacessíveis via Android, nem cópia exata da câmera OEM. Evitar refatorações de alto risco sem testes. Garantir original sempre disponível quando houver processamento. Solicitar autorização antes de tornar público, gerar cobrança, apagar releases fora da rotina prevista ou mudar assinatura.
+
+## Licença
+
+Copyright (C) 2026 os autores do Nova Camera.
+
+Este programa é software livre: pode ser redistribuído e/ou modificado sob os termos da GNU General
+Public License, versão 3 ou (a seu critério) qualquer versão posterior, publicada pela Free Software
+Foundation. É distribuído na esperança de ser útil, mas SEM QUALQUER GARANTIA. Veja o arquivo
+`LICENSE`. Componentes de terceiros mantêm as próprias licenças (ver `docs/OPEN_SOURCE.md` e
+`app/src/main/assets/licenses/`); todos são compatíveis com a GPL-3.0 (Apache-2.0, MIT, BSD, IJG).

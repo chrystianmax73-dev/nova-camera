@@ -10,3 +10,11 @@ local.properties
 *.keystore
 *.key
 .DS_Store
+
+# Build nativo (CMake/NDK)
+.cxx/
+app/.cxx/
+
+# Modelos gerados no CI (não versionar)
+app/src/main/assets/nafnet/
+app/src/main/assets/depth/

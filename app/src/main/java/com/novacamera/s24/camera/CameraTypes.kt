@@ -1,0 +1,93 @@
+package com.novacamera.s24.camera
+
+import android.net.Uri
+import com.novacamera.s24.core.CaptureMode
+import com.novacamera.s24.core.ModeSupport
+
+/** Valores manuais do modo Pro. null = automático. */
+data class ManualControls(
+    val iso: Int? = null,
+    val exposureNs: Long? = null,
+    /** Dioptrias; 0 = infinito. */
+    val focusDiopters: Float? = null,
+    /** CaptureRequest.CONTROL_AWB_MODE_*. */
+    val awbMode: Int? = null,
+) {
+    val manualExposure get() = iso != null || exposureNs != null
+}
+
+/** Últimos valores escolhidos pelo automático (lidos dos resultados de captura). */
+data class AutoStats(val iso: Int, val exposureNs: Long, val focusDiopters: Float)
+
+enum class RecordingPhase { IDLE, RECORDING, PAUSED }
+
+/** Tudo o que a interface precisa saber após cada configuração da câmera. */
+data class CameraState(
+    val mode: CaptureMode,
+    val support: ModeSupport,
+    val isFront: Boolean,
+    val caps: CameraCapabilities,
+    /** Paradas da barra de zoom em ampliação equivalente (1 = principal). */
+    val zoomStops: List<Float>,
+    /** Limites da pinça na câmera atual, em ampliação equivalente. */
+    val zoomMin: Float,
+    val zoomMax: Float,
+    val evMin: Int,
+    val evMax: Int,
+    val evStepNum: Int,
+    val evStepDen: Int,
+    val evIndex: Int,
+    val hasFlash: Boolean,
+    val oemHdrAvailable: Boolean,
+    val oemHdrActive: Boolean,
+    val extensionActive: Boolean,
+    val canLockExposure: Boolean,
+    val videoQualityLabel: String?,
+    val videoFps: Int,
+    val stabilization: Boolean,
+    val screenFlash: Boolean,
+    /** Resolução real da foto configurada (lida do caso de uso após a configuração). */
+    val photoResolution: android.util.Size? = null,
+    /** Resoluções reais desta lente (vazio quando o modo usa a padrão, como no processamento Nova). */
+    val photoSizeOptions: List<com.novacamera.s24.core.SizeOption> = emptyList(),
+    val photoSize: com.novacamera.s24.core.SizeOption? = null,
+    val photoNativeCapture: Boolean = false,
+    /** Resoluções do sensor que o fabricante não libera pela API pública (só informadas). */
+    val photoSizeBlocked: List<com.novacamera.s24.core.SizeOption> = emptyList(),
+    val hdr: com.novacamera.s24.settings.HdrOption = com.novacamera.s24.settings.HdrOption.OFF,
+    /** Processamento Nova aplicado às fotos deste modo (null = foto comum). */
+    val processing: com.novacamera.s24.processing.JobKind? = null,
+    val rawAvailable: Boolean = false,
+    val rawActive: Boolean = false,
+    /** Opções reais para os seletores de vídeo. */
+    val videoQualityOptions: List<com.novacamera.s24.settings.VideoQualityOption> = emptyList(),
+    val videoFpsOptions: List<Int> = emptyList(),
+    /** Intervalo entre quadros do Timelapse (só nesse modo). */
+    val timelapseIntervalMs: Long? = null,
+)
+
+interface CameraListener {
+    fun onCameraState(state: CameraState)
+    fun onZoom(equivalentZoom: Float)
+    fun onFocusResult(success: Boolean, locked: Boolean)
+    /** O ponto tocado deixou de valer (ex.: o zoom mudou o enquadramento); foco voltou ao automático. */
+    fun onFocusCleared() {}
+    fun onExposureIndex(index: Int)
+    fun onAutoStats(stats: AutoStats)
+    fun onCaptureStarted()
+    fun onPhotoSaved(uri: Uri?)
+    fun onRecording(phase: RecordingPhase, seconds: Long)
+    fun onRecordingFinished(uri: Uri?, error: String?)
+    fun onMessage(text: String)
+    /** Lente física ativa mudou (só quando a câmera informa). */
+    fun onActiveLens(label: String?) {}
+    /** Estado da prévia do desfoque do Retrato (null = funcionando ou desligada). Thread principal. */
+    fun onPortraitPreview(state: String?) {}
+    /** O vigia do modo manual devolveu ISO/velocidade ao automático. */
+    fun onManualReverted(m: ManualControls) {}
+    /** Quadros capturados e entregues ao processamento em segundo plano. */
+    fun onProcessingQueued(kind: com.novacamera.s24.processing.JobKind) {}
+    /** Rajada em andamento (quadro [done] de [total]). */
+    fun onBurstProgress(done: Int, total: Int) {}
+}
+
