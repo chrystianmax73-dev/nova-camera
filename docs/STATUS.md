@@ -1,3 +1,13 @@
+# 0.26.3 — APK de teste entregue: ruído temporal e óptica auditável
+
+- **[Baixar ZIP com APK assinado — build 71 (1071)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061/artifacts/12134983449)**. Extrair e instalar app-release.apk. Artefato 12134983449, 132625602 bytes, SHA-256 do ZIP cb1cb622e0b162bd12c8c8ba1e02f7834ad2af26a79f8e253a6ac84157ee5f70; expira 2026-11-17T11:28:36Z. Mesma assinatura permanente; nenhum release criado.
+- Actions39122820061/job117661716743 aprovado: **289 testes aprovados / 5 dispensados / 0 falhas**, lint, JPEG sintético200MP, NAFNet, Depth Anything, assembleRelease, pesos offline/profundidade=True, certificado-versionCode e upload. Publicação skipped. Fonteapp7f6de132258a33827ae819e67e667a0d1237f4a1 (CI39122555216 aprovado), fonteAPKa150588a5cae3849eddb3c678fd259ede5cdc26f. Gatilho já restauradofa14f24431363d36c4ba8ea7f12074b6d422afb0/bloba82bc113b2de207b7a3e9a9660cc19af520167ff.
+- Corrige plano ISO/exposição que ficaria subexposto e subestimação de ruído correlacionado na fusão Night/ZoomISO≥800. Regressão na base rejeitava4/4 quadros estáticos (RMS11,65 inalterado); corrigida aproveita4/4 e RMS6,27. Testes de cor, contraste, padrões e movimento passaram. **Resultado sintético, não qualidade física validada no S24.** Tom/BOOST_EV/WB do Noturno, SR e kernels rápidos0.26.2 preservados; sem novo modelo/filtro espacial pesado.
+- CaptureOptics por foto/quadro distingue alvo5x, físico confirmado pelo resultado, compatibilidade pela focal JPEG, conflito e desconhecido. Não força lente em baixa luz sem validação. Fonte recebida: Foto5x e Noturno apoiado; arquivos1280×960 semEXIF não provam lente antiga. Não presumir altaresolução nem desempenho real.
+- P0 continua aberta: comparar originais e diagnóstico no S24, tempo total/captura/fusão/acabamento, memória e térmica. Aproveitar mais quadros pode exigir mais fusão; não declarar 60–79s resolvidos nem melhora de autonomia. Roteiro/causas/limites em P0_NOTURNO_0262.md; handoff para Claude atualizado. Estados pendentes históricos abaixo foram superados por esta entrega.
+
+---
+
 # 0.26.3 — fonte aprovada; APK71 em geração
 
 - Fonteapp7f6de132258a33827ae819e67e667a0d1237f4a1 aprovada no Actions39122555216, óptica39122412407 também aprovada: assembleDebug/testDebugUnitTest/lintDebug. Sem alteração deapp posterior. Fix de ruído/exposição5a9f660/39122118028 aprovado, falhas reproduzidas39121910927 preservadas.

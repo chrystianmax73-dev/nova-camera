@@ -1,3 +1,24 @@
+# Entrega 0.26.3 — APK de teste build 71 (1071)
+
+- **[Baixar ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061/artifacts/12134983449)**. Artefato 12134983449, 132625602 bytes; SHA-256 **do ZIP**: cb1cb622e0b162bd12c8c8ba1e02f7834ad2af26a79f8e253a6ac84157ee5f70. Expira em 2026-11-17T11:28:36Z. Extrair e instalar sobre a versão anterior; chave permanente preservada.
+- Actions [39122820061](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061), job 117661716743: **289 testes aprovados, 5 dispensados, 0 falhas**, lint, codec JPEG sintético 200 MP (RSS host 49860 KiB), NAFNet e Depth Anything, assembleRelease, modelos offline (profundidade=True), continuidade da assinatura/versionCode e upload aprovados. Publicação **skipped**, nenhum release criado. Run_number 71 e fórmula versionCode=1000+run_number produzem 1071; versionName 0.26.3 na fonte.
+- Fonte app `7f6de132258a33827ae819e67e667a0d1237f4a1` aprovada no CI 39122555216; óptica anterior cff1719/39122412407 também aprovada. Fonte APK `a150588a5cae3849eddb3c678fd259ede5cdc26f`. Nenhuma alteração de app após aprovação. Gatilho original restaurado em `fa14f24431363d36c4ba8ea7f12074b6d422afb0`, blob `a82bc113b2de207b7a3e9a9660cc19af520167ff`.
+- Dono confirmou: foto 5x no modo **Foto**; Noturno **apoiado**. Fotos recebidas 1280×960 sem EXIF. Alta resolução ainda não explicitamente esclarecida. Não confirmar retrospectivamente lente 3x/5x apenas com esses arquivos. Fotos pessoais fora do Git.
+- Defeitos reproduzidos na base: plano ISO/tempo inviável e ruído correlacionado estático rejeitando 4/4 quadros. Correção passou nos Actions: RMS sintético 11,650→6,266, 4/4 aproveitados, testes de cor/contraste/movimento aprovados. Isso NÃO é resultado de redução de ruído no S24. Tom, BOOST_EV, WB, algoritmos SR e kernels rápidos anteriores preservados.
+- **P0 continua aberta para validação física.** Aproveitar mais quadros úteis também aumenta trabalho de fusão comparado a rejeitá-los; medir captura/alinhamento/fusão/acabamento/total e térmica, sem prometer eliminar 60–79s por teste sintético. Nenhuma melhora física de velocidade, autonomia ou qualidade foi declarada. Congelamentos fora da rajada, aquisição 7–9s e escala energética seguem pendentes.
+
+## Próximo passo para Claude/Codex
+
+Receber JPEGs originais como arquivos/ZIP e diagnóstico dos testes 0.26.3: repetir Foto 5x e Noturno apoiado sob condições semelhantes, conferir alta resolução/plano de captura, óptica confirmada/compatível/desconhecida, ISO/exposição reais e quadros usados. Comparar texturas, grão, cor ambiente, sombras, foco, fantasmas/halos e tempos por etapa/PSS/térmica. Não forçar lente física na sessão Retrato que já travou, não confundir zoom da interface com óptica. Se a 3x em Foto5x for confirmada, avaliar uma escolha óptica explícita e suportada com fallback comunicado, baseada em qualidade real. Se a fusão virar gargalo, perfilar readAligned/interpolação cúbica/Merge antes de mudar amostras ou textura. Não gerar outro APK sem necessidade; este build está disponível.
+
+## Texto pronto para enviar ao Claude
+
+Continue Nova Camera em chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, pelo HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topo de docs/STATUS.md e P0_NOTURNO_0262.md. APK 0.26.3/build71 (1071) entregue no Actions39122820061/artefato12134983449, 289 testes aprovados/5 dispensados, lint/modelos/assinatura/upload conferidos, release skipped. Fonte app7f6de132258a33827ae819e67e667a0d1237f4a1. Foram corrigidos plano noturno inviável e rejeição de ruído correlacionado; CaptureOptics separa dados da captura de zoom/prévia. Resultado sintético11,65→6,27 não comprova ganho S24. Dono testou Foto5x e Noturno apoiado; fotos recebidas semEXIF não confirmam lente antiga. Próximo: comparar JPEGs/diagnóstico reais, óptica/ISO/quadros/texturas/tempo/térmica, preservar oito quadros/SR/resolução, tomNoturno, modelos, main e chave permanente; não publicar release definitivo automaticamente. Fotos pessoais foraGit. Atualize handoff com evidências e pendências.
+
+---
+
+## Histórico preservado — estados pendentes de APK abaixo foram superados
+
 # APK 0.26.3 em geração — build71 (1071 esperado)
 
 - Fonteapp `7f6de132258a33827ae819e67e667a0d1237f4a1` aprovada no CI39122555216 (compile/test/lint); óptica intermediatecff1719/39122412407 também aprovada. FonteAPK `a150588a5cae3849eddb3c678fd259ede5cdc26f`. Nenhuma edição de app depois da aprovação.
