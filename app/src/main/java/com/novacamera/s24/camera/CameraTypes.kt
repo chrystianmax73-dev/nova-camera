@@ -86,6 +86,8 @@ interface CameraListener {
     fun onMessage(text: String)
     /** Lente física ativa mudou (só quando a câmera informa). */
     fun onActiveLens(label: String?) {}
+    /** Rostos detectados pelo sensor, em coordenadas da prévia (px da PreviewView); vazio = nenhum. */
+    fun onFaces(faces: List<android.graphics.RectF>) {}
     /** Estado da prévia do desfoque do Retrato (null = funcionando ou desligada). Thread principal. */
     fun onPortraitPreview(state: String?) {}
     /** O vigia do modo manual devolveu ISO/velocidade ao automático. */

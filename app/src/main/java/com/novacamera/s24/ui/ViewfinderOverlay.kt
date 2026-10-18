@@ -54,6 +54,10 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     var trackedSubject: com.novacamera.s24.core.SubjectTracker.Result? = null
         set(value) { field = value; invalidate() }
+    /** Rostos confirmados pelo sensor (px desta view). Discretos; somem enquanto há um assunto escolhido. */
+    var faces: List<android.graphics.RectF> = emptyList()
+        set(value) { if (field != value) { field = value; invalidate() } }
+    private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = 0xB3EDF7FF.toInt() }
     private val trackingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     /** Máscara do estouro (vermelho) e do realce de foco (verde) na resolução da análise. */
@@ -298,6 +302,16 @@ class ViewfinderOverlay(context: Context) : View(context) {
                 canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
                 canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
             }
+        }
+
+        if (trackedSubject == null) faces.forEach { f ->
+            // Só os cantos (como um visor), não um retângulo cheio: marca sem cobrir o rosto.
+            facePaint.strokeWidth = dp(1.5f)
+            val c = minOf(f.width(), f.height()) * 0.22f
+            canvas.drawLine(f.left, f.top, f.left + c, f.top, facePaint); canvas.drawLine(f.left, f.top, f.left, f.top + c, facePaint)
+            canvas.drawLine(f.right, f.top, f.right - c, f.top, facePaint); canvas.drawLine(f.right, f.top, f.right, f.top + c, facePaint)
+            canvas.drawLine(f.left, f.bottom, f.left + c, f.bottom, facePaint); canvas.drawLine(f.left, f.bottom, f.left, f.bottom - c, facePaint)
+            canvas.drawLine(f.right, f.bottom, f.right - c, f.bottom, facePaint); canvas.drawLine(f.right, f.bottom, f.right, f.bottom - c, facePaint)
         }
 
         trackedSubject?.let { target ->

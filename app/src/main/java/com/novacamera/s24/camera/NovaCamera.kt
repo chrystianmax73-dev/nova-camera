@@ -1561,6 +1561,9 @@ class NovaCamera(
 
     private fun applyInterop(): com.google.common.util.concurrent.ListenableFuture<Void?>? {
         val cam = camera ?: return null
+        facesSupported = runCatching { Camera2CameraInfo.from(cam.cameraInfo).getCameraCharacteristic(
+            android.hardware.camera2.CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES)
+            ?.contains(CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE) == true }.getOrDefault(false)
         if (activeExtension != ExtensionMode.NONE) return null
         val c = caps ?: return null
         val b = CaptureRequestOptions.Builder()
@@ -1597,6 +1600,9 @@ class NovaCamera(
         val normalVideoMode = mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !normalVideoMode &&
             !mode.isPro && !m.manualExposure && night == null
+        // Rostos do próprio sensor (modo simples, sem custo de CPU do app): só para desenhar onde estão.
+        if (settings.showFaces && facesSupported && !mode.isPro && night == null)
+            b.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
@@ -1690,8 +1696,29 @@ class NovaCamera(
         }
     }
 
+    /** O aparelho anuncia detecção de rostos simples nesta câmera (lido a cada vínculo). */
+    @Volatile private var facesSupported = false
+    private var lastFacesMs = 0L
+    private var hadFaces = false
+
+    private fun publishFaces(result: TotalCaptureResult) {
+        if (!settings.showFaces) return
+        val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
+        val now = SystemClock.uptimeMillis()
+        if (faces.isEmpty() && !hadFaces) return
+        if (now - lastFacesMs < 120L && faces.isNotEmpty()) return
+        lastFacesMs = now; hadFaces = faces.isNotEmpty()
+        val rects = faces.filter { it.score >= 50 }.take(6).map { android.graphics.RectF(it.bounds) }
+        handler.post {
+            // Coordenadas do sensor (região ativa, já com o zoom) → prévia: a mesma transformação do toque.
+            val t = previewView.sensorToViewTransform
+            listener.onFaces(if (t == null) emptyList() else rects.map { r -> android.graphics.RectF(r).also { t.mapRect(it) } })
+        }
+    }
+
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+            publishFaces(result)
             val opticalResult = currentLens?.physicalCameraId?.let { result.physicalCameraResults[it] } ?: result
             val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
             val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()

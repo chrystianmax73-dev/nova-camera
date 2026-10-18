@@ -1,3 +1,14 @@
+# 0.27.2 — pendentes da interface e da confiabilidade (Claude; branch `claude/nova-interface`; fonte)
+
+- **Zoom do disparador preciso** (relato do dono: "no 3× não pula pro 4 ou 5, vai 3.1, 3.2…"): o alvo é calculado a partir do zoom do início do gesto, 110 dp = ×e (3× → 5× em ~1 cm), e gruda nas paradas reais da lente (±6%) com vibração curta (`core/ShutterZoom`, testes).
+- **Foto protegida durante o processamento:** `processing/ProcessingService` (serviço curto em primeiro plano, Android 14+, notificação mínima "Finalizando foto") enquanto há foto na fila — abrir a galeria não deixa o sistema encerrar o app no meio. Cada sessão ganha a marca `interrupted` no início e a perde ao fim; se o processo morrer, na próxima abertura o original salvo vai para a galeria como `NOVA_<id>_recuperada.jpg`, uma vez, com aviso (`ProcessingQueue.recoverInterrupted`). AUTO não precisa (a foto já estava na galeria).
+- **Miniatura imediata (fotografia progressiva, fase 1):** o quadro da câmera reduzido (~1/16, thread `nova-thumb`, ~30 ms) aparece na miniatura logo após a captura, com anel de progresso até o fim; tocar nela enquanto processa avisa que a galeria recebe ao terminar (a galeria ainda só recebe a foto final — sem publicação antecipada).
+- **Toque do Retrato expira com o foco:** a prévia usa o ponto tocado só enquanto o ponto de foco do usuário vale (Ajustes › Manter foco por toque, padrão 4 s + retorno); depois volta ao modo "pessoa sem toque" e para de recalcular profundidade.
+- **Rostos (etapa 2 da interface):** detecção de rostos do próprio sensor (modo simples, `STATISTICS_FACE_DETECT_MODE`), desenhada só com os cantos; some quando há um assunto escolhido. Ajuste "Mostrar rostos" (padrão ligado). Fora do Pro e do Noturno com exposição manual.
+- Não verificado no aparelho: posição dos rostos na frontal e com zoom (usa a mesma transformação do toque), aparência da notificação do serviço.
+
+---
+
 # 0.27.1 — zoom arrastando o botão de disparo (Claude; branch `claude/nova-interface`; APK de teste build85 entregue)
 
 - **[Baixar ZIP com app-release.apk — build85 (1085)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39162809572/artifacts/12149497794)**. Mesma assinatura permanente. Artefato 12149497794, 132857718 bytes; digest do ZIP sha256:4287c9d1382141b9b2a3d1ef8ea764a73e8e3f8dd8709dd064254b5733872f0a; expira 2026-11-17T20:25:36Z. [Actions 39162809572](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39162809572) com sucesso; publicação pulada (nenhuma release nova). Gatilho restaurado em 4d46379 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

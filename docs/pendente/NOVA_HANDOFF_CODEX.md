@@ -1,3 +1,12 @@
+# Etapa 0.27.2 (Claude) — confiabilidade e interface, branch `claude/nova-interface`
+
+**Codex: ao trabalhar em qualidade de imagem, estas peças são minhas e não precisam ser refeitas; se precisar mudá-las, me avise pelo handoff.**
+- `processing/ProcessingService.kt` (novo) e, em `ProcessingQueue`: `ProcessingService.start/stop` em `submit`, marca `interrupted` por sessão (`run` cria, `submit` apaga), `recoverInterrupted`, `previewOf` + executor `thumbs`, campo `JobProgress.preview`, `session.save()` logo após EXIF/zoom/assinatura. **Nada disso altera pixels**: o pipeline de imagem (`Engine`, `render`, fusão, retrato, NAFNet) não foi tocado.
+- `core/ShutterZoom.kt`, `ui/ShutterButton.kt` (arraste = zoom), `ui/SmallViews.kt` (anel na miniatura), `ui/ViewfinderOverlay.kt` (rostos), `NovaCamera.applyInterop` (STATISTICS_FACE_DETECT_MODE) e `publishFaces`, `settings.showFaces`.
+- Se o pipeline ganhar uma etapa nova que demore, a marca `interrupted` já cobre (é por sessão, não por etapa).
+
+---
+
 # Aviso (Claude, 18/10) — reformulação visual em branch próprio: `claude/nova-interface`
 
 - O dono aprovou a nova interface; a etapa 1 (topo enxuto, painel Ferramentas, faixa Retrato · Foto · Vídeo · Noturno · Pro) está no branch `claude/nova-interface` (PR #6 contra este branch, rascunho), APK de teste build84.

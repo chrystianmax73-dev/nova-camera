@@ -201,6 +201,8 @@ class SettingsActivity : NovaScreen() {
             { settings.autoBacklight }, { settings.autoBacklight = it })
         switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
             { settings.facePriority }, { settings.facePriority = it })
+        switch("Mostrar rostos", "Marca discretamente os rostos que o próprio sensor detectou. Só aparece o que a câmera confirmou.",
+            { settings.showFaces }, { settings.showFaces = it })
         val holds = listOf(4, 8, 0)
         choice("Manter foco por toque", "Depois disso o foco volta a acompanhar o assunto; a exposição escolhida é preservada.",
             listOf("4 segundos", "8 segundos", "Até novo toque"), { holds.indexOf(settings.tapFocusHoldSeconds).takeIf { it >= 0 } ?: 0 }) {

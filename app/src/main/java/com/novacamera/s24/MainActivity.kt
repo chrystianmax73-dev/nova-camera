@@ -1260,6 +1260,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     // ------------------------------------------------------------------ CameraListener
 
     override fun onCameraState(state: CameraState) {
+        overlay.faces = emptyList() // nova sessão/lente: rostos da anterior não valem mais
         if (::tracking.isInitialized) tracking.stop()
         cameraState = state
         refreshStrip(quickReturnMode ?: state.mode)
@@ -1319,6 +1320,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+
+    override fun onFaces(faces: List<android.graphics.RectF>) {
+        overlay.faces = faces
+    }
 
     override fun onPortraitPreview(state: String?) = liveControls.setNote(state)
 

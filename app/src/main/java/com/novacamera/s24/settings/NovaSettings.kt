@@ -109,6 +109,7 @@ class NovaSettings(context: Context) {
 
     // Foco e exposição
     var facePriority get() = bool("face_priority", true); set(v) = put("face_priority", v)
+    var showFaces get() = bool("show_faces", true); set(v) = put("show_faces", v)
     /** Segundos que o foco por toque é mantido antes de voltar ao contínuo; 0 = até novo toque. */
     var tapFocusHoldSeconds get() = int("tap_focus_hold", 4); set(v) = put("tap_focus_hold", v)
     var lockWhiteBalanceWithAeAf get() = bool("lock_awb", true); set(v) = put("lock_awb", v)
