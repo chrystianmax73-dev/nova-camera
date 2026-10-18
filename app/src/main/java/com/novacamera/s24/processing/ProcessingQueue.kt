@@ -58,6 +58,8 @@ class Job(
     val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
     /** Retrato: intensidade escolhida antes da foto (a mesma da prévia). */
     val portraitBlur: Float = 0.6f,
+    /** Retrato: iluminação "Fundo escuro" (fundo ~1,2 EV mais escuro, pessoa intacta). */
+    val portraitDarkBackground: Boolean = false,
     /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
     val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
     /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
@@ -325,6 +327,7 @@ object ProcessingQueue {
         session.style = job.style
         if (contrastProfile) session.meta.setProperty("profile", "contrast")
         if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
+        if (job.kind == JobKind.PORTRAIT && job.portraitDarkBackground) session.meta.setProperty("portrait.light", "dark")
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
         val orderedFrames = if (job.kind.merges && job.frames.size > 1) runCatching {
@@ -743,6 +746,8 @@ object ProcessingQueue {
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
             if (matte != null) step("acabamento/desfoque") { Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) } }
+            if (matte != null && session.meta.getProperty("portrait.light") == "dark")
+                step("acabamento/fundo escuro") { Engine.darkBackgroundInPlace(bmp, matte, cancel) }
         }
         // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
         step("acabamento/estilo") { Engine.styleInPlace(bmp, session.style, cancel) }

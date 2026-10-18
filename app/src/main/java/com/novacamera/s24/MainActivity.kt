@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var ratioChip: TextChip
     private lateinit var hdrChip: TextChip
     private lateinit var videoHdrChip: TextChip
+    private lateinit var lightChip: TextChip
     private lateinit var qualityChip: TextChip
     private lateinit var fpsChip: TextChip
     private lateinit var resChip: TextChip
@@ -561,6 +562,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
         resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
+        lightChip = TextChip(this).apply { setOnClickListener { toggleLight() }; contentDescription = "Iluminação do Retrato" }
         videoHdrChip = TextChip(this).apply { text = "HDR"; setOnClickListener { toggleVideoHdr() }; contentDescription = "Vídeo HDR (HLG 10 bits)" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
         // Topo enxuto: flash à esquerda; formato do vídeo e ferramentas à direita. O centro fica livre
@@ -586,6 +588,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("Resolução", resChip)
             add("HDR", hdrChip)
             add("HDR vídeo", videoHdrChip)
+            add("Iluminação", lightChip)
             add("RAW", rawChip)
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
@@ -856,7 +859,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.orientation = deg
         zoomBar.orientation = deg
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -1162,6 +1165,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }, 1800)
     }
 
+    /** Retrato · iluminação: Natural ↔ Fundo escuro (aplicado na foto final, sobre a mesma máscara do desfoque). */
+    private fun toggleLight() {
+        settings.portraitDarkBackground = !settings.portraitDarkBackground
+        updateTopBar()
+        hint.show(if (settings.portraitDarkBackground) "Fundo escuro: o fundo sai ~1 EV mais escuro na foto; a pessoa não muda. A prévia não mostra o escurecimento"
+            else "Iluminação natural", 3000)
+    }
+
     /** Vídeo HDR (HLG 10-bit): só aparece onde a câmera anunciou; sem assinatura no vídeo enquanto ligado. */
     private fun toggleVideoHdr() {
         if (camera.isRecording) return hint.show("Pare a gravação para trocar HDR", 1600)
@@ -1280,11 +1291,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         resChip.text = res?.let(::mp) ?: ""
         resChip.contentDescription = resChip.text.toString() + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
+        lightChip.visibility = if (s?.mode == CaptureMode.RETRATO && s.support.engine == ModeEngine.NOVA && s.support.canCapture) View.VISIBLE else View.GONE
+        lightChip.text = if (settings.portraitDarkBackground) "Escuro" else "Natural"
+        lightChip.active = settings.portraitDarkBackground
         videoHdrChip.visibility = if (video && s?.videoHdrAvailable == true) View.VISIBLE else View.GONE
         videoHdrChip.active = s?.videoHdr == true
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
-        listOf<View>(hdrChip, videoHdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        listOf<View>(hdrChip, videoHdrChip, lightChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
         toolsPanel.sync()
     }
 

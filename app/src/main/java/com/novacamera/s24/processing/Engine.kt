@@ -783,6 +783,17 @@ object Engine {
         }
     }
 
+    /** Retrato · iluminação "Fundo escuro": só onde a máscara diz fundo; a pessoa não muda. */
+    fun darkBackgroundInPlace(bmp: Bitmap, matte: Plane, cancel: CancelToken) {
+        val w = bmp.width; val h = bmp.height
+        tiles(w, h) { x0, y0, tw, th ->
+            if (cancel.cancelled) throw CancelledException()
+            val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
+            Portrait.darkenBackgroundTile(buf, tw, th, x0, y0, w, h, matte)
+            bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
+        }
+    }
+
     /**
      * Gira para a orientação real e, se pedido, espelha (selfie como no visor). Recicla [src]
      * quando cria uma nova imagem.

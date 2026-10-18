@@ -77,6 +77,8 @@ class NovaSettings(context: Context) {
     /** RAW (DNG) junto do JPEG no modo Pro, quando a câmera oferece. */
     var raw get() = bool("raw", false); set(v) = put("raw", v)
     /** Retrato: intensidade do desfoque escolhida antes da foto (0..1). */
+    /** Retrato · iluminação: false = Natural, true = Fundo escuro (só na foto final; prévia mostra o aviso). */
+    var portraitDarkBackground get() = bool("portrait_dark_background", false); set(v) = put("portrait_dark_background", v)
     var portraitBlur get() = int("portrait_blur", 60) / 100f; set(v) = put("portrait_blur", (v * 100).toInt())
     /** Controles criativos ao vivo (tom, temperatura) na prévia e nas fotos dos modos Nova. */
     var liveControls get() = bool("live_controls", true); set(v) = put("live_controls", v)
