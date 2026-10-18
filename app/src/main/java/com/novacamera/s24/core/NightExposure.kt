@@ -66,6 +66,8 @@ object NightExposure {
         val iso = (light / exp).roundToInt().coerceIn(isoMin, isoMax)
         exp = min(limit.toDouble(), light / iso)
         if (exp < aeExposureNs * 1.4) return null
+        // ISO limitado pelo sensor pode tornar o plano subexposto; não trocar AE por isso.
+        if (iso.toDouble() * exp < light * 0.97) return null
         val expNs = exp.roundToLong()
         val frames = ((if (steady) STEADY_BUDGET_NS else BUDGET_NS) / expNs).toInt().coerceIn(min(3, maxFrames), maxFrames)
         return Plan(iso, expNs, frames, steady)

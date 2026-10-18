@@ -17,7 +17,7 @@ object Merge {
      * Desvio-padrão do ruído (0..255) estimado pela mediana das diferenças entre pixels vizinhos
      * nas regiões mais planas (estimador robusto: bordas reais não inflam o resultado).
      */
-    fun estimateNoise(px: IntArray, w: Int, h: Int, step: Int = 3): Float {
+    fun estimateNoise(px: IntArray, w: Int, h: Int, step: Int = 3, correlated: Boolean = false): Float {
         val diffs = ArrayList<Float>()
         var y = 1
         while (y < h - 1) {
@@ -37,7 +37,8 @@ object Merge {
         // 1º quartil das |diferenças| (regiões planas dominam). Para ruído gaussiano, a diferença
         // entre vizinhos tem desvio σ√2 e o 1º quartil do seu módulo vale 0,3186·σ√2.
         val q1 = arr[arr.size / 4]
-        return max(0.5f, q1 / 0.3186f / sqrt(2f))
+        val base = max(0.5f, q1 / 0.3186f / sqrt(2f))
+        return if(correlated) CorrelatedNoise.sigma(w,h,base,step) { x,y -> Px.luma(px[y*w+x])*255f } else base
     }
 
     class Result(val pixels: IntArray, val rejectedFraction: Float)

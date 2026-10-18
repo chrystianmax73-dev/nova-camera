@@ -137,7 +137,7 @@ object Consistency {
     }
 
     /** Desvio do ruído em luminância (0..1), robusto a bordas (1º quartil das diferenças vizinhas). */
-    fun noiseOf(p: Plane): Float {
+    fun noiseOf(p: Plane, correlated: Boolean = false): Float {
         val d = ArrayList<Float>()
         var y = 1
         while (y < p.h - 1) {
@@ -147,7 +147,8 @@ object Consistency {
         }
         if (d.isEmpty()) return 0.005f
         val arr = d.toFloatArray().also { it.sort() }
-        return max(0.002f, arr[arr.size / 4] / 0.3186f / 1.4142f)
+        val base = max(0.002f, arr[arr.size / 4] / 0.3186f / 1.4142f)
+        return if(correlated) CorrelatedNoise.sigma(p.w,p.h,base) { x,y -> p[x,y] } else base
     }
 
     /** Fração da área verificável em que o quadro não pode ser usado. */

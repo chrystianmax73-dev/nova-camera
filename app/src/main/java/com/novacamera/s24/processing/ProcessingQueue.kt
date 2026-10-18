@@ -301,6 +301,7 @@ object ProcessingQueue {
             var base: Bitmap
             var note = job.captureNote ?: ""
             var hdrScene: Plane? = null
+            val temporalNoise = job.kind == JobKind.NIGHT || (job.kind == JobKind.ZOOM && (job.imagingFacts.iso ?: 0)>=800)
             if (job.srFactor > 1.05f || job.outScale > 1.05f) {
                 orig.recycle()
                 val sources = frames.map(::JpegSource)
@@ -330,11 +331,12 @@ object ProcessingQueue {
                 val sources = frames.map(::JpegSource)
                 try {
                     progress(0.05f, "Alinhando ${frames.size} quadros")
-                    val a = timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
+                    val a = timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel, temporalNoise = temporalNoise) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind.merges) {
-                        val rejected = Engine.mergeInto(sources, base, a, job.cancel) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
+                        val rejected = Engine.mergeInto(sources, base, a, job.cancel, temporalNoise = temporalNoise) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
                         val n = a.usedFrames
+                        job.trace?.mark("fusão temporal: usados=$n/${frames.size}, ruído alinhamento=${a.noise}, rejeição=$rejected, correlação=$temporalNoise, inseguro=${a.unsafe}")
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
                                else "$n de ${frames.size} quadros fundidos" + if (rejected > 0.15f) " · movimento detectado em parte da cena" else ""
                     } else {

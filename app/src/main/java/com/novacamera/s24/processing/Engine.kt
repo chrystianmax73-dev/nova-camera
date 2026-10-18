@@ -170,10 +170,10 @@ object Engine {
      * deslocamento global hierárquico e campo por regiões (12×16, absorve rotação leve da mão).
      * Em seguida mede, pixel a pixel, se cada quadro alinhado "bate" com a referência.
      */
-    fun align(frames: List<FrameSource>, cancel: CancelToken, subpixel: Boolean = true, retainReliability: Boolean = true, progress: (Float) -> Unit): Alignment {
+    fun align(frames: List<FrameSource>, cancel: CancelToken, subpixel: Boolean = true, retainReliability: Boolean = true, temporalNoise: Boolean = false, progress: (Float) -> Unit): Alignment {
         val factor = max(2, max(frames[0].width, frames[0].height) / 2000)
         val ref = frames[0].luma(factor)
-        val noise = Consistency.noiseOf(ref)
+        val noise = Consistency.noiseOf(ref, correlated = temporalNoise)
         val gx = 12; val gy = 16
         val fields = ArrayList<Array<Shift>>()
         val luts = ArrayList<ExposureLut>()
@@ -320,11 +320,11 @@ object Engine {
      * Noite/redução de ruído: fusão robusta de N quadros de mesma exposição, só com os quadros e
      * pixels confiáveis. Retorna a fração de pixels rejeitados.
      */
-    fun mergeInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, progress: (Float) -> Unit): Float {
+    fun mergeInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, temporalNoise: Boolean = false, progress: (Float) -> Unit): Float {
         val w = out.width; val h = out.height
         val sw = min(w, 1024); val sh = min(h, 1024)
         val sample = IntArray(sw * sh).also { frames[0].read((w - sw) / 2, (h - sh) / 2, sw, sh, it) }
-        val sigma = Merge.estimateNoise(sample, sw, sh)
+        val sigma = Merge.estimateNoise(sample, sw, sh, correlated = temporalNoise)
         val used = frames.indices.filter { it > 0 && a.usable[it] }
         var rejected = 0.0; var count = 0
         val total = tileCount(w, h)
