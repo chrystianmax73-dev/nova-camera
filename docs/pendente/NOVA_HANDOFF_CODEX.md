@@ -1,3 +1,37 @@
+# Etapa atual 0.26.5 — Noturno e Retrato, fonte em validação
+
+- Branch única **codex/video-estabilidade-0-20**. Base c128f496950e4ad7f0d972c1b14dc35149ca0639, CI39127776999 aprovado antes do app. Buscar HEAD remoto antes de retomar. APK anterior confirmado0.26.4/build72/1072 permanece no histórico; **nenhum APK0.26.5 confirmado neste registro**.
+- Fonte atual de app **4344b8ef3188471df9c005021767088e24173c2e**, versionName0.26.5; CI **39130691263** ainda em fila neste registro. Fix principal51e6d63 teve erro de chamada Kotlinseed (CI39130473446); corrigido em a2206e5/CI39130495636, ainda consultar. Diagnóstico9c531f7/CI39130577011 também consultar. Não declarar aprovado sem execução real.
+- Três fotos novas foram identificadas pelo dono como0.26.3:139082=Noturno3x,139081=Noturno5x,139078=Retrato5x. Arquivos recebidos960×1280 SEM EXIF, hashes/análise em **docs/pendente/NOTURNO_RETRATO_0265.md**, pessoais foraGit. Diagnóstico solicitado chegou como **0.26.4/1072**, registrar separado; não associar versões/arquivos univocamente sem EXIF.
+- Diagnóstico físico0.26.4: Retrato5x49,012s/8quadros49MP/ISO136/16,949ms, assunto automático pelo centro; aquisição4,963s, align7,493s, SR12,957s, depth5,735s, refino2,398s, perfilContraste5,009s, blur6,579s. Noturno5x3/3/ISO2056/41,667ms total13,016–14,740s, rejeição0,528–0,600;5/5 total19,170s/rejeição0,160. Noturno3x3/3/ISO1870/33,333ms total11,933s/rejeição0,0508. JPEG18,6/7,9mm compatíveis, ID físico não confirmado. NAFNet abortou0/192 após2,349s, térmica1→2 durante carga. PSSaté624,5MiB/CPU149,4%, bateriaaté40,8°C, parte carregando; sem economia comprovada. Perfil/estilo são escolhas do usuário, não desligar silenciosamente.
+
+## Falhas reproduzidas antes de modificar o aplicativo
+
+- Regressão7dd0829/CI39130019486:303totais,2falhas,5dispensados. Objeto central1,0 e ilha desconectada1,0: ambos viram assunto. FrameQuality escolheu quadro com ruído correlacionado como mais nítido (limpo0,00040736 versus ruidoso0,00707443, índice1).
+- Teste de estrutura fina foi fortalecido em **e1e2831/CI39130459743** antes do app:303totais,3falhas,5dispensados. Toque em estrutura de2px gerou máscara0,3333 (fundo suavizado), não assunto. Essa regressão também reproduz as outras duas falhas. Não mascarar com tolerâncias frouxas.
+- São causas comprovadas em cenários sintéticos, não prova de serem os únicos defeitos das fotosS24. Não usar correção de código como confirmação física de qualidade.
+
+## O que mudou
+
+1. DepthPortrait usa uma única semente elegível próxima do centro/toque no modo de objeto, conservando todo o componente conectado. Pessoas mantêm múltiplas sementes/membros/objeto segurado. Toque usa mediana3×3 em vezde5×5: preserva estrutura2px com suporte local, sem deixar pixel isolado definir plano. Não resolve detalhe ausente do modelo monocular, nem é segmentação semântica de qualquer objeto.
+2. FrameQuality usa estimativa correlacionada já existente; soma energia dos gradientes antes de subtrair variância, sem viés do corte positivo por pixel. Para trocar por quadro mais ruidoso, exige margem adicional de detalhe; teste garante que bordas suficientemente mais nítidas ainda podem vencer. Não filtra pixels, não inventa detalhe, não altera tom/WB/exposição/resolução/quadros/fusão/SR.
+3. Diagnóstico registra índice/ruído/custo da referência, sigma de rejeiçãoMerge em0..255 separado de sigma de alinhamento0..1 e cobertura/faixa relativa da máscara. Cobertura não mede precisão. Mensagem de rejeição informa “contribuições inconsistentes”, pois rejeição alta não prova movimento. Limiares de fusão não foram aumentados às cegas.
+4. Testes cobrem ilha separada, alvofino, pixel isolado, troca de referência por ruído e manutenção de bordas reais; benchmark score3×768×576, sem modelo novo/GPU. O teste de outlier passou a verificar o plano de foco (não cobertura de um pixel que o blur da máscara pode preencher), antes da aprovação final; não alegar tolerância menor.
+
+## Próximo passo exato
+
+- ConferirCIs4344b8e/39130691263 e9c531f7/39130577011, alémdea2206e5/39130495636. Ler logs concretos e corrigir causas se falharem; preservar regressões e não remover recursos/tolerâncias. Compilação/testes/lint obrigatórios porActions; Gradleoffline local foi tentado e não existe neste snapshot.
+- Só depois de fonte estável, gerarAPKteste permanente pelo fluxo autorizado: adicionar temporariamente branch ao push de nova-release.yml, mantendo guarda que pula publicação; NUNCA workflow_dispatch. Restaurar bloboriginal **a82bc113b2de207b7a3e9a9660cc19af520167ff** assim que run aparecer. Consultar build real, não presumir73; conferir testes/lint/JPEG200MP/modelos/offlineDepth=True/assembleRelease/certificado-versionCode/upload/publicação skipped. Registrar artefato real/link/digestZIP/expiração e só então entregar.
+- Validar noS24 com originais/burst e novas capturas: seleção de objeto e vãos metálicos, folhas/cabelo/pessoas, ruído/texturas/foco, tempos e calor, sem mudar tomNoturno. Continuam pendentes rejeição53–60%noNoturno5x, alinhamento/SR lentos, highlights/HDR doRetrato, congelamentos semGL/análise e escala energética. Investigar também custo de cargaNAFNet que aborta antes do1ºbloco/liberação em calor; não ampliar orçamento sem qualidade/desempenho medidos. Nenhuma otimização física concluída.
+
+## Texto para Claude
+
+Continue Nova Camera em chrystianmax73-dev/nova-camera, branch codex/video-estabilidade-0-20, HEAD remoto atualizado. Leia inteiro docs/pendente/NOVA_HANDOFF_CODEX.md, topoSTATUS e NOTURNO_RETRATO_0265.md. Fonte atual0.26.5:4344b8ef3188471df9c005021767088e24173c2e, CI39130691263 pendente neste registro; verificar também39130577011 e39130495636. Base0.26.4 aprovada, APK72 anterior preservado; nenhum APK0.26.5 confirmado. Três regressões reproduzidas antes do app em39130459743: ilha desconectada vira assunto, alvofino vira fundo e ruído é favorecido como nitidez. Fix limita sementes só em objetos, usa mediana3×3 e seleção de referência conservadora contra ruído, sem alterar tom/pixels/fusão/SR/resolução/quadros. Diagnóstico novo mede referência, máscara e sigma de rejeição sem afirmar movimento. Fotos declaradas0.26.3 e diagnóstico0.26.4 devem ficar separados. Após CI completo, gerar sóAPKtesteassinado com publicação skipped e restauração do gatilho; conferir artefato antes de avisar. Preservar main/modelos/chave/histórico, fotos foraGit; qualidade/tempo/autonomiaS24 não comprovados. P0prévia, rejeição noturna alta, perfil/SR/depth caros, NAFNet abortando e HDR/highlights seguem abertos. Documente resultados reais e próxima ação.
+
+---
+
+## Histórico preservado — a atualização acima substitui estados anteriores desta etapa
+
 # Entrega 0.26.4 — APK de teste build 72 (1072)
 
 - **[Baixar ZIP com app-release.apk](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39127091262/artifacts/12137010846)**. Extrair e instalar sobre a versão anterior. Artefato **12137010846**, 132627982 bytes; SHA-256 **do ZIP**: **6e926a82da4b8416857580d20b68adbe99c76e1bee108166c2291be0393d8907**. Expira em **2026-11-17T12:30:40Z**. Chave permanente preservada; nenhum release criado.
