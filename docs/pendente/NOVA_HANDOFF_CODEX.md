@@ -1,3 +1,45 @@
+# P0 etapa 2 — 0.26.2 em validação, otimização física ainda aberta
+
+## Estado para continuar com Claude ou Codex
+
+- Trabalhar somente em `codex/video-estabilidade-0-20` do repositório `chrystianmax73-dev/nova-camera`. Buscar HEAD remoto atualizado e ler este arquivo inteiro, topo de STATUS, P0_ETAPA2.md e P0_ETAPA2_VALIDACAO.md antes de editar. Main, histórico e assinatura permanente preservados.
+- Fonte de app mais recente desta etapa: `beb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b` (0.26.2). CI final `39089312391` em andamento no momento deste registro: não considerar aprovado sem consultar. Commits de documentação/gatilho posteriores podem mudar HEAD sem mudar app.
+- Base `e14795c8a94863ae044c7d7394a403b8665da13f`, CI39087054435 aprovado antes de modificar app. Baseline físico0.25.3/1068: Retrato79,17s/65,80s, Foto60,44s; oito quadros7,41–9,10s; align9,82–10,06s; SR27,74–31,41s; saída49/28MP; PSS962,5MiB; CPU136,5%; bateria36,2→39,6°C. Diagnóstico completo e fotos anunciados, ainda não anexados nesta etapa. Não fingir análise dessas imagens.
+- Nenhum novo APK confirmado neste registro. O APK anterior0.25.3/build68/1068 permanece no link histórico abaixo. Não enviar esse APK como atualização nova. Depois que a fonte final passar, gerar só APK de teste autorizado pelo fluxo existente, sem release definitivo automático.
+
+## Alterações e evidências
+
+1. `70698ec` baseline documentado; CI39088156612 aprovado.
+2. `cad14a7` versão0.25.4: potência não confiável enquanto unidade do firmware não for confirmada; mantém bruto e hipóteseµA, nunca multiplica1000 por magnitude. Registra NOW/AVERAGE/CHARGE_COUNTER/ENERGY_COUNTER e deltas. CI39088313232 aprovado. Nenhuma calibração física concluída; BatteryStats externo precisa ADB do dono, não permissão de sistema no app.
+3. `3a885bb`0.26.0: núcleos C++ próprios para Align.search/SuperRes.mergeTile/Detail.applyBand na biblioteca novadenoise existente; Kotlin preservado. Primeira CI39088522688 falhou com exceções C++ desabilitadas. `3bf8835` corrigiu -fexceptions só nesse fonte e acrescentou suavização/busca SSD da SR. CI39088782041 aprovou assembleDebug/testDebugUnitTest/lintDebug. Regressões compilam JNI no Linux e exigem pixels/decisões exatamente iguais aos Kotlin em ruído, movimento, cores, pele, bordas e subpixel. Sem fast-math/FMA. Não executar modelos/thread novos.
+4. `74337c6`0.26.1: não reter sete mapas de confiabilidade que a SR não consulta, mantendo cálculo/rejeição/campos/fusão. Economia de buffers calculada~83,3MiB em4080×3060/fator2, NÃO PSS medido. Regressão de oito quadros compara saída com/sem retenção; CI39088922669 aprovado. Não reduz automaticamente escala2×→1,5×; tenta coletar temporários uma vez sob pressão e, se não couber, preserva original com aviso, sem vender28MP como49MP. Mantém proteção OOM.
+5. `60772ad`/`8c0aa01`/`beb201f`0.26.2: foco só confirmado com sucesso AF; motivos de dispensa separados de não suportado; callbacks antigos não alteram nova captura/obturador/vigia/EV/zoom. StillCaptureLease adia recuperação só dentro de prazo por pedido e total; não bloqueia bind intencional nem elimina recuperação real. Registra óptica de STILL_CAPTURE quando a HAL informa, EXIF independente. Estado térmico severo adia alta qualidade explicitamente antes da rajada; se aquecer depois, original em vez de processar só1/8. Listas da aquisição liberadas após transferência; UI indica aquisição terminada. Validar esses commits pelos seus Actions, não presumir aprovação.
+6. Diagnóstico: heap Java/nativo entrada/saída das etapas (não pico/PSS), faixas JPEG/tempo/cache, detalhe/tons/pouca luz/crominância/desfoque separados. PhotoTrace128eventos/8fotos. Margem de cache JPEG não reduzida sem medir.
+
+Benchmark REAL do CI39088782041, grupos de três após aquecimento: Kotlin→JNI em ms: alinhamento229,113→158,048; blocoSR217,378→47,057; SSD36,927→29,190; detalhe53,707→28,172. É microbenchmark Linux, não tempo total49MP, S24, GPU, consumo ou autonomia. Outra corrida39088922669 também aprovada e imprimiu tempos; variabilidade de servidor é esperada.
+
+## Pendências prioritárias — próximo passo exato
+
+1. Conferir CI39089312391 da fontebeb201f e CIs intermediários39089067201/39089230751. Se falhar, ler logs concretos e corrigir; não remover testes/reduzir tolerâncias para ocultar diferenças. Só gerar APK após fonte final aprovada.
+2. Gerar APK assinado para teste com o workflow existente, preservando secrets/chave. Não usar workflow_dispatch pois o fluxo publica release nesse evento. Procedimento já autorizado e usado: adicionar temporariamente esta branch ao push de nova-release.yml, mantendo guarda que pula publicação para push nessa branch; após o run surgir, restaurar imediatamente o blob original `a82bc113b2de207b7a3e9a9660cc19af520167ff`. Esperado próximo build69/1069, mas conferir valor real. Conferir testes/lint/JPEG200MP/modelos offline (incluindo Depth=True)/certificado/versionCode/upload e publicação skipped. Só então registrar artefato/link/digest/expiração. Não alterar app depois de fonte aprovada sem nova validação.
+3. No S24: medir0.26.2 nos mesmos casos do baseline, oito quadros usados/aceitos, dimensão, detalhe/ruído/bordas/pele, captura por quadro/total, align/SR/acabamento/gravação, PSS/CPU/térmica. Sem isso P0 NÃO está concluída. Protocolo detalhado emP0_ETAPA2_VALIDACAO.md. Não há melhora física comprovada nesta sessão.
+4. Investigar7,4–9,1s da aquisição com diagnóstico completo pedido/início/entrega e timestamps. Não foi implementado pipeline Camera2 novo nem disparo paralelo de oito JPEGs; não ativar ZSL de novo às cegas (travamentos/qualidade ruins históricos). Comparar CameraX/HAL/AF/exposição e somente então escolher aquisição limitada segura.
+5. Congelamentos fora da rajada continuam abertos, inclusive sem GL/análise. Proteção de rajada não prova solução geral. Distinguir falta de CaptureResult de ausência de apresentação na tela; não culpar GPU por tempo wall/eglSwapBuffers. Regressão de interrupções, foco, lentes3x/5x/10x, frontal/traseira e vídeo comum/assinatura/cinema ainda física.
+6. Confirmar escala energética via NOW/AVERAGE/deltas de carga/energia/BatteryStats/quedas controladas; não converter por magnitude, não usar5,8mW como consumo real. Medições do aparelho inteiro e sem GPU isolada; sem economia comprovada.
+7. Após P0: retomar refinamentos de tracking/profundidade/acabamento temporal de vídeo já documentados, preservando Vídeo comum e cinema só no ambiente Retrato autorizado. Não aumentar escopo antes da estabilidade/térmica.
+
+## Ambiente e preservação
+
+Neste ambiente `/workspace/nova-tracking` é snapshot parcial sem `.git`, Gradle/SDK/JDK completos indisponíveis. Validação real via Actions autorizada pelo dono; Git publicado por API com expected_sha, sem força. Não inventar execução local. Não pedir/expor segredos, gerar chave nova, mudar assinatura, adicionar INTERNET, copiar código proprietário, alterar tom do Noturno ou colocar fotos pessoais no Git. Manter oito quadros/escala/fusão/recursos; avisos de incapacidade não são entrega de qualidade reduzida.
+
+## Texto para enviar ao Claude
+
+Continue a Nova Camera em `chrystianmax73-dev/nova-camera`, branch `codex/video-estabilidade-0-20`, pelo HEAD remoto mais recente. Leia inteiro `docs/pendente/NOVA_HANDOFF_CODEX.md`, topo de `docs/STATUS.md`, `docs/pendente/P0_ETAPA2.md` e `P0_ETAPA2_VALIDACAO.md`. A fonte0.26.2 desta etapa ébeb201fd4fb661b93aaaf7f7c7ad35a4b4badf9b; consulte atualizações de entrega acima antes de usar IDs históricos. Prioridade P0: eficiência e latência mantendo8quadros/alta resolução/fusão/qualidade, confirmar escala de corrente e investigar prévia/foco. Kernels JNI equivalentes e liberação de mapas SR implementados; ganhos de microbenchmark Linux não comprovam melhora física. Confirme CI/APK reais e teste no S24 antes de concluir otimização. Próximo ponto técnico é aquisição7,4–9,1s com intervalos reais pedido/início/entrega e congelamentos fora da rajada. Preserve main, histórico, modelos, chave permanente, Noturno e mídia pessoal foraGit; não publique release definitivo automaticamente. Faça commits pequenos e compile/teste/lint pelo Actions. Se faltar tempo, preserve handoff completo.
+
+---
+
+## Histórico anterior preservado — números e estados anteriores não substituem este registro
+
 # Entrega P0 confirmada — Nova Camera0.25.3/build68 (1068)
 
 - Branch única `codex/video-estabilidade-0-20`, origem/main preservadas. Fonteapp `3634fe000a70eb63127b5b6fba50dd39eb1805bf`, fonteAPK `11294a4d579e33f39066d75356f4ddebe295fb0b`; buscar HEAD atualizado antes de retomar. Nenhuma alteração deapp após aprovaçãoCI39085985023.
