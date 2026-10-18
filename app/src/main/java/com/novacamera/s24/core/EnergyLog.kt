@@ -6,8 +6,8 @@ import kotlin.math.abs
 /**
  * Consumo e temperatura reais durante o uso da câmera, por atividade (Foto, Retrato, Vídeo
  * gravando, processando…). Amostras a cada ~10 s com o app aberto; só as amostras na bateria
- * entram no consumo (carregando, a corrente medida é a da carga). Números do aparelho, para
- * comparar versões em sessões longas — não estimativas.
+ * entram no consumo (carregando, a corrente medida é a da carga). Potência instantânea calculada de corrente/tensão do aparelho; não energia integrada
+ * nem consumo isolado do aplicativo. Comparar apenas condições controladas.
  */
 object EnergyLog {
     data class Sample(
@@ -54,7 +54,7 @@ object EnergyLog {
 
     fun report(list: List<Sample>): String = buildString {
         append("Energia e temperatura da sessão")
-        if (list.size < 2) { append(": poucas amostras (deixe a câmera aberta alguns minutos)"); return@buildString }
+        if (list.isEmpty()) { append(": sem amostras"); return@buildString }
         val span = (list.last().tMs - list.first().tMs) / 60_000.0
         append(String.format(Locale.US, " (%.0f min, %d amostras)", span, list.size))
         list.groupBy { it.activity }.forEach { (activity, group) ->

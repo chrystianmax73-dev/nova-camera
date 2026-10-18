@@ -82,7 +82,7 @@ class DeviceMonitor(private val context: Context, private val onChange: (DeviceH
     /** Amostra de energia para o [com.novacamera.s24.core.EnergyLog] (corrente instantânea do sistema). */
     fun energySample(activity: String, nowMs: Long): com.novacamera.s24.core.EnergyLog.Sample {
         val ua = runCatching { batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) }.getOrNull()
-            ?.takeIf { it != Long.MIN_VALUE && it != 0L }
+            // Preservar também sentinelas no bruto; EnergyLog rejeita na potência.
         val h = current
         return com.novacamera.s24.core.EnergyLog.Sample(nowMs, activity, ua, voltageMv, h.batteryTempC, h.batteryPercent,
             h.charging, h.thermalStatus, headroom())

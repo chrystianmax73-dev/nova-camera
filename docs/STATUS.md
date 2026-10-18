@@ -1,5 +1,6 @@
 # 0.25.1 — investigação P0: energia e etapas da captura
 
+- CI39084985949: compilação concluída; uma falha em teste legado que exigia a reescala indevida850→850000µA (264 totais/5 dispensados). Expectativa atualizada conforme BatteryManager; nova execução necessária. Pausa de análise limpa máscara/cache para não manter cena antiga; leitura bruta preserva sentinelas, potência continua indisponível para elas.
 - Baseline antes das alterações: P0_DESEMPENHO_BASELINE.md, base c56ee20/CI39083686479 aprovado. Feedback positivo da0.25.0 preservado; sem benchmark físico controlado.
 - CURRENT_NOW respeita µA da API, sem inferência de mA por magnitude. Diagnóstico expõe bruto/sinal/tensão/unidade/potência/conexão/temperatura e n válido por grupo. Não explica sozinho14W anteriores nem prova economia.
 - Retrato mantém oito quadros/saída2× e algoritmos. JPEG fecha ImageProxy antes de EXIF/análises; prévia suspende novas inferências enquanto fotografia captura/processa, sem rebind. Operação nativa já em voo termina. Fotos continuam na fila existente e obturador é liberado após aquisição.
