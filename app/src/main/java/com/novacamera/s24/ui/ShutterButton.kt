@@ -21,6 +21,8 @@ class ShutterButton(context: Context) : View(context) {
         fun onLock()
         fun onRelease()
         fun onCancel()
+        /** Positivo ao subir, negativo ao descer; câmera aplica seu amortecimento e limites. */
+        fun onZoom(deltaDp:Float) {}
     }
     var quickListener: QuickListener? = null
     var quickEnabled = false
@@ -28,6 +30,9 @@ class ShutterButton(context: Context) : View(context) {
     private val quickHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var quickTouch = false
     private var held = false
+    private var holdAccepted=false
+    private var zooming=false
+    private var lastY=0f
     private var locked = false
     private var moved = false
     private var downX = 0f
@@ -35,7 +40,7 @@ class ShutterButton(context: Context) : View(context) {
     private val holdTask = Runnable {
         if (quickTouch && !moved && isEnabled && !busy && countdown == 0) {
             held = true // um toque longo recusado também não deve virar foto ao soltar
-            quickListener?.onHold()
+            holdAccepted=quickListener?.onHold()==true
         }
     }
     enum class Kind { PHOTO, VIDEO }
@@ -96,7 +101,7 @@ class ShutterButton(context: Context) : View(context) {
     private fun updateDescription() {
         contentDescription = when {
             recording -> "Parar gravação"
-            quickEnabled -> "Capturar foto; mantenha pressionado para gravar vídeo e arraste para bloquear"
+            quickEnabled -> "Capturar foto; segure para gravar, arraste à direita para iniciar e bloquear, suba ou desça durante a pressão para zoom"
             kind == Kind.PHOTO -> "Capturar foto"
             else -> "Iniciar gravação"
         }
@@ -108,18 +113,29 @@ class ShutterButton(context: Context) : View(context) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     quickTouch = true; held = false; locked = false; moved = false
-                    downX = event.x; downY = event.y
+                    holdAccepted=false;zooming=false
+                    downX = event.x; downY = event.y;lastY=event.y
                     animatePress(1f)
                     parent?.requestDisallowInterceptTouchEvent(true)
                     quickHandler.postDelayed(holdTask, ViewConfiguration.getLongPressTimeout().toLong())
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = kotlin.math.abs(event.x - downX)
-                    val dy = kotlin.math.abs(event.y - downY)
-                    if (!held && maxOf(dx, dy) > ViewConfiguration.get(context).scaledTouchSlop) {
+                    val dx = event.x-downX
+                    val dy = event.y-downY
+                    if(!held && dx>=dp(64f) && dx>kotlin.math.abs(dy)) {
+                        quickHandler.removeCallbacks(holdTask)
+                        held=true;holdAccepted=quickListener?.onHold()==true
+                    }
+                    if (!held && maxOf(kotlin.math.abs(dx), kotlin.math.abs(dy)) > ViewConfiguration.get(context).scaledTouchSlop) {
                         moved = true; quickHandler.removeCallbacks(holdTask)
                     }
-                    if (held && !locked && dx >= dp(64f)) { locked = true; quickListener?.onLock() }
+                    if(held && holdAccepted) {
+                        if(!zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx))zooming=true
+                        if(zooming) {
+                            quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
+                        } else if(!locked && dx>=dp(64f)) { locked=true;quickListener?.onLock() }
+                    }
+                    lastY=event.y
                 }
                 MotionEvent.ACTION_UP -> {
                     quickHandler.removeCallbacks(holdTask)
@@ -151,7 +167,7 @@ class ShutterButton(context: Context) : View(context) {
     private fun cancelQuickTouch() {
         quickHandler.removeCallbacks(holdTask)
         if (held) quickListener?.onCancel()
-        quickTouch = false; held = false; locked = false
+        quickTouch = false; held = false; locked = false;holdAccepted=false;zooming=false
         animatePress(0f)
         parent?.requestDisallowInterceptTouchEvent(false)
     }

@@ -19,19 +19,58 @@ import java.util.concurrent.TimeUnit
 class QuickShutterTest {
     private class Calls : ShutterButton.QuickListener {
         var holds = 0; var locks = 0; var releases = 0; var cancels = 0
+        val zooms=mutableListOf<Float>()
+        override fun onZoom(deltaDp:Float) { zooms+=deltaDp }
         override fun onHold(): Boolean { holds++; return true }
         override fun onLock() { locks++ }
         override fun onRelease() { releases++ }
         override fun onCancel() { cancels++ }
     }
-    private fun touch(b: ShutterButton, action: Int, x: Float = 40f) {
-        val e = MotionEvent.obtain(0, 0, action, x, 40f, 0)
+    private fun touch(b: ShutterButton, action: Int, x: Float = 40f, y:Float=40f) {
+        val e = MotionEvent.obtain(0, 0, action, x, y, 0)
         b.onTouchEvent(e)
         e.recycle()
     }
     private fun hold() = shadowOf(Looper.getMainLooper()).idleFor(
         ViewConfiguration.getLongPressTimeout().toLong() + 1, TimeUnit.MILLISECONDS)
 
+    @Test fun arrastarADireitaAntesDoTimeoutIniciaEBloqueiaUmaVezSemFotografar() {
+        val b=ShutterButton(RuntimeEnvironment.getApplication()).apply { quickEnabled=true }
+        val calls=Calls();b.quickListener=calls
+        var photos=0;b.setOnClickListener { photos++ }
+        touch(b,MotionEvent.ACTION_DOWN)
+        touch(b,MotionEvent.ACTION_MOVE,1000f)
+        touch(b,MotionEvent.ACTION_MOVE,1100f)
+        touch(b,MotionEvent.ACTION_UP,1100f);hold()
+        assertEquals(1,calls.holds);assertEquals(1,calls.locks);assertEquals(0,photos)
+    }
+    @Test fun subirEDescerControlamZoomSemBloquearPorArrasteDiagonal() {
+        val b=ShutterButton(RuntimeEnvironment.getApplication()).apply { quickEnabled=true }
+        val calls=Calls();b.quickListener=calls
+        touch(b,MotionEvent.ACTION_DOWN);hold()
+        touch(b,MotionEvent.ACTION_MOVE,40f,-1000f)
+        touch(b,MotionEvent.ACTION_MOVE,40f,-800f)
+        touch(b,MotionEvent.ACTION_MOVE,1000f,-700f)
+        touch(b,MotionEvent.ACTION_UP,1000f,-700f)
+        assertTrue(calls.zooms[0]>0);assertTrue(calls.zooms[1]<0)
+        assertEquals(0,calls.locks);assertEquals(1,calls.releases)
+    }
+    @Test fun arrasteEsquerdoNaoDisparaNemBloqueiaEPressaoRecusadaNaoViraFoto() {
+        val b=ShutterButton(RuntimeEnvironment.getApplication()).apply { quickEnabled=true }
+        val calls=Calls();b.quickListener=calls
+        touch(b,MotionEvent.ACTION_DOWN);touch(b,MotionEvent.ACTION_MOVE,-1000f);touch(b,MotionEvent.ACTION_UP,-1000f);hold()
+        assertEquals(0,calls.holds);assertEquals(0,calls.locks)
+        var photos=0;b.setOnClickListener { photos++ }
+        b.quickListener=object:ShutterButton.QuickListener {
+            override fun onHold()=false
+            override fun onLock() { fail("não pode bloquear sem aceitar gesto") }
+            override fun onRelease() {}
+            override fun onCancel() {}
+            override fun onZoom(deltaDp:Float) { fail("não pode aplicar zoom sem aceitar gesto") }
+        }
+        touch(b,MotionEvent.ACTION_DOWN);hold();touch(b,MotionEvent.ACTION_MOVE,1000f);touch(b,MotionEvent.ACTION_UP,1000f)
+        assertEquals(0,photos)
+    }
     @Test fun toqueSimplesContinuaFotografandoSemIniciarVideo() {
         val b = ShutterButton(RuntimeEnvironment.getApplication()).apply { quickEnabled = true }
         val calls = Calls(); b.quickListener = calls
