@@ -1,3 +1,11 @@
+# 0.26.3 — fonte aprovada; APK71 em geração
+
+- Fonteapp7f6de132258a33827ae819e67e667a0d1237f4a1 aprovada no Actions39122555216, óptica39122412407 também aprovada: assembleDebug/testDebugUnitTest/lintDebug. Sem alteração deapp posterior. Fix de ruído/exposição5a9f660/39122118028 aprovado, falhas reproduzidas39121910927 preservadas.
+- Build assinado real71 (1071 esperado), Actions39122820061, fonteAPKa150588a5cae3849eddb3c678fd259ede5cdc26f. Gatilho original já restauradofa14f24431363d36c4ba8ea7f12074b6d422afb0/bloba82bc113b2de207b7a3e9a9660cc19af520167ff. APK ainda não confirmado; publicação deve ser skipped. Não criar outro build/release.
+- Teste físico S24 ainda pendente: sem conclusão de melhoria real de ruído/textura, óptica, velocidade, memória/térmica ou bateria. Nenhuma mudança de tom do Noturno/BOOST/WB, assinatura ou main. Detalhes da etapa abaixo e emP0_NOTURNO_0262.md; atualizações posteriores substituem estados pendentes históricos.
+
+---
+
 # 0.26.3 — ruído temporal, exposição segura e óptica da captura
 
 - Feedback real da0.26.2: duas fotos1280×960 sem EXIF,5x e Noturno; não permitem confirmar lente/ISO retroativamente. Configuração de modo/apoio ainda em esclarecimento. Base79b2c328f58678741c5f3df0b9fcbacec2b807a2, CI39113294053 aprovado antes de mudar app. Gradle offline local indisponível; Actions executa validação.

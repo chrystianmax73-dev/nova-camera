@@ -1,3 +1,13 @@
+# APK 0.26.3 em geração — build71 (1071 esperado)
+
+- Fonteapp `7f6de132258a33827ae819e67e667a0d1237f4a1` aprovada no CI39122555216 (compile/test/lint); óptica intermediatecff1719/39122412407 também aprovada. FonteAPK `a150588a5cae3849eddb3c678fd259ede5cdc26f`. Nenhuma edição de app depois da aprovação.
+- Build assinado real **71**, run https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39122820061 , job117661716743. A previsão70 abaixo era anterior: usar número real71; versionCode esperado1071. APK ainda NÃO confirmado.
+- Workflow original já restaurado em `fa14f24431363d36c4ba8ea7f12074b6d422afb0`, blob`a82bc113b2de207b7a3e9a9660cc19af520167ff`. Não disparar outro workflow/release.
+- Próximo passo exato: consultar o job39122820061, verificar testes/lint/JPEG200MP/modelos/assembleRelease/offlineDepth=True/certificado-versionCode/upload/publicação skipped. Só depois registrar artefato real/link/digest/tamanho/expiração emSTATUS e aqui, e enviar ao dono.
+- Nova correção foi reproduzida em teste real no servidor: ruído correlacionado estático RMS11,65 inalterado→6,27 com4/4 quadros aceitos; plano ISO/tempo inviável corrigido. Isso não valida qualidade/óptica/desempenho/térmica no S24. Fotos da0.26.2 são1280×960 semEXIF. Modo/altares/apoio ainda não esclarecidos; não inventar dados a partir da resposta ambígua “sim”. Detalhes, causas e texto para Claude abaixo/P0_NOTURNO_0262.md.
+
+---
+
 # Continuidade 0.26.3 — feedback5x/Noturno, fonte em verificação
 
 - Branch única codex/video-estabilidade-0-20. Buscar HEAD remoto atualizado; main/chave permanente intactas. Fonteapp7f6de132258a33827ae819e67e667a0d1237f4a1 (0.26.3), CI final39122555216 ainda em andamento neste registro. Óptica anteriorcff171961625e441e5dfda988b855205e2af08cd/CI39122412407 também consultar. Não declarar APK disponível nem S24 validado. APK mais recente confirmado continua0.26.2/build69/1069, histórico abaixo.
