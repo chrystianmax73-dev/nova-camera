@@ -1,3 +1,12 @@
+# 0.28.2 — Cinema no estilo do iPhone (Claude; branch `claude/nova-interface`; fonte)
+- Referência (pesquisa): o Cinematográfico do iPhone detecta rostos e muda o foco sozinho, faz "rack focus" suave ao tocar noutro assunto e permite mudar foco/abertura depois (guarda a profundidade junto do vídeo).
+- **Rack focus:** tocar noutro assunto com a cena parada não apaga mais o desfoque para recalcular: a profundidade da cena continua válida, só o plano de foco muda, e a máscara anda até o novo assunto em ~1–2 s (`CinematicSceneGuard.selectionOnly`, `RACK_KEEP` 0,7 por quadro). Movimento da cena continua reiniciando como antes.
+- **Foco automático no rosto:** sem toque, o maior rosto detectado pelo próprio sensor (modo SIMPLE, sem CPU do app) vira o assunto; some 1 s depois do último rosto. Detecção ligada no cinematográfico mesmo com "Mostrar rostos" desligado.
+- **Abertura (f/) ao vivo** já valia no cinematográfico; continua ajustável durante a gravação.
+- **Não feito:** mudar foco/abertura DEPOIS de gravar (exige gravar o mapa de profundidade junto do vídeo e um editor; fora do escopo de hoje).
+
+---
+
 # 0.28.1 — correções do teste do 0.28.0 (Claude; branch `claude/nova-interface`; fonte)
 - **Teste do dono (0.28.0):** HDR funcionou (Diagnóstico: HLG anunciado para UHD/FHD/HD/SD; gravados FHD HDR/60 e 4K HDR/30 em HEVC, 59,7 e 30,0 fps). 4K/60 ainda mostrou o cartão de erro na 1ª vez (a recusa só passou a ser lembrada depois — no log, as trocas seguintes em 4K já pularam o 60). CINEMA: "A máscara ainda não está pronta ou perdeu validade" numa cena sem pessoa.
 - **Causa do Cinema:** sem pessoa, a máscara depende da profundidade (~1,4 s de parede no S24). Ela rodava dentro do quadro de análise: esse quadro passava de 650 ms e a máscara era apagada ("análise atrasada"), e entre cálculos a máscara anterior vencia (750 ms). Resultado: quase nunca "pronta". **Correção:** no cinematográfico a profundidade roda em thread própria (`nova-cine-depth`); a análise continua a cada quadro e a profundidade nova entra quando termina; movimento da cena descarta a que está em curso. Foto/Retrato inalterados (continuam no fluxo antigo).

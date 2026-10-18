@@ -1,3 +1,6 @@
+# Etapa 0.28.2 (Claude) — Cinema estilo iPhone, branch `claude/nova-interface`
+- `core/CinematicPolicy.kt` (`CinematicSceneGuard.selectionOnly`), `camera/PortraitMaskAnalyzer.kt` (rack focus só no cinematográfico), `NovaCamera.publishFaces/cinemaFace` (rosto como alvo sem toque). Sem mudança de pixels fora do vídeo cinematográfico.
+
 # Etapa 0.28.1 (Claude) — Cinema e 4K/60, branch `claude/nova-interface`
 - `camera/PortraitMaskAnalyzer.kt` (área compartilhada): só no `cinematic`, profundidade assíncrona (`depthExecutor`, `depthDone`, `depthGeneration`); o caminho da foto/Retrato ao vivo não mudou. `DepthDutyBudget` com campos voláteis (lido/escrito em duas threads).
 - `NovaCamera`: recusa definitiva de fps troca para a maior taxa aceita. `MainActivity.startVideo`: espera de máscara no CINEMA (`cinemaWarmup`, 4 s).
