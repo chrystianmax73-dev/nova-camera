@@ -28,7 +28,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Um quadro capturado em memória (JPEG do sensor, ainda sem recorte/rotação). */
-class CapturedFrame(val jpeg: ByteArray, val rotationDegrees: Int, val crop: Rect?, val evIndex: Int = 0)
+class CapturedFrame(val jpeg: ByteArray, val rotationDegrees: Int, val crop: Rect?, val evIndex: Int = 0, val optics: com.novacamera.s24.core.CaptureOptics.Evidence? = null)
 
 /** Cancelamento cooperativo: verificado entre blocos de processamento. */
 class CancelToken { @Volatile var cancelled = false }

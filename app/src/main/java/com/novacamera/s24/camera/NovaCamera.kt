@@ -177,6 +177,7 @@ class NovaCamera(
     private val previewProgress = com.novacamera.s24.core.CaptureProgress()
     private val stillLease = com.novacamera.s24.core.StillCaptureLease()
     @Volatile private var activePhotoTrace: com.novacamera.s24.core.PhotoTrace? = null
+    private val stillResults = linkedMapOf<Long,com.novacamera.s24.core.CaptureOptics.Sensor>()
     private var watchFrames = -1L
     private var watchSince = 0L
     @Volatile private var watchGeneration = 0L
@@ -1664,7 +1665,19 @@ class NovaCamera(
         override fun onCaptureCompleted(session:CameraCaptureSession,request:CaptureRequest,result:TotalCaptureResult) {
             if (generation!=watchGeneration || !previewProgress.frame(generation)) return
             if(request.get(CaptureRequest.CONTROL_CAPTURE_INTENT)==CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
-                activePhotoTrace?.mark("sensor foto: lógico=${session.device.id} · físico=${result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)} · solicitado=${currentLens?.physicalCameraId} · focal=${result.get(CaptureResult.LENS_FOCAL_LENGTH)} · AF=${result.get(CaptureResult.CONTROL_AF_STATE)} · timestamp=${result.get(CaptureResult.SENSOR_TIMESTAMP)}")
+                val timestamp=result.get(CaptureResult.SENSOR_TIMESTAMP)
+                val reported=result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
+                val pin=currentLens?.physicalCameraId
+                val physical=reported ?: pin?.takeIf{result.physicalCameraResults.containsKey(it)} ?:
+                    currentLens?.takeIf{!it.logical && it.physicalCameraId==null}?.cameraId
+                val optical=physical?.let{result.physicalCameraResults[it]} ?: result
+                if(timestamp!=null && activePhotoTrace!=null) {
+                    val sensor=com.novacamera.s24.core.CaptureOptics.Sensor(timestamp,session.device.id,physical,
+                        optical.get(CaptureResult.LENS_FOCAL_LENGTH),optical.get(CaptureResult.SENSOR_SENSITIVITY),
+                        optical.get(CaptureResult.SENSOR_EXPOSURE_TIME),optical.get(CaptureResult.CONTROL_AF_STATE),
+                        optical.get(CaptureResult.CONTROL_AE_STATE),optical.get(CaptureResult.CONTROL_AWB_STATE))
+                    synchronized(stillResults) { stillResults[timestamp]=sensor;while(stillResults.size>16)stillResults.remove(stillResults.keys.first()) }
+                }
             }
             statsCallback.onCaptureCompleted(session,request,result)
         }
@@ -1931,6 +1944,10 @@ class NovaCamera(
     private fun captureForProcessing(ic: ImageCapture, initialKind: JobKind, shot: ShotTimer? = null) {
         val trace=com.novacamera.s24.core.PhotoTrace("${initialKind.label} · ${equivalent(zoomOnLens)}×",
             { android.os.SystemClock.elapsedRealtimeNanos() },shot?.tap)
+        val captureZoom=equivalent(zoomOnLens)
+        val captureRoute=currentLens?.routeKey
+        val captureLenses=lenses.toList()
+        synchronized(stillResults){stillResults.clear()}
         var kind=initialKind
         if (!ProcessingQueue.canAccept()) return listener.onMessage("Aguarde: processando as fotos anteriores")
         val cam = camera ?: return
@@ -2027,7 +2044,7 @@ class NovaCamera(
             if (settings.collectBursts && frames.size > 1) saveBurstFrames(kind.name.lowercase(Locale.US), frames.toList())
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
-                zoom = equivalent(zoomOnLens), srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
+                zoom = captureZoom, srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, style = currentStyle(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
             frames.clear() // Job e coleta já possuem listas próprias.
@@ -2043,26 +2060,39 @@ class NovaCamera(
                 ic.takePicture(io, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureStarted() { trace.mark("início quadro${i+1}"); if (i == 0) { shot?.started(); handler.post { if(activePhotoTrace === trace) listener.onCaptureStarted() } } }
                     override fun onCaptureSuccess(image: ImageProxy) {
-                        if (i == 0) shot?.done(image.imageInfo.timestamp)
+                        val imageTimestamp=image.imageInfo.timestamp
+                        if (i == 0) shot?.done(imageTimestamp)
                         var cameraImageClosed=false
                         try {
                             trace.mark("entrega quadro${i+1}")
                             cameraImageClosed=true
-                            val frame=com.novacamera.s24.core.FrameSnapshot.readAndClose(image) {
+                            val snapshot=com.novacamera.s24.core.FrameSnapshot.readAndClose(image) {
                                 trace.sensor(image.imageInfo.timestamp)
                                 val rotation=image.imageInfo.rotationDegrees
                                 val crop=android.graphics.Rect(image.cropRect)
                                 val buffer=image.planes[0].buffer
                                 CapturedFrame(ByteArray(buffer.remaining()).also { buffer.get(it) },rotation,crop,baseEv+steps[i])
                             }
+                            val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(snapshot.jpeg))
+                            val jpegFocal=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH,0.0).toFloat().takeIf{it>0f}
+                            val jpegEq=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,0.0).toFloat().takeIf{it>0f}
+                            val sensor=synchronized(stillResults){stillResults.remove(imageTimestamp)}
+                            val audit=com.novacamera.s24.core.CaptureOptics.evaluate(captureZoom,captureRoute,jpegFocal,jpegEq,sensor,captureLenses)
+                            val frame=CapturedFrame(snapshot.jpeg,snapshot.rotationDegrees,snapshot.crop,snapshot.evIndex,audit)
+                            trace.mark("quadro${i+1}: ${audit.report()}")
                             trace.mark("cópia/liberação quadro${i+1} (${frame.jpeg.size}bytes)")
                             trace.publish("aquisição ${i+1}/${steps.size}")
                             val bytes=frame.jpeg
                             frames += frame
                             if(i==0) {
-                                val exif=androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
                                 trace.mark("JPEG referência: focal=${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH)} · dimensões=${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_WIDTH)}x${exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_LENGTH)}; EXIF não confirma ID físico")
+                                val capturedPhysical=audit.compatibleId?.takeIf{audit.confirmed}
                                 captureFacts=captureFacts.copy(
+                                    cameraId=sensor?.logicalId ?: captureFacts.cameraId,
+                                    physicalId=capturedPhysical,focalMm=jpegFocal ?: sensor?.focalMm,
+                                    sensorWidthMm=captureFacts.sensorWidthMm.takeIf{capturedPhysical!=null && capturedPhysical==captureFacts.physicalId},
+                                    sensorHeightMm=captureFacts.sensorHeightMm.takeIf{capturedPhysical!=null && capturedPhysical==captureFacts.physicalId},
+                                    captureVerified=audit.confirmed,
                                     iso=exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,0).takeIf { it>0 },
                                     exposureNs=exif.getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,0.0)
                                         .takeIf { it.isFinite() && it>0 && it<60 }?.let { (it*1_000_000_000).toLong() })
@@ -2148,7 +2178,17 @@ class NovaCamera(
                 val total = plan.exposureNs * plan.frames
                 if (total >= 600_000_000L) listener.onMessage("Segure firme · ${String.format(Locale.US, "%.1f", total / 1e9).replace('.', ',')} s")
                 val applied = applyInterop()
-                if (applied != null) applied.addListener({ shoot(0) }, main) else { nightOverride = null; shoot(0) }
+                if (applied != null) applied.addListener({
+                    if(activePhotoTrace===trace) {
+                        if(runCatching{applied.get()}.isSuccess) {trace.mark("exposição noturna solicitada: ${plan.label}");shoot(0)}
+                        else {
+                            nightOverride=null;trace.mark("exposição noturna rejeitada; restaurando AE")
+                            captureNote="Plano manual indisponível: automático preservado"
+                            val reset=applyInterop()
+                            if(reset!=null)reset.addListener({shoot(0)},main)else shoot(0)
+                        }
+                    }
+                }, main) else { nightOverride = null; trace.mark("sem plano manual aplicado; mantendo automático");shoot(0) }
             } else shoot(0)
         }
         val zoomOut = {

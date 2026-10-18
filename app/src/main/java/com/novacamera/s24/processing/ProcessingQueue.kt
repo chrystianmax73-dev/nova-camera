@@ -267,6 +267,9 @@ object ProcessingQueue {
         }.getOrDefault(job.frames) else job.frames
         val frame0 = orderedFrames[0]
         session.exif = MediaWriter.exifOf(frame0.jpeg)
+        frame0.optics?.let{session.meta.setProperty("capture.optics",it.report())}
+        job.frames.mapIndexedNotNull { i,f->f.optics?.let{"quadro${i+1}: ${it.report()}"} }.takeIf{it.isNotEmpty()}
+            ?.let{session.meta.setProperty("capture.optics.frames",it.joinToString(" | "))}
         var originalUri: Uri? = null
         fun progress(f: Float, stage: String) = post(JobProgress(job.id, job.kind, f.coerceIn(0f, 1f), stage, pending))
 
@@ -398,7 +401,8 @@ object ProcessingQueue {
             progress(0.96f, "Salvando")
             val label = if (job.kind == JobKind.AUTO) "aprimorada" else job.kind.name.lowercase(Locale.US)
             val enhanced = timed(job,"codificação/gravação final") { MediaWriter.insert(resolver, base, "NOVA_${name}_$label.jpg", MediaWriter.GALLERY, session.exif,
-                "Nova ${job.kind.label}" + if (note.isNotEmpty()) " · $note" else "") }
+                "Nova ${job.kind.label}" + (if (note.isNotEmpty()) " · $note" else "") +
+                    (frame0.optics?.let{" · ${it.report()}"} ?: "")) }
             job.trace?.mark("resultado: $note")
             base.recycle()
             session.enhancedUri = enhanced
