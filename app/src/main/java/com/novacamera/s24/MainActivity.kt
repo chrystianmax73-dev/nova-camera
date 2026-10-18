@@ -960,6 +960,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun onShutter() {
+        hideTools(); hideGrid() // painéis não ficam abertos sobre a prévia durante a captura/gravação
         if(com.novacamera.s24.processing.VideoFinishJob.state.running)
             com.novacamera.s24.processing.VideoFinishJob.cancel("Acabamento cancelado para priorizar captura; original preservado")
         val s = cameraState ?: return

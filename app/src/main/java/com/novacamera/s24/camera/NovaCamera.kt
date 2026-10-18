@@ -1280,7 +1280,9 @@ class NovaCamera(
             }
             // A interface acompanha a curva a cada quadro; a câmera recebe só o valor mais recente
             // quando terminou de aplicar o anterior (sem fila de requisições = sem engasgos).
-            zoomGate.offer(value)?.let(::sendZoom)
+            // Vídeo: não esperar a confirmação lenta (estabilização) — no máximo um pedido a cada ~2 quadros.
+            zoomGate.maxWaitMs = if (mode.isVideo) VIDEO_ZOOM_REQUEST_MS else 0L
+            zoomGate.offer(value, now)?.let(::sendZoom)
             if (!zoomCurve.finished(now)) Choreographer.getInstance().postFrameCallback(this)
             else zoomAnimating = false
         }
@@ -1291,8 +1293,9 @@ class NovaCamera(
         synchronized(telemetry) { telemetry.command(value, SystemClock.uptimeMillis()) }
         val future = cam.cameraControl.setZoomRatio(cameraZoom(value))
         val generation = zoomGate.generation
+        val sequence = zoomGate.sequence
         future.addListener({
-            if (camera === cam) zoomGate.completed(generation)?.let(::sendZoom)
+            if (camera === cam) zoomGate.completed(generation, sequence, SystemClock.uptimeMillis())?.let(::sendZoom)
         }, main)
     }
 
@@ -2811,6 +2814,8 @@ class NovaCamera(
         private const val COLLECT_TELE_FRAMES = 8
         private const val PINNED_STALL_MS = 3000L
         private const val STALL_PREVIEW_MS = 3000L
+        /** Intervalo mínimo entre pedidos de zoom no vídeo sem esperar confirmação (~2 quadros a 60 fps). */
+        private const val VIDEO_ZOOM_REQUEST_MS = 33L
         private const val TAG = "NovaCamera"
         private const val AUTO_RETURN_MS = 20_000L
         private const val STALL_TIMEOUT_MS = 1_500L

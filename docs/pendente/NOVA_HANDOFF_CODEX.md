@@ -4,6 +4,7 @@
 - `processing/ProcessingService.kt` (novo) e, em `ProcessingQueue`: `ProcessingService.start/stop` em `submit`, marca `interrupted` por sessão (`run` cria, `submit` apaga), `recoverInterrupted`, `previewOf` + executor `thumbs`, campo `JobProgress.preview`, `session.save()` logo após EXIF/zoom/assinatura. **Nada disso altera pixels**: o pipeline de imagem (`Engine`, `render`, fusão, retrato, NAFNet) não foi tocado.
 - `core/ShutterZoom.kt`, `ui/ShutterButton.kt` (arraste = zoom), `ui/SmallViews.kt` (anel na miniatura), `ui/ViewfinderOverlay.kt` (rostos), `NovaCamera.applyInterop` (STATISTICS_FACE_DETECT_MODE) e `publishFaces`, `settings.showFaces`.
 - **Vigia da prévia (`NovaCamera`): marca `visible`.** Era a provável causa raiz do P0 da prévia (ida à galeria tratada como travamento → escalada que desligava Tom/Temperatura). A escalada em `onPreviewStalled` continua como estava; se ainda houver paradas com o app visível, o StallLog dirá.
+- **0.27.3:** `ZoomRequestGate(maxWaitMs)` + `sequence`; no vídeo `NovaCamera` usa 33 ms (`VIDEO_ZOOM_REQUEST_MS`). Se mexer no zoom do vídeo, manter o número de sequência (callbacks de pedidos substituídos chegam cancelados).
 - Se o pipeline ganhar uma etapa nova que demore, a marca `interrupted` já cobre (é por sessão, não por etapa).
 
 ---

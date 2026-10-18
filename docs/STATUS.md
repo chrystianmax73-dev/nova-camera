@@ -1,3 +1,12 @@
+# 0.27.3 — zoom do vídeo sem degraus (Claude; branch `claude/nova-interface`; fonte)
+
+- **Diagnóstico 0.27.2 + gravação de tela do dono ("modo vídeo ainda com gargalo"):** no vídeo (FHD/60, EIS ligada) cada pedido de zoom levava **125–153 ms** para ser confirmado (`aplicado em …`), contra 0–40 ms na foto. A vazão era "no máximo um pedido em voo, o próximo só após a confirmação" (`ZoomRequestGate`), então o zoom do vídeo andava em ~7 passos por segundo: 1,09 → 1,23 → 1,47 → 1,81… visível como degraus. A demora vem da estabilização eletrônica (a câmera confirma o pedido quadros depois).
+- **Correção:** no vídeo, se o pedido anterior ainda não foi confirmado após 33 ms, o mais novo é enviado mesmo assim (a câmera descarta o antigo); a confirmação/cancelamento de um pedido substituído não libera a vazão (número de sequência). Foto mantém a regra antiga (confirmação rápida). Teste `videoZoomDoesNotWaitForSlowConfirmation`.
+- Painéis Ferramentas/Mais modos fecham ao disparar ou começar a gravar (na gravação de tela o painel ficou aberto sobre a prévia).
+- Esperado (não medido): zoom do vídeo acompanhando o dedo a ~30 passos/s; a latência própria da câmera (~130 ms com EIS) continua.
+
+---
+
 # 0.27.2 — pendentes da interface e da confiabilidade (Claude; branch `claude/nova-interface`; APK de teste build87 entregue)
 
 - **[Baixar ZIP com app-release.apk — build87 (1087)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39167577996/artifacts/12151168880)**. Mesma assinatura permanente. Artefato 12151168880, 132871045 bytes; digest do ZIP sha256:bfcd81a8ab8e4635b4427881aaf4c1859ed526cf879960ddc5046af920f955bb; expira 2026-11-17T21:29:55Z. [Actions 39167577996](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39167577996) com sucesso; publicação pulada (nenhuma release nova). O build86 foi cancelado para incluir a correção do vigia. Gatilho restaurado em 98c9406 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

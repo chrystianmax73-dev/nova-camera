@@ -26,6 +26,18 @@ class PerformanceRegressionTest {
         assertEquals(3f, gate.completed(gate.generation)!!, 0f)
     }
 
+    @Test fun videoZoomDoesNotWaitForSlowConfirmation() {
+        val gate = ZoomRequestGate(maxWaitMs = 33)
+        assertEquals(1f, gate.offer(1f, 0)!!, 0f)
+        val first = gate.sequence
+        assertNull("dentro de 33 ms aguarda", gate.offer(1.2f, 16))
+        assertEquals("passados 33 ms sem confirmação, envia o mais novo", 1.4f, gate.offer(1.4f, 34)!!, 0f)
+        // A confirmação (ou cancelamento) do pedido substituído não libera a vazão do atual.
+        assertNull(gate.completed(gate.generation, first, 40))
+        assertNull(gate.offer(1.5f, 50))
+        assertEquals(1.5f, gate.completed(gate.generation, gate.sequence, 60)!!, 0f)
+    }
+
     @Test fun photoTeleSelectionUsesNativeWhileVideoKeepsLogicalPolicy() {
         val main = LensOption("main", 1f, 1f, 30f)
         val tele = LensOption("tele", 5f, 1f, 10f)
