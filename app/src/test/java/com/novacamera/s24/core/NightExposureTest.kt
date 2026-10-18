@@ -78,4 +78,9 @@ class NightExposureTest {
         // Mesma proporção R/G de antes (sem virar magenta): 45/32 ≈ 1,41.
         assertEquals(45f / 32f, r.toFloat() / g, 0.08f)
     }
+    @Test fun naoRetornaPlanoQueEscureceAoLimitarIsoDoSensor() {
+        // O teto ISO/tempo não consegue entregar a luz pretendida; manter AE é mais seguro.
+        assertNull(NightExposure.plan(6400,40_000_000L,50,800,100_000_000L,100_000_000L,5))
+    }
+
 }
