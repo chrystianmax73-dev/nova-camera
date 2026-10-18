@@ -79,6 +79,7 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_novacamera_s24_processing_NcnnDenoiser_nativeRun(JNIEnv* env, jclass, jlong handle, jobject in, jobject out) {
     if (handle == 0) return JNI_FALSE;
     auto* m = reinterpret_cast<Model*>(handle);
+    ncnn::set_kmp_blocktime(0); // vale para a thread que chama (foto ou refino em segundo plano)
     const float norm[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
     const float denorm[3] = {255.f, 255.f, 255.f};
     ncnn::Mat input = ncnn::Mat::from_android_bitmap(env, in, ncnn::Mat::PIXEL_RGB);

@@ -58,6 +58,9 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_novacamera_s24_processing_DepthEstimator_nativeRun(JNIEnv* env, jclass, jlong handle, jobject in, jfloatArray out) {
     if (handle == 0) return JNI_FALSE;
     auto* m = reinterpret_cast<DepthModel*>(handle);
+    // O blocktime do OpenMP vale para a thread que chama, não para o modelo: a sessão é compartilhada
+    // (prévia ao vivo e foto, threads diferentes da que carregou), então reaplica a cada inferência.
+    ncnn::set_kmp_blocktime(0);
     // Normalização ImageNet sobre RGB 0..255.
     const float mean[3] = {0.485f * 255.f, 0.456f * 255.f, 0.406f * 255.f};
     const float norm[3] = {1 / (0.229f * 255.f), 1 / (0.224f * 255.f), 1 / (0.225f * 255.f)};

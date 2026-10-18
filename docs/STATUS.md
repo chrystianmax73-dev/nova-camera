@@ -1,3 +1,12 @@
+# 0.26.13 — bateria: espera ativa do OpenMP desligada em toda inferência, não só no carregamento (Claude; fonte em validação)
+
+- **Diagnóstico 0.26.12 (o que melhorou, medido):** 1º Retrato com prévia ligada **10,7 s → 8,1 s**; profundidade "carga=0ms (modelo já carregado)" na 1ª foto — sessão compartilhada confirmada. **PSS 444–559 MiB** (era até ~760 MiB). Profundidade ao vivo: 27 cálculos em 165 s (0,16/s; era 0,25/s) mesmo com 30 s de reenquadramento; CPU própria da etapa 2,5% (era 6,3%).
+- **O que não melhorou:** CPU do Retrato 74,7% (0.26.10: 65%). Não é A/B limpo (este teste incluiu 30 s em movimento e as 2 fotos dentro da janela; térmico 1; bateria 15%), mas a thread da análise subiu para 33% enquanto as etapas medidas nela somam 7,6% → ~25% em threads auxiliares OpenMP.
+- **Causa provável (não confirmada no aparelho):** `ncnn::set_kmp_blocktime(0)` só era chamado em `nativeLoad`, e o blocktime do OpenMP vale para a **thread que chama**. Com a sessão compartilhada (0.26.12), a inferência roda em threads que não carregaram o modelo (análise ao vivo ou fila de fotos) com a espera ativa padrão (~200 ms girando por trecho paralelo). As threads do pool OpenMP são reaproveitadas entre threads chamadoras e mantêm o nome de quem as criou, por isso o custo da foto também pode aparecer em "nova-portrait-m".
+- **Correção:** `set_kmp_blocktime(0)` no início de cada `nativeRun` (profundidade e NAFNet). Resultado da rede idêntico.
+
+---
+
 # 0.26.12 — bateria/tempo: um só modelo de profundidade para a prévia e a foto (Claude; APK de teste build79 entregue; inclui 0.26.11)
 
 - **[Baixar ZIP com app-release.apk — build79 (1079)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905/artifacts/12143679020)**. Mesma assinatura permanente. Artefato 12143679020, 132851523 bytes; digest do ZIP sha256:3d9c5824e18963d0a6e7c6fdf3e9fdf8c78e405f4dcfdaf08b2ba980c49c3433; expira 2026-11-17T17:00:34Z. [Actions 39147041905](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905) com sucesso; publicação skipped. Fonte do app 67fc611 (CI 39146832594 aprovado; 0.26.11 c4fd20f CI 39146478679 aprovado); fonte do APK 698a9a6; gatilho restaurado em db184b2 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

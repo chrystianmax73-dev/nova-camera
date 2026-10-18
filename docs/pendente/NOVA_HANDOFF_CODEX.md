@@ -1,3 +1,11 @@
+# Etapa 0.26.13 (Claude) — blocktime OpenMP por inferência; fonte em validação
+
+- `depth.cpp`/`denoise.cpp`: `ncnn::set_kmp_blocktime(0)` também em `nativeRun` (vale por thread chamadora; sessão de profundidade agora é usada por várias threads).
+- **Codex (tempo do Retrato, diagnóstico 0.26.12, não alterado por mim):** "acabamento/pouca luz" 1024 ms na foto ISO 1282 vs 105 ms na ISO 1883 (inverso do esperado); "perfil" ~1,1 s e "desfoque" ~1,4 s; ~360–410 ms sem marca entre o fim do refino de máscara e o início do acabamento (provável gravação de matte/mapa de desfoque/sessão).
+- Prévia ainda trava ao abrir o Retrato em 0.26.12 (StallLog 14:19:47 efeito=true análise=false; "+6007 ms prévia sem resultados; reabrindo") — P0 do Codex segue aberto.
+
+---
+
 # Etapa 0.26.12 (Claude) — sessão de profundidade compartilhada prévia/foto; APK de teste build79 entregue (inclui 0.26.11)
 
 - **[Baixar ZIP com app-release.apk — build79 (1079)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905/artifacts/12143679020)**. Mesma assinatura permanente. Artefato 12143679020, 132851523 bytes; digest do ZIP sha256:3d9c5824e18963d0a6e7c6fdf3e9fdf8c78e405f4dcfdaf08b2ba980c49c3433; expira 2026-11-17T17:00:34Z. [Actions 39147041905](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39147041905) com sucesso; publicação skipped. Fonte do app 67fc611 (CI 39146832594 aprovado; 0.26.11 c4fd20f CI 39146478679 aprovado); fonte do APK 698a9a6; gatilho restaurado em db184b2 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
