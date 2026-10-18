@@ -90,7 +90,9 @@ class NativePhotoKernelsTest {
         val base=Plane(1024,768,FloatArray(1024*768){kotlin.math.ln(.004f+rng.nextFloat()*.996f)})
         val map=ToneMap(base,ToneParams(.8f,.35f,.04f,.18f,.7f,.03f),8160,6120,base)
         fun run(native:Boolean):Double=backend(native){val start=System.nanoTime();repeat(3){map.applyTile(px.copyOf(),8160,64,0,2100)};(System.nanoTime()-start)/1e6}
-        run(false);run(true);val old=run(false);val got=run(true)
-        println("TONE_HOST pareado3x Kotlin=${old}ms; JNI=${got}ms (inclui cópiasJNI de planos reduzidos/bloco). Não mede49MP/S24/GPU/energia.")
+        repeat(2){run(false);run(true)}
+        val old=ArrayList<Double>();val got=ArrayList<Double>()
+        repeat(5){i->if(i%2==0){old+=run(false);got+=run(true)}else{got+=run(true);old+=run(false)}}
+        println("TONE_HOST faixa8160x64, grupos3x AB/BA: Kotlin=${old}ms; JNI=${got}ms; medianas=${old.sorted()[2]}/${got.sorted()[2]}ms (inclui cópiasJNI de planos reduzidos/bloco). Não mede49MP/S24/GPU/energia.")
     }
 }

@@ -153,12 +153,9 @@ struct FloatElements {
     FloatElements(JNIEnv* e,jfloatArray a):env(e),array(a),values(a?e->GetFloatArrayElements(a,nullptr):nullptr){}
     ~FloatElements(){if(values)env->ReleaseFloatArrayElements(array,values,JNI_ABORT);}
 };
-static float toneSample(const float* a,int w,int h,float x,float y){
-    float fx=std::max(0.f,std::min(static_cast<float>(w-1),x)),fy=std::max(0.f,std::min(static_cast<float>(h-1),y));
-    int x0=static_cast<int>(fx),y0=static_cast<int>(fy),x1=std::min(x0+1,w-1),y1=std::min(y0+1,h-1);
-    float tx=fx-x0,ty=fy-y0;
-    float top=a[y0*w+x0]+(a[y0*w+x1]-a[y0*w+x0])*tx;
-    float bot=a[y1*w+x0]+(a[y1*w+x1]-a[y1*w+x0])*tx;
+static float toneRowSample(const float* a,int row0,int row1,int x0,int x1,float tx,float ty){
+    float top=a[row0+x0]+(a[row0+x1]-a[row0+x0])*tx;
+    float bot=a[row1+x0]+(a[row1+x1]-a[row1+x0])*tx;
     return top+(bot-top)*ty;
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_tone(JNIEnv* e,jclass,jintArray input,jint tw,jint th,jint x0,jint y0,jint fw,jint fh,jfloatArray base,jint bw,jint bh,jfloatArray mid,jfloatArray settings){
@@ -175,17 +172,25 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_novacamera_s24_core_imaging_Photo
         std::vector<jint> px(tw*th);e->GetIntArrayRegion(input,0,tw*th,px.data());if(e->ExceptionCheck())return JNI_FALSE;
         float s=p[6],black=p[2]*s,bl=black*255.f,blScale=1.f/(1.f-black),lb=p[5]*s,lbScale=1.f/(1.f-lb);
         float sx=static_cast<float>(bw)/fw,sy=static_cast<float>(bh)/fh;
+        // Geometria horizontal igual em todas as linhas e nos dois planos. Calcular uma vez
+        // remove clamps/conversões repetidos, mantendo cada operação da interpolação original.
+        std::vector<int> left(tw),right(tw);std::vector<float> fraction(tw);
+        for(int x=0;x<tw;x++){
+            float fx=std::max(0.f,std::min(static_cast<float>(bw-1),(x0+x+.5f)*sx-.5f));
+            left[x]=static_cast<int>(fx);right[x]=std::min(left[x]+1,bw-1);fraction[x]=fx-left[x];
+        }
         for(int ty=0;ty<th;ty++){
-            float by=(y0+ty+.5f)*sy-.5f;
+            float fy=std::max(0.f,std::min(static_cast<float>(bh-1),(y0+ty+.5f)*sy-.5f));
+            int top=static_cast<int>(fy),bottom=std::min(top+1,bh-1);float fractionY=fy-top;
             for(int tx=0;tx<tw;tx++){
                 int i=ty*tw+tx;auto c=px[i];
                 float r=std::max(0.f,(((c>>16)&255)-bl)*blScale),g=std::max(0.f,(((c>>8)&255)-bl)*blScale),v=std::max(0.f,((c&255)-bl)*blScale);
                 if(lb>0){float y=.2126f*r+.7152f*g+.0722f*v;float k=y<=.5f?0.f:std::max(0.f,(y-lb*255.f)*lbScale)/y;r*=k;g*=k;v*=k;}
-                float bx=(x0+tx+.5f)*sx-.5f,log=toneSample(b.values,bw,bh,bx,by);
+                float log=toneRowSample(b.values,top*bw,bottom*bw,left[tx],right[tx],fraction[tx],fractionY);
                 float shadow=toneSmooth(p[7],p[8],log)*toneSmooth(p[10],p[11],log),high=toneSmooth(p[9],0.f,log);
                 float delta=p[0]*.6931f*shadow-p[1]*high*(log-p[9]);
                 if(p[4]>0)delta+=p[4]*.6931f*toneSmooth(p[13],p[12],log)*toneSmooth(p[14],p[15],log);
-                if(mid&&p[3]>0){float md=toneSample(m.values,bw,bh,bx,by);delta+=p[3]*std::max(-.35f,std::min(.35f,md-log));}
+                if(mid&&p[3]>0){float md=toneRowSample(m.values,top*bw,bottom*bw,left[tx],right[tx],fraction[tx],fractionY);delta+=p[3]*std::max(-.35f,std::min(.35f,md-log));}
                 // Kotlin exp(Float) calcula Math.exp(Double).toFloat(), não expf.
                 float gain=static_cast<float>(std::exp(static_cast<double>(delta*s)));
                 float peak=std::max(r,std::max(g,v));if(peak*gain>255.f)gain=255.f/std::max(peak,1.f);
