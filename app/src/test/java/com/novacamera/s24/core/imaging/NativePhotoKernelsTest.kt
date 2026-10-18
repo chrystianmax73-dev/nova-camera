@@ -86,10 +86,10 @@ class NativePhotoKernelsTest {
         assertArrayEquals("Sem costura entre blocos",whole,tiled)
     }
     @Test fun benchmarkTonalIncluiCopiaJniDePlanosSemAlegarGanhoFisico() {
-        val rng=Random(71);val px=IntArray(1024*512){Px.argb(rng.nextInt(256),rng.nextInt(256),rng.nextInt(256))}
+        val rng=Random(71);val px=IntArray(8160*64){Px.argb(rng.nextInt(256),rng.nextInt(256),rng.nextInt(256))}
         val base=Plane(1024,768,FloatArray(1024*768){kotlin.math.ln(.004f+rng.nextFloat()*.996f)})
         val map=ToneMap(base,ToneParams(.8f,.35f,.04f,.18f,.7f,.03f),8160,6120,base)
-        fun run(native:Boolean):Double=backend(native){val start=System.nanoTime();repeat(3){map.applyTile(px.copyOf(),1024,512,1400,2100)};(System.nanoTime()-start)/1e6}
+        fun run(native:Boolean):Double=backend(native){val start=System.nanoTime();repeat(3){map.applyTile(px.copyOf(),8160,64,0,2100)};(System.nanoTime()-start)/1e6}
         run(false);run(true);val old=run(false);val got=run(true)
         println("TONE_HOST pareado3x Kotlin=${old}ms; JNI=${got}ms (inclui cópiasJNI de planos reduzidos/bloco). Não mede49MP/S24/GPU/energia.")
     }

@@ -162,7 +162,7 @@ static float toneSample(const float* a,int w,int h,float x,float y){
     return top+(bot-top)*ty;
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_com_novacamera_s24_core_imaging_PhotoKernels_tone(JNIEnv* e,jclass,jintArray input,jint tw,jint th,jint x0,jint y0,jint fw,jint fh,jfloatArray base,jint bw,jint bh,jfloatArray mid,jfloatArray settings){
-    if(tw<=0||th<=0||tw>4096||th>4096||fw<=0||fh<=0||bw<=0||bh<=0||bw>4096||bh>4096||
+    if(tw<=0||th<=0||tw>32768||th>4096||static_cast<int64_t>(tw)*th>4194304||fw<=0||fh<=0||bw<=0||bh<=0||bw>4096||bh>4096||
         e->GetArrayLength(input)!=tw*th||e->GetArrayLength(base)!=bw*bh||e->GetArrayLength(settings)!=16||
         (mid&&e->GetArrayLength(mid)!=bw*bh))return JNI_FALSE;
     try {

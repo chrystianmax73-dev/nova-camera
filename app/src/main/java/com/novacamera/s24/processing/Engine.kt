@@ -543,6 +543,22 @@ object Engine {
     fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken, progress: (Float) -> Unit) {
         val s = (plan.strength * userStrength).coerceIn(0f, 1f)
         val map = ToneMap(plan.base, plan.params, bmp.width, bmp.height, plan.mid)
+        if(com.novacamera.s24.core.imaging.PhotoKernels.available && !food) {
+            // Uma faixa curta reutilizável evita copiar os mesmos planos reduzidos para JNI a
+            // cada bloco256x256. Mesmas coordenadas/pixels; cancelamento a cada64 linhas.
+            val rows=64
+            val buffer=IntArray(bmp.width*min(rows,bmp.height))
+            for(y0 in 0 until bmp.height step rows) {
+                if(cancel.cancelled)throw CancelledException()
+                val h=min(rows,bmp.height-y0)
+                val band=if(buffer.size==bmp.width*h)buffer else IntArray(bmp.width*h)
+                bmp.getPixels(band,0,bmp.width,0,y0,bmp.width,h)
+                map.applyTile(band,bmp.width,h,0,y0,s,plan.imaging?.protection ?: 0f)
+                bmp.setPixels(band,0,bmp.width,0,y0,bmp.width,h)
+                progress((y0+h).toFloat()/bmp.height)
+            }
+            return
+        }
         val total = tileCount(bmp.width, bmp.height)
         var done = 0
         tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
