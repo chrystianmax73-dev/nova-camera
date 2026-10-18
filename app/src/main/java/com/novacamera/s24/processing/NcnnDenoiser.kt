@@ -29,6 +29,7 @@ object NcnnDenoiser {
     @Volatile private var handle = 0L
     private var lastUsedMs = 0L
     private var retryAfterMs = 0L
+    private val overBudget = com.novacamera.s24.core.DenoiseSkip()
     @Volatile var report = "IA ainda não executada"
         private set
 
@@ -72,6 +73,12 @@ object NcnnDenoiser {
     ): Boolean {
         val started = SystemClock.elapsedRealtime()
         if (strength <= 0f || started < retryAfterMs) return false
+        // Mesmo tamanho e orçamento que acabaram de não caber: não carrega o modelo para desistir de novo.
+        overBudget.skippedSince(bmp.width.toLong() * bmp.height, budget, started)?.let { ago ->
+            report = "IA dispensada sem carregar: a última projeção para ${bmp.width}×${bmp.height} excedeu o orçamento " +
+                "(medida há ${ago / 60_000} min; mede de novo após ${com.novacamera.s24.core.DenoiseSkip.HOLD_MS / 60_000} min)"
+            return false
+        }
         val reused = handle != 0L
         val pssBeforeKb = android.os.Debug.getPss()
         val heatBefore = ProcessingQueue.heat
@@ -157,6 +164,7 @@ object NcnnDenoiser {
                         SystemClock.elapsedRealtime() - inferenceStarted,
                         steadyTileMs, nx * ny - completed, budget)) {
                     status = "fallback: custo sustentado projetado excede orçamento"
+                    overBudget.recordOverBudget(pixels, budget, SystemClock.elapsedRealtime())
                     return false
                 }
                 progress(completed.toFloat() / (nx * ny))

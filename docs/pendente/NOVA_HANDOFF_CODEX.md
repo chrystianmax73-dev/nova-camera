@@ -1,3 +1,11 @@
+# Etapa 0.26.14 (Claude) — prévia só-pessoa, pouca energia, IA sem carga inútil; fonte em validação
+
+- `core/LivePortraitPolicy` (+ `PortraitMaskAnalyzer`, só `!cinematic`), `core/DenoiseSkip` (+ `NcnnDenoiser`), `DepthRefreshPolicy.needed(maxAgeMs)`. Testes `LivePortraitPolicyTest`.
+- **Fim da frente de bateria do Claude** salvo regressão: o que resta (~46 pontos com desfoque ao vivo) é estrutural — efeito GL + ImageAnalysis 640×480 RGBA a 30 fps + MediaPipe + binder. Reduzir exige juntar análise e desenho (ex.: amostrar a textura da prévia na GPU em vez de um ImageAnalysis separado). Núcleo da câmera = área do Codex/redesign; não mexi.
+- **Codex:** atualizar ncnn (build usa 20240820; versões 2026 reduzem queda para CPU em camadas de transformer no Vulkan) — afeta profundidade da foto e NAFNet; fazer em versão própria com A/B.
+
+---
+
 # Etapa 0.26.13 (Claude) — blocktime OpenMP por inferência; APK de teste build80 entregue
 
 - **[Baixar ZIP com app-release.apk — build80 (1080)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39149596567/artifacts/12144698246)**. Mesma assinatura permanente. Artefato 12144698246, 132851566 bytes; digest do ZIP sha256:9eb9d15e885b17e519332438404364310eba65d6b97ab47b06ec2af8a986ad1b; expira 2026-11-17T17:34:28Z. [Actions 39149596567](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39149596567) com sucesso; publicação skipped. Fonte do app ba4abcc (CI 39149582242 aprovado); fonte do APK 70bd341; gatilho restaurado em e2cd0a9 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

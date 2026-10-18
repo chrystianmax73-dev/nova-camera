@@ -1,3 +1,15 @@
+# 0.26.14 — bateria: última etapa (Claude; fonte em validação)
+
+- **Diagnóstico 0.26.13:** thread da análise **33% → 8%** (espera ativa do OpenMP confirmada e corrigida). Retrato com desfoque parado **58,4%** (0.26.7: 128%; −55%), 71,9% logo após um toque; PSS 431–463 MiB. Restante não é mais a profundidade (~5% parado, ~15% após toque): ~46 pontos espalhados entre desenho do efeito GL (~9%), binder (~9%), fluxo de análise CameraX (~7–9%), MediaPipe (~8,5%) e interface (~8%) — custo estrutural de ter o desfoque ao vivo.
+- **Profundidade menor só na prévia: descartada.** O modelo é exportado com entrada fixa 392 (`tools/depth/export_ncnn.py`, pnnx); exigiria segundo modelo (~+50 MB APK/memória, desfaz 0.26.12) para ganhar ≤4–5 pontos.
+- **Mudanças (só a prévia e o trabalho inútil; foto final idêntica):**
+  1. `core/LivePortraitPolicy.personOnly`: pessoa ≥ 8% da cena (sai abaixo de 5%) e nenhum toque → prévia usa só a máscara de pessoa, sem profundidade. Planta/objeto ou toque → profundidade como antes. Diagnóstico: "profundidade dispensada (pessoa sem toque): N quadros".
+  2. `LivePortraitPolicy.lowPower` (economia de energia ou bateria ≤ 15% fora do carregador): análise a ≤ 3 Hz e profundidade só por mudança de cena ou a cada 60 s (normal 15 s).
+  3. `core/DenoiseSkip` + `NcnnDenoiser`: depois de uma projeção que não coube no orçamento (12 MP: 192 × 353 ms ≈ 68 s > 60 s), o mesmo tamanho/orçamento é dispensado **sem carregar o modelo** por 30 min (antes: 2,2 s de carga + 3 blocos + ~44 MB em toda foto para desistir).
+- Estimativa (não medida): Retrato com pessoa parado ~54% (−8%), após toque ~57% (−21%); por Retrato com IA ligada ~27% menos trabalho. Planta/objeto sem mudança.
+
+---
+
 # 0.26.13 — bateria: espera ativa do OpenMP desligada em toda inferência, não só no carregamento (Claude; APK de teste build80 entregue)
 
 - **[Baixar ZIP com app-release.apk — build80 (1080)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39149596567/artifacts/12144698246)**. Mesma assinatura permanente. Artefato 12144698246, 132851566 bytes; digest do ZIP sha256:9eb9d15e885b17e519332438404364310eba65d6b97ab47b06ec2af8a986ad1b; expira 2026-11-17T17:34:28Z. [Actions 39149596567](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39149596567) com sucesso; publicação skipped. Fonte do app ba4abcc (CI 39149582242 aprovado); fonte do APK 70bd341; gatilho restaurado em e2cd0a9 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

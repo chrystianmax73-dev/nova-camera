@@ -21,9 +21,9 @@ class DepthRefreshPolicy {
     private var tapAtDepth: Pair<Float, Float>? = null
     private var atMs = Long.MIN_VALUE
 
-    fun needed(nowMs: Long, luma: FloatArray, tap: Pair<Float, Float>?): Boolean {
+    fun needed(nowMs: Long, luma: FloatArray, tap: Pair<Float, Float>?, maxAgeMs: Long = MAX_AGE_MS): Boolean {
         val old = lumaAtDepth ?: return true
-        if (nowMs - atMs >= MAX_AGE_MS) return true
+        if (nowMs - atMs >= maxAgeMs) return true
         if ((tapAtDepth == null) != (tap == null)) return true
         val t0 = tapAtDepth
         if (t0 != null && tap != null && hypot(t0.first - tap.first, t0.second - tap.second) > TAP_CHANGE) return true

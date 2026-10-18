@@ -43,6 +43,7 @@ class PortraitMaskAnalyzer(
     private var segmenter: PersonSegmenter.Live? = null
     private var depth: DepthEstimator.Session? = null
     private var depthFailed = false
+    private var wasPersonOnly = false
     private val createdAt=SystemClock.uptimeMillis()
     private var delivered=0L
     private var analyzed=0L
@@ -94,7 +95,8 @@ class PortraitMaskAnalyzer(
             // Cena parada: a máscara não muda, então 3 Hz bastam (economia de CPU/GPU); qualquer
             // movimento volta a 10 Hz no quadro seguinte.
             val still = stillFrames >= STILL_AFTER
-            if (now - lastSeg < if (status >= ThermalPolicy.MODERATE || still) 300 else 100) return
+            val lowPower = !cinematic && com.novacamera.s24.core.LivePortraitPolicy.lowPower(heat())
+            if (now - lastSeg < if (status >= ThermalPolicy.MODERATE || still || lowPower) 300 else 100) return
             lastSeg = now
 
             val rot = image.imageInfo.rotationDegrees
@@ -129,7 +131,8 @@ class PortraitMaskAnalyzer(
             val seg = segmenter ?: PersonSegmenter.Live(app, light = !cinematic).also { segmenter = it }
             val segmentStart=SystemClock.uptimeMillis()
             val segCpu0=SystemClock.currentThreadTimeMillis()
-            val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
+            val segResult = runCatching { seg.segment(upright) }.getOrNull()
+            val person = segResult?.takeIf { it.coverage >= 0.03f }?.person
             segmentMs=SystemClock.uptimeMillis()-segmentStart
             com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.SEGMENT,
                 SystemClock.currentThreadTimeMillis()-segCpu0, segmentMs)
@@ -138,14 +141,24 @@ class PortraitMaskAnalyzer(
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
             val depthEvery = when {
                 status >= ThermalPolicy.MODERATE -> if(cinematic) 1500L else Long.MAX_VALUE
+                lowPower -> if (still) 5000L else 2500L
                 still -> 2500L
                 else -> 900L
+            }
+            // Pessoa na cena e nenhum toque: a máscara de pessoa basta para a prévia (a foto calcula a
+            // profundidade). Sem pessoa (planta/objeto) ou com toque, a profundidade volta.
+            val personOnly = com.novacamera.s24.core.LivePortraitPolicy.personOnly(cinematic, selectedTap, segResult?.coverage ?: 0f, wasPersonOnly)
+            wasPersonOnly = personOnly
+            if (personOnly) {
+                com.novacamera.s24.core.LiveAnalysisCpu.personOnlyFrame()
+                if (depthN != null) { depthN = null; depthRefresh.reset() }
             }
             // Foto: com a cena parada a profundidade daria o mesmo resultado; só recalcula se o enquadramento
             // ou o toque mudou desde o último cálculo. O cinematográfico mantém a regra própria (grava a máscara).
             val sceneLuma = if (!cinematic && depthN != null) lumaGrid(upright) else null
-            val sceneChanged = sceneLuma == null || depthRefresh.needed(now, sceneLuma, selectedTap)
-            if (!depthFailed && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+            val sceneChanged = sceneLuma == null || depthRefresh.needed(now, sceneLuma, selectedTap,
+                if (lowPower) com.novacamera.s24.core.LivePortraitPolicy.LOW_POWER_MAX_AGE_MS else com.novacamera.s24.core.DepthRefreshPolicy.MAX_AGE_MS)
+            if (!depthFailed && !personOnly && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
                 if (!cinematic) depthRefresh.done(now, sceneLuma ?: lumaGrid(upright), selectedTap)
                 val started=SystemClock.uptimeMillis()

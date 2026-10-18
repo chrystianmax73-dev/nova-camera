@@ -15,12 +15,16 @@ object LiveAnalysisCpu {
     private val wall = LongArray(Stage.values().size)
     private val runs = IntArray(Stage.values().size)
     private var frames = 0
+    private var personOnly = 0
     private var spanStart = -1L
     private var spanEnd = 0L
 
     @Synchronized fun add(stage: Stage, cpuMs: Long, wallMs: Long) {
         cpu[stage.ordinal] += cpuMs.coerceAtLeast(0); wall[stage.ordinal] += wallMs.coerceAtLeast(0); runs[stage.ordinal]++
     }
+
+    /** Quadro em que a profundidade foi dispensada porque a pessoa já separa o fundo. */
+    @Synchronized fun personOnlyFrame() { personOnly++ }
 
     @Synchronized fun frame(nowMs: Long) { frames++; if (spanStart < 0L) spanStart = nowMs; spanEnd = nowMs }
 
@@ -34,7 +38,8 @@ object LiveAnalysisCpu {
             appendLine(String.format(Locale.US, "    %-26s %.1f%% de um núcleo · %d execuções · CPU média %.1f ms · parede média %.1f ms",
                 s.label, cpu[s.ordinal] * 100.0 / span, n, cpu[s.ordinal].toDouble() / n, wall[s.ordinal].toDouble() / n))
         }
+        appendLine("    profundidade dispensada (pessoa sem toque): $personOnly quadros")
     }
 
-    @Synchronized internal fun resetForTest() { cpu.fill(0); wall.fill(0); runs.fill(0); frames = 0; spanStart = -1; spanEnd = 0 }
+    @Synchronized internal fun resetForTest() { cpu.fill(0); wall.fill(0); runs.fill(0); frames = 0; personOnly = 0; spanStart = -1; spanEnd = 0 }
 }
