@@ -60,6 +60,8 @@ class Job(
     val portraitBlur: Float = 0.6f,
     /** Retrato: iluminação "Fundo escuro" (fundo ~1,2 EV mais escuro, pessoa intacta). */
     val portraitDarkBackground: Boolean = false,
+    /** Nova Live: clipe curto ao redor do disparo, anexado à foto final quando os dois estiverem prontos. */
+    val liveClip: LiveClips.Clip? = null,
     /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
     val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
     /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
@@ -210,8 +212,12 @@ object ProcessingQueue {
 
     private fun post(p: JobProgress) = main.post { listeners.toList().forEach { it(p) } }
 
+    /** Para anexar o Nova Live em [finish] (que não recebe contexto). */
+    @Volatile private var resolver: android.content.ContentResolver? = null
+
     fun submit(context: Context, job: Job) {
         val app = context.applicationContext
+        resolver = app.contentResolver
         MediaWriter.identify(app)
         synchronized(queued) { queued += job }
         // Processo protegido enquanto há foto na fila (abrir a galeria não deve perder a foto).
@@ -698,6 +704,9 @@ object ProcessingQueue {
     private val started = java.util.concurrent.ConcurrentHashMap<Long, Pair<Long, DeviceHeat?>>()
 
     private fun finish(job: Job, session: Session, enhanced: Uri?, original: Uri?, message: String?) {
+        val r = resolver
+        if (enhanced != null && r != null) job.liveClip?.let { LiveClips.bind(r, enhanced, it) }
+        else job.liveClip?.complete(null, 0)
         started.remove(job.id)?.let { (t0, h0) ->
             com.novacamera.s24.core.CostLog.add(com.novacamera.s24.core.CostLog.Entry(
                 job.kind.label, android.os.SystemClock.elapsedRealtime() - t0, h0, heat))
@@ -784,7 +793,10 @@ object ProcessingQueue {
                     unrotated.recycle()
                     val output=File(session.dir,"reedit.tmp.jpg")
                     check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif,session.style){})
-                    app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    synchronized(LiveClips.lock) {
+                        app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    }
+                    session.enhancedUri?.let { LiveClips.reattach(app.contentResolver, it) }
                     output.delete();session.tone=tone;session.save()
                     return@runCatching
                 }

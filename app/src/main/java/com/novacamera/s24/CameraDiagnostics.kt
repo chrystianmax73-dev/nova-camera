@@ -45,6 +45,7 @@ object CameraDiagnostics {
             appendLine(exitReport(context))
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)
             appendLine(com.novacamera.s24.processing.UltraHdr.deviceReport)
+            appendLine(com.novacamera.s24.processing.LiveClips.report)
             if (extra.isNotBlank()) { appendLine(); append(extra.trimEnd()); appendLine() }
             val ids = runCatching { manager.cameraIdList.toList() }.getOrElse {
                 appendLine("Falha ao listar câmeras: ${it.message}"); return@buildString

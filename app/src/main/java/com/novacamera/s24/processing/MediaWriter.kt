@@ -91,9 +91,13 @@ object MediaWriter {
         // Comprimir antes de truncar: a entrada da galeria fica vazia só durante a cópia dos bytes,
         // não durante a compressão inteira (troca em segundo plano / reedição).
         val jpeg = java.io.ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }
-        resolver.openOutputStream(uri, "wt")?.use { jpeg.writeTo(it) }
-            ?: error("sem fluxo de saída")
-        resolver.openFileDescriptor(uri, "rw")?.use { pfd -> writeExif(ExifInterface(pfd.fileDescriptor), tags, description) }
+        synchronized(LiveClips.lock) {
+            resolver.openOutputStream(uri, "wt")?.use { jpeg.writeTo(it) }
+                ?: error("sem fluxo de saída")
+            resolver.openFileDescriptor(uri, "rw")?.use { pfd -> writeExif(ExifInterface(pfd.fileDescriptor), tags, description) }
+        }
+        // Nova Live: a regravação apagou o vídeo do fim do arquivo; anexa de novo (depois do EXIF).
+        LiveClips.reattach(resolver, uri)
     }
 
     /** Arquivo privado (sessão de revisão); não aparece na galeria. */

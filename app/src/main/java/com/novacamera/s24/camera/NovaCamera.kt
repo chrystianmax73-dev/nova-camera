@@ -107,6 +107,16 @@ class NovaCamera(
     private val main = ContextCompat.getMainExecutor(activity)
     /** Trabalho pesado fora da thread de interface (ex.: espelhar a selfie). */
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-camera-io") }
+    /** Nova Live: análise + codificador na própria thread; fechado sempre nela (sem corrida com analyze). */
+    private val liveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-live") }
+    private var liveRecorder: LiveRecorder? = null
+    private var liveBlocked = false
+    /** Clipe do disparo em curso; consumido ao criar o Job ou ao salvar a foto comum. */
+    private var nextLiveClip: com.novacamera.s24.processing.LiveClips.Clip? = null
+    val liveActive get() = liveRecorder != null
+    private fun closeLive() { liveRecorder?.let { old -> liveExecutor.execute { old.close() } }; liveRecorder = null }
+    private fun takeLiveClip() = nextLiveClip.also { nextLiveClip = null }
+    private fun dropLiveClip() { takeLiveClip()?.complete(null, 0) }
     private val handler = Handler(Looper.getMainLooper())
 
     private var provider: ProcessCameraProvider? = null
@@ -388,6 +398,7 @@ class NovaCamera(
         nativeRun?.cancel()
         synchronized(telemetry) { telemetry.breakStream() }
         provider?.unbindAll()
+        closeLive()
         camera = null
     }
 
@@ -422,6 +433,7 @@ class NovaCamera(
         videoEffects.close()
         Handler(effectThread.looper).post { effectThread.quitSafely() }
         io.shutdown()
+        closeLive(); liveExecutor.shutdown()
         videoInspection.shutdown()
         timelapseExecutor.shutdown()
     }
@@ -846,6 +858,21 @@ class NovaCamera(
             rawActive = rawAvailable && settings.raw
             if (rawActive) ib.setOutputFormat(ImageCapture.OUTPUT_FORMAT_RAW_JPEG)
             imageCapture = ib.build()
+            closeLive()
+            if (mode == CaptureMode.FOTO && settings.novaLive && !liveBlocked && wantedExtension == ExtensionMode.NONE &&
+                !nativePhotoSelected && !rawActive) {
+                // ~1280×960 (ou 1280×720 em 16:9): o bastante para o movimento, leve para o codificador.
+                val rec = LiveRecorder(java.io.File(activity.cacheDir, "live"))
+                analysis = ImageAnalysis.Builder()
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(aspectStrategy)
+                        .setResolutionStrategy(ResolutionStrategy(android.util.Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                        .build())
+                    .setTargetRotation(targetRotation)
+                    .build().also { it.setAnalyzer(liveExecutor, rec) }
+                liveRecorder = rec
+            }
         }
 
         var group = if (highSpeedConfig == null) {
@@ -1005,6 +1032,10 @@ class NovaCamera(
             }
             // Recuo em degraus, do ajuste mais específico ao mais básico.
             when {
+                liveRecorder != null -> {
+                    closeLive(); liveBlocked = true
+                    listener.onMessage("Nova Live indisponível nesta combinação; foto sem movimento")
+                }
                 videoEffect != null -> {
                     videoEffects.close()
                     videoEffectFailed = true
@@ -1881,9 +1912,11 @@ class NovaCamera(
             put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Nova Camera")
         }
         val shot = ShotTimer(ic)
+        dropLiveClip(); nextLiveClip = liveRecorder?.capture()
         processingKind()?.let { return captureForProcessing(ic, it, shot) }
-        if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values, shot)
+        if (isFront && settings.mirrorFrontPhoto) { dropLiveClip(); return captureMirrored(ic, values, shot) }
         if (state?.rawActive == true) {
+            dropLiveClip()
             return if (settings.collectBursts) captureRawBurst(ic, RAW_BURST_FRAMES) else captureRawPlusJpeg(ic, values)
         }
         val metadata = ImageCapture.Metadata()
@@ -1894,6 +1927,8 @@ class NovaCamera(
             override fun onCaptureStarted() { shot.started(); listener.onCaptureStarted() }
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
                 shot.done(null)
+                val live = takeLiveClip()
+                result.savedUri?.let { uri -> live?.let { com.novacamera.s24.processing.LiveClips.bind(activity.contentResolver, uri, it) } } ?: live?.complete(null, 0)
                 listener.onPhotoSaved(result.savedUri)
                 result.savedUri?.let(::enhanceIfEnabled)
             }
@@ -2170,6 +2205,7 @@ class NovaCamera(
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = captureZoom, srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, portraitDarkBackground = settings.portraitDarkBackground, style = currentStyle(),
+                liveClip = takeLiveClip(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
             frames.clear() // Job e coleta já possuem listas próprias.
             if(ownsCapture) listener.onProcessingQueued(kind)

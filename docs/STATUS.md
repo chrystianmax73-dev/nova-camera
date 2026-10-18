@@ -1,3 +1,13 @@
+# 0.29.0 — Nova Live: foto com movimento (Claude; branch `claude/nova-interface`; fonte)
+- **Formato:** o dono abriu na Galeria do S24 os 3 arquivos de teste (Google Motion Photo, trailer Samsung, combinado) e os três tocaram. Fica o **Google Motion Photo v1** (JPEG + XMP `GCamera:MotionPhoto` + MP4 no fim; `core/MotionPhoto.kt`), também lido pelo Google Fotos.
+- **Captura:** com "Nova Live" ligado (painel de ferramentas, só na Foto), uma análise YUV ~1280×960 alimenta um codificador H.264 de hardware (6 Mb/s, quadro-chave a cada 1 s) e só os últimos ~3,2 s comprimidos ficam na memória (`camera/LiveRecorder.kt`). No disparo: 1,5 s antes + 1,5 s depois viram um MP4 (orientação do sensor).
+- **Anexo:** `processing/LiveClips.kt` liga o clipe à URI final (Job → `finish`, ou foto comum → `onImageSaved`) e anexa quando os dois estão prontos. Toda regravação por `MediaWriter.write` (acabamento, IA, revisão) anexa de novo depois do EXIF; tudo sob o mesmo lock (nunca lê JPEG pela metade).
+- **Limites honestos:** (1) foto com **Ultra HDR** (gainmap, MPF) fica **sem** movimento nesta versão — o Diagnóstico diz "Nova Live não anexado: Ultra HDR (MPF)"; (2) frontal espelhada, RAW, alta resolução nativa e extensões do fabricante: sem Nova Live; (3) o vídeo é ~1280×960 a até 30 fps (não 4K) e sem som; (4) **gasta bateria** enquanto ligado (codificador sempre ativo) — desligado por padrão; (5) se a sessão recusar a análise extra, o app desliga o Nova Live na sessão e avisa. Não testado no aparelho.
+- Diagnóstico: linha "Nova Live: …" (tamanho do vídeo, ms antes do disparo, ou motivo de não anexar).
+- Testes: `MotionPhotoTest` (XMP após SOI, MP4 no fim, offsets, recusa de Ultra HDR/XMP existente).
+
+---
+
 # 0.28.2 — Cinema no estilo do iPhone (Claude; branch `claude/nova-interface`; fonte)
 - Referência (pesquisa): o Cinematográfico do iPhone detecta rostos e muda o foco sozinho, faz "rack focus" suave ao tocar noutro assunto e permite mudar foco/abertura depois (guarda a profundidade junto do vídeo).
 - **Rack focus:** tocar noutro assunto com a cena parada não apaga mais o desfoque para recalcular: a profundidade da cena continua válida, só o plano de foco muda, e a máscara anda até o novo assunto em ~1–2 s (`CinematicSceneGuard.selectionOnly`, `RACK_KEEP` 0,7 por quadro). Movimento da cena continua reiniciando como antes.

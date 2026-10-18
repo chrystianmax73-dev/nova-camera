@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var hdrChip: TextChip
     private lateinit var videoHdrChip: TextChip
     private lateinit var lightChip: TextChip
+    private lateinit var liveChip: TextChip
     private lateinit var qualityChip: TextChip
     private lateinit var fpsChip: TextChip
     private lateinit var resChip: TextChip
@@ -522,7 +523,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun signature() = listOf(settings.cinematicVideo, settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
         settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
         settings.signatureEnabled, settings.signatureVideo, settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
-        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf, settings.videoHdr).joinToString()
+        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf, settings.videoHdr, settings.novaLive).joinToString()
 
     // ------------------------------------------------------------------ interface
 
@@ -568,6 +569,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
         resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
+        liveChip = TextChip(this).apply { text = "LIVE"; setOnClickListener { toggleLive() }; contentDescription = "Nova Live: foto com movimento" }
         lightChip = TextChip(this).apply { setOnClickListener { toggleLight() }; contentDescription = "Iluminação do Retrato" }
         videoHdrChip = TextChip(this).apply { text = "HDR"; setOnClickListener { toggleVideoHdr() }; contentDescription = "Vídeo HDR (HLG 10 bits)" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
@@ -595,6 +597,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("HDR", hdrChip)
             add("HDR vídeo", videoHdrChip)
             add("Iluminação", lightChip)
+            add("Nova Live", liveChip)
             add("RAW", rawChip)
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
@@ -865,7 +868,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.orientation = deg
         zoomBar.orientation = deg
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -1190,6 +1193,16 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }, 1800)
     }
 
+    /** Nova Live: liga/desliga a foto com movimento (religa a sessão para incluir/tirar o codificador). */
+    private fun toggleLive() {
+        settings.novaLive = !settings.novaLive
+        settingsSignature = signature()
+        showTransition()
+        camera.requestRebind()
+        hint.show(if (settings.novaLive) "Nova Live: cada foto leva ~3 s de movimento (1,5 s antes e depois). Gasta mais bateria enquanto ligado"
+            else "Nova Live desligado", 3000)
+    }
+
     /** Retrato · iluminação: Natural ↔ Fundo escuro (aplicado na foto final, sobre a mesma máscara do desfoque). */
     private fun toggleLight() {
         settings.portraitDarkBackground = !settings.portraitDarkBackground
@@ -1316,6 +1329,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         resChip.text = res?.let(::mp) ?: ""
         resChip.contentDescription = resChip.text.toString() + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
+        liveChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
+        liveChip.active = settings.novaLive && camera.liveActive
         lightChip.visibility = if (s?.mode == CaptureMode.RETRATO && s.support.engine == ModeEngine.NOVA && s.support.canCapture) View.VISIBLE else View.GONE
         lightChip.text = if (settings.portraitDarkBackground) "Escuro" else "Natural"
         lightChip.active = settings.portraitDarkBackground
@@ -1323,7 +1338,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         videoHdrChip.active = s?.videoHdr == true
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
-        listOf<View>(hdrChip, videoHdrChip, lightChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        listOf<View>(hdrChip, videoHdrChip, lightChip, liveChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
         toolsPanel.sync()
     }
 

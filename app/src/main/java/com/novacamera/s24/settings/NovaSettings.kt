@@ -80,6 +80,8 @@ class NovaSettings(context: Context) {
     /** Retrato · iluminação: false = Natural, true = Fundo escuro (só na foto final; prévia mostra o aviso). */
     var portraitDarkBackground get() = bool("portrait_dark_background", false); set(v) = put("portrait_dark_background", v)
     /** Contorno do assunto ao tocar no visor (MagicTouch, uma inferência por toque). */
+    /** Nova Live: foto com movimento (~1,5 s antes e depois), só na Foto; codificador ligado enquanto ativo. */
+    var novaLive get() = bool("nova_live", false); set(v) = put("nova_live", v)
     var tapContour get() = bool("tap_contour", true); set(v) = put("tap_contour", v)
     var portraitBlur get() = int("portrait_blur", 60) / 100f; set(v) = put("portrait_blur", (v * 100).toInt())
     /** Controles criativos ao vivo (tom, temperatura) na prévia e nas fotos dos modos Nova. */

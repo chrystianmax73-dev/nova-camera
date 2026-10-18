@@ -1,3 +1,7 @@
+# Etapa 0.29.0 (Claude) — Nova Live, branch `claude/nova-interface`
+- Novos (meus): `core/MotionPhoto.kt`, `camera/LiveRecorder.kt`, `processing/LiveClips.kt`. Tocados: `MediaWriter.write` (lock + reanexo depois do EXIF), `ProcessingQueue` (`Job.liveClip`, `finish`, reedição em faixas), `NovaCamera` (análise YUV só na Foto com Nova Live ligado; recuo de bind; clipe por disparo). **Pixels da foto inalterados**: o vídeo vai depois do fim do JPEG.
+- Codex: se o Ultra HDR passar a ser gerado em mais fotos, o Nova Live some nelas (recusa MPF). Juntar os dois exige um Container com GainMap + MotionPhoto (formato do Pixel) — próximo passo, se quiser.
+
 # Etapa 0.28.2 (Claude) — Cinema estilo iPhone, branch `claude/nova-interface`
 - `core/CinematicPolicy.kt` (`CinematicSceneGuard.selectionOnly`), `camera/PortraitMaskAnalyzer.kt` (rack focus só no cinematográfico), `NovaCamera.publishFaces/cinemaFace` (rosto como alvo sem toque). Sem mudança de pixels fora do vídeo cinematográfico.
 
