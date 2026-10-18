@@ -18,7 +18,8 @@ class PortraitObjectSeedTest {
         val depth=Plane(w,h,FloatArray(w*h){i->val x=i%w;val y=i/w
             if((x in 58..59 && y in 30..130)||(x in 61..67 && y in 30..130)) .8f else .1f})
         val plan=DepthPortrait.plan(depth,null,58f/(w-1) to 80f/(h-1))
-        assertTrue("estrutura fina conectada preservada",plan.subject[58,80]>.2f)
+        println("PORTRAIT_THIN tocado=${plan.subject[58,80]} vizinho=${plan.subject[64,80]}")
+        assertTrue("estrutura fina precisa ser assunto, não mistura de fundo",plan.subject[58,80]>.6f)
         assertTrue("região vizinha desconectada não pode virar assunto",plan.subject[64,80]<.1f)
     }
 }
