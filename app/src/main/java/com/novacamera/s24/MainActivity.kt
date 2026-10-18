@@ -683,7 +683,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                     }
                 }
                 override fun onZoom(deltaDp:Float) {
-                    if(quickRecording.active) camera.zoomBy(kotlin.math.exp((deltaDp/240f).toDouble()).toFloat())
+                    if (countdown == 0) camera.zoomBy(kotlin.math.exp((deltaDp/240f).toDouble()).toFloat())
                 }
                 override fun onRelease() = runQuickAction(quickRecording.release())
                 override fun onCancel() = runQuickAction(quickRecording.interrupt())
