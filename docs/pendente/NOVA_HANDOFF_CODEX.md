@@ -8,8 +8,9 @@
 
 ---
 
-# Etapa 0.26.14 (Claude) — prévia só-pessoa, pouca energia, IA sem carga inútil; fonte em validação
+# Etapa 0.26.14 (Claude) — prévia só-pessoa, pouca energia, IA sem carga inútil; APK de teste build81 entregue
 
+- **[Baixar ZIP com app-release.apk — build81 (1081)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39154343920/artifacts/12146122862)**. Mesma assinatura permanente. Artefato 12146122862, 132852886 bytes; digest do ZIP sha256:d27f7797728786f1fc606c3537afcdccd66d805b4421119a9cb3068553acf2b5; expira 2026-11-17T18:35:18Z. [Actions 39154343920](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39154343920) com sucesso; publicação skipped. Fonte do app 6fd2815 (CI 39154336359 aprovado); fonte do APK a41ba57; gatilho restaurado em dd465f1 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - `core/LivePortraitPolicy` (+ `PortraitMaskAnalyzer`, só `!cinematic`), `core/DenoiseSkip` (+ `NcnnDenoiser`), `DepthRefreshPolicy.needed(maxAgeMs)`. Testes `LivePortraitPolicyTest`.
 - **Fim da frente de bateria do Claude** salvo regressão: o que resta (~46 pontos com desfoque ao vivo) é estrutural — efeito GL + ImageAnalysis 640×480 RGBA a 30 fps + MediaPipe + binder. Reduzir exige juntar análise e desenho (ex.: amostrar a textura da prévia na GPU em vez de um ImageAnalysis separado). Núcleo da câmera = área do Codex/redesign; não mexi.
 - **Codex:** atualizar ncnn (build usa 20240820; versões 2026 reduzem queda para CPU em camadas de transformer no Vulkan) — afeta profundidade da foto e NAFNet; fazer em versão própria com A/B.

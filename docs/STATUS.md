@@ -7,8 +7,9 @@
 
 ---
 
-# 0.26.14 — bateria: última etapa (Claude; fonte em validação)
+# 0.26.14 — bateria: última etapa (Claude; APK de teste build81 entregue)
 
+- **[Baixar ZIP com app-release.apk — build81 (1081)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39154343920/artifacts/12146122862)**. Mesma assinatura permanente. Artefato 12146122862, 132852886 bytes; digest do ZIP sha256:d27f7797728786f1fc606c3537afcdccd66d805b4421119a9cb3068553acf2b5; expira 2026-11-17T18:35:18Z. [Actions 39154343920](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39154343920) com sucesso; publicação skipped. Fonte do app 6fd2815 (CI 39154336359 aprovado); fonte do APK a41ba57; gatilho restaurado em dd465f1 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 - **Diagnóstico 0.26.13:** thread da análise **33% → 8%** (espera ativa do OpenMP confirmada e corrigida). Retrato com desfoque parado **58,4%** (0.26.7: 128%; −55%), 71,9% logo após um toque; PSS 431–463 MiB. Restante não é mais a profundidade (~5% parado, ~15% após toque): ~46 pontos espalhados entre desenho do efeito GL (~9%), binder (~9%), fluxo de análise CameraX (~7–9%), MediaPipe (~8,5%) e interface (~8%) — custo estrutural de ter o desfoque ao vivo.
 - **Profundidade menor só na prévia: descartada.** O modelo é exportado com entrada fixa 392 (`tools/depth/export_ncnn.py`, pnnx); exigiria segundo modelo (~+50 MB APK/memória, desfaz 0.26.12) para ganhar ≤4–5 pontos.
 - **Mudanças (só a prévia e o trabalho inútil; foto final idêntica):**
