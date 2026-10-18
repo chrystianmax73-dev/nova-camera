@@ -9,6 +9,7 @@
 #include "net.h"
 #include "allocator.h"
 #include "gpu.h"
+#include "cpu.h"
 
 #define TAG "NovaDenoise"
 
@@ -44,6 +45,10 @@ Java_com_novacamera_s24_processing_NcnnDenoiser_nativeLoad(JNIEnv* env, jclass, 
     m->net.opt.use_fp16_arithmetic = false;  // fp16 só no armazenamento: evita perda de precisão em sombras
     // CPU: limitar concorrência com preview/segmentação. Velocidade deve ser medida no aparelho.
     m->net.opt.num_threads = 2;
+    // Threads OpenMP do ncnn ficam girando (busy-wait) ~200 ms depois de cada trecho paralelo à espera
+    // de mais trabalho. Com inferências espaçadas (prévia do Retrato, ~1 por segundo) isso é CPU gasta
+    // à toa: dormem logo ao terminar. Não muda o resultado da rede.
+    ncnn::set_kmp_blocktime(0);
     if (m->gpu) {
         m->device = ncnn::get_gpu_device(0);
         m->net.set_vulkan_device(m->device);

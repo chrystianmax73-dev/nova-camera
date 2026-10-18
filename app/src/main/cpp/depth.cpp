@@ -8,6 +8,7 @@
 
 #include "net.h"
 #include "gpu.h"
+#include "cpu.h"
 
 #define TAG "NovaDepth"
 
@@ -29,6 +30,10 @@ Java_com_novacamera_s24_processing_DepthEstimator_nativeLoad(JNIEnv* env, jclass
     m->net.opt.use_fp16_storage = true;
     m->net.opt.use_fp16_arithmetic = false;  // LayerNorm/softmax do ViT: aritmética em fp32
     m->net.opt.num_threads = 4;
+    // Threads OpenMP do ncnn ficam girando (busy-wait) ~200 ms depois de cada trecho paralelo à espera
+    // de mais trabalho. Com inferências espaçadas (prévia do Retrato, ~1 por segundo) isso é CPU gasta
+    // à toa: dormem logo ao terminar. Não muda o resultado da rede.
+    ncnn::set_kmp_blocktime(0);
     const char* p = env->GetStringUTFChars(param, nullptr);
     const char* b = env->GetStringUTFChars(bin, nullptr);
     int r1 = m->net.load_param(mgr, p);

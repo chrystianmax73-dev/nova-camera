@@ -96,6 +96,8 @@ class PortraitMaskAnalyzer(
             lastSeg = now
 
             val rot = image.imageInfo.rotationDegrees
+            val cpu0=SystemClock.currentThreadTimeMillis(); val wall0=SystemClock.uptimeMillis()
+            com.novacamera.s24.core.LiveAnalysisCpu.frame(wall0)
             val selectedTap=tapInImage(image,rot)
             cameraClosed=true
             sampled=true;analyzed++
@@ -120,10 +122,15 @@ class PortraitMaskAnalyzer(
             }
             // Prévia da foto: modelo leve (só mostra o desfoque; a foto usa o multiclasse). O vídeo
             // cinematográfico grava esta máscara, então continua com o multiclasse.
+            com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.COPY,
+                SystemClock.currentThreadTimeMillis()-cpu0, SystemClock.uptimeMillis()-wall0)
             val seg = segmenter ?: PersonSegmenter.Live(app, light = !cinematic).also { segmenter = it }
             val segmentStart=SystemClock.uptimeMillis()
+            val segCpu0=SystemClock.currentThreadTimeMillis()
             val person = runCatching { seg.segment(upright) }.getOrNull()?.takeIf { it.coverage >= 0.03f }?.person
             segmentMs=SystemClock.uptimeMillis()-segmentStart
+            com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.SEGMENT,
+                SystemClock.currentThreadTimeMillis()-segCpu0, segmentMs)
             if(closed || (!cinematic && captureBusy()))return
 
             val mw = max(1, upright.width / 2); val mh = max(1, upright.height / 2)
@@ -135,10 +142,16 @@ class PortraitMaskAnalyzer(
             if (!depthFailed && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
                 val started=SystemClock.uptimeMillis()
+                val depthCpu0=SystemClock.currentThreadTimeMillis()
                 val session = depth ?: DepthEstimator.Session.open(app).also { if (it == null) depthFailed = true; depth = it }
                 try { session?.run(upright)?.let { depthN = DepthPortrait.normalize(Planes.resize(it, mw, mh)) } }
-                finally { depthBudget.completed(started,SystemClock.uptimeMillis()) }
+                finally {
+                    depthBudget.completed(started,SystemClock.uptimeMillis())
+                    com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.DEPTH,
+                        SystemClock.currentThreadTimeMillis()-depthCpu0, SystemClock.uptimeMillis()-started)
+                }
             }
+            val maskCpu0=SystemClock.currentThreadTimeMillis(); val maskWall0=SystemClock.uptimeMillis()
             if(closed || (!cinematic && captureBusy()))return
             if (upright !== small) upright.recycle()
             small.recycle()
@@ -170,6 +183,8 @@ class PortraitMaskAnalyzer(
                 bytes[2 * i + 1] = (ba.data[i].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
             }
             effect.updateMask(bytes, bs.w, bs.h,frameAt)
+            com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.MASK,
+                SystemClock.currentThreadTimeMillis()-maskCpu0, SystemClock.uptimeMillis()-maskWall0)
             state(if (effect.needsCalibration) "Ajustando a prévia do desfoque…" else if(cinematic) if(d!=null) "Cinematográfico experimental · profundidade estimada" else "Cinematográfico · máscara de pessoa, sem profundidade" else null)
         } catch (e: Throwable) {
             Log.w(TAG, "máscara da prévia falhou", e)

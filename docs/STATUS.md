@@ -1,3 +1,12 @@
+# 0.26.10 — bateria: análise ao vivo do Retrato medida por etapa; ncnn sem espera ativa (Claude; fonte em validação)
+
+- **Diagnóstico 0.26.9 (prévia do desfoque ATIVA, 30 quadros/s, térmico 0):** Retrato 95% → **thread da análise ("nova-portrait-m") 60%**; MediaPipe ("Thread-#") caiu de ~75% para **6%** (modelo leve confirmado); compositor GL 5%. Retrato sem a prévia: 12%. **Profundidade reaproveitada confirmada:** 2º e 3º Retratos com 628–676 ms (antes 2,3–2,5 s); mediana do Retrato 6,2 s.
+- **Suspeita principal dos 60%:** a profundidade ao vivo (Depth Anything, ncnn com 4 threads OpenMP, que herdam o nome da thread da análise). O OpenMP deixa as threads **girando ~200 ms** depois de cada trecho paralelo; com inferências espaçadas isso é CPU desperdiçada. Correção sem efeito no resultado: `ncnn::set_kmp_blocktime(0)` na profundidade e no NAFNet.
+- **Medição por etapa:** novo bloco "Análise ao vivo do Retrato — CPU por etapa" (cópia/escala/giro, segmentação, profundidade, plano/envio), em CPU da própria thread (`core/LiveAnalysisCpu`). A diferença para o total da thread no bloco "CPU por thread" = threads auxiliares (OpenMP).
+- **Bug relatado (Tom/Temperatura somem até reabrir o app):** não é da interface. A prévia trava ao abrir o Retrato (0.26.8 e 0.26.9, efeito e análise ativos) e a recuperação desliga a prévia do desfoque e depois o efeito de Tom/Temperatura **para a sessão inteira** ("pausados nesta sessão"). Causa raiz = travamento da prévia (P0 do Codex). Registrado para o Codex.
+
+---
+
 # 0.26.9 — bateria: profundidade não é mais descartada ao sair para a galeria (Claude; APK de teste build77 entregue)
 
 - **[Baixar ZIP com app-release.apk — build77 (1077)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326/artifacts/12142415588)**. Mesma assinatura permanente. Artefato 12142415588, 132853716 bytes; digest do ZIP sha256:6f53cd030da8d0c88b37b20157a4ef496e631b2bd0050700ed7cd722d3806688; expira 2026-11-17T15:46:18Z. [Actions 39141521326](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326) com sucesso; publicação skipped. Fonte do app a0f4c4a (CI 39140925891 aprovado); fonte do APK bd1c03f; gatilho restaurado em a600428 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).

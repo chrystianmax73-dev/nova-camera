@@ -1,3 +1,11 @@
+# Etapa 0.26.10 (Claude) — análise ao vivo por etapa + ncnn sem espera ativa; fonte em validação
+
+- `depth.cpp`/`denoise.cpp`: `ncnn::set_kmp_blocktime(0)` após configurar threads (resultado idêntico; só evita busy-wait das threads OpenMP).
+- `core/LiveAnalysisCpu` + medição em `PortraitMaskAnalyzer` (CPU da thread por etapa) e bloco no diagnóstico.
+- **Codex, P0 que afeta bateria e interface:** ao abrir o Retrato com prévia do desfoque, a prévia trava (StallLog 0.26.8/0.26.9: efeito=true análise=true no 1º registro) e a escalada em `NovaCamera` (stall) desliga análise e depois `portraitPreviewFailed` — Tom/Temperatura somem até reabrir o app (relato do dono). Cada travamento + rebind também gasta energia. Hipótese a testar: carga simultânea dos modelos (segmentador + profundidade Vulkan) logo após o bind; não verificada.
+
+---
+
 # Etapa 0.26.9 (Claude) — profundidade mantida ao sair para a galeria; APK de teste build77 entregue
 
 - **[Baixar ZIP com app-release.apk — build77 (1077)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326/artifacts/12142415588)**. Mesma assinatura permanente. Artefato 12142415588, 132853716 bytes; digest do ZIP sha256:6f53cd030da8d0c88b37b20157a4ef496e631b2bd0050700ed7cd722d3806688; expira 2026-11-17T15:46:18Z. [Actions 39141521326](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39141521326) com sucesso; publicação skipped. Fonte do app a0f4c4a (CI 39140925891 aprovado); fonte do APK bd1c03f; gatilho restaurado em a600428 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
