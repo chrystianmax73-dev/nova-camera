@@ -1,5 +1,6 @@
-# Etapa 0.27.0 (Claude) — Interface Nova, etapa 1, no branch `claude/nova-interface`
+# Etapa 0.27.0 (Claude) — Interface Nova, etapa 1, no branch `claude/nova-interface`; APK de teste build84 entregue
 
+- **[Baixar ZIP com app-release.apk — build84 (1084)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39159177607/artifacts/12148223515)**. Mesma assinatura permanente. Artefato 12148223515, 132857618 bytes; digest do ZIP sha256:46b0487c4cd3379eeeac2102611db00f86a688f78b4bda6a46a9d01fa0c6f070; expira 2026-11-17T19:40:18Z. [Actions 39159177607](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39159177607) com sucesso; **publicação pulada** (condição do passo estendida a este branch só no commit do gatilho f5180f3; o run 83 sem essa condição foi cancelado antes de publicar — nenhuma release nova). Gatilho restaurado em eba9f72 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
 **Codex: a reformulação visual acontece neste branch (pedido do dono). Enquanto ela durar, evite mexer em `MainActivity.kt` (montagem da tela: `buildInterface`, `layoutAll`, `updateTopBar`, faixa de modos) e em `ui/`; mudanças de câmera/processamento seguem no teu branch e eu trago por merge.**
 - Arquivos: `MainActivity.kt` (topo, `showTools`/`hideTools`, `PRIMARY_MODES` explícito), `ui/ToolsPanel.kt` (novo), `ui/NovaIconView.kt` (ícones TOOLS/MODES), `core/Modes.kt` (Noturno e Pro primários), teste de render.
 - Nenhuma mudança de captura, processamento, modelos ou vídeo.
