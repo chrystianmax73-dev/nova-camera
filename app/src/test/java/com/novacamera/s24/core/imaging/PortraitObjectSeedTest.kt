@@ -22,9 +22,9 @@ class PortraitObjectSeedTest {
         assertTrue("estrutura fina precisa ser assunto, não mistura de fundo",plan.subject[58,80]>.6f)
         assertTrue("região vizinha desconectada não pode virar assunto",plan.subject[64,80]<.1f)
     }
-    @Test fun pixelIsoladoDeProfundidadeNaoViraObjetoNoToque() {
+    @Test fun pixelIsoladoNaoDefinePlanoDeFocoDoToque() {
         val depth=Plane(w,h,FloatArray(w*h){.1f});depth[60,80]=.9f
         val plan=DepthPortrait.plan(depth,null,60f/(w-1) to 80f/(h-1))
-        assertTrue("um outlier não deve definir o assunto",plan.subject[60,80]<.5f)
+        assertTrue("mediana deve manter o plano vizinho, não a profundidade do outlier",plan.near<.5f)
     }
 }
