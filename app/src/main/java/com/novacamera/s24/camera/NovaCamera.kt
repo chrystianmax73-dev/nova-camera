@@ -2217,6 +2217,12 @@ class NovaCamera(
         val exposure = cam.cameraInfo.exposureState
         var captureNote: String? = null
         var nightPlan: com.novacamera.s24.core.NightExposure.Plan? = null
+        // FOTO no escuro de verdade: captura e processa com o motor do Noturno (que não muda).
+        val autoNight = kind == JobKind.PHOTO && mode == CaptureMode.FOTO && activeExtension == ExtensionMode.NONE &&
+            caps?.manualSensor == true && com.novacamera.s24.core.AutoNightPolicy.wanted(settings.autoNightPhoto,
+                latestStats?.iso, latestStats?.exposureNs, equivalent(zoomOnLens),
+                h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE))
+        if (autoNight) kind = JobKind.NIGHT
         var steps: List<Int> = when (kind) {
             JobKind.NIGHT -> {
                 val max = when {
@@ -2236,7 +2242,7 @@ class NovaCamera(
                 }
                 val plan = nightPlan
                 if (plan != null) {
-                    captureNote = "Noturno: ${plan.label}"
+                    captureNote = (if (autoNight) "Noturno automático: " else "Noturno: ") + plan.label
                     List(plan.frames) { 0 }
                 } else {
                     val (n, note) = CaptureDecision.nightFrames(stIso, stExp, max)
@@ -2366,7 +2372,7 @@ class NovaCamera(
                                     captureVerified=audit.confirmed,
                                     iso=audit.iso,exposureNs=audit.exposureNs)
                             }
-                            if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f && outScale <= 1f) {
+                            if(i==0 && initialKind==JobKind.PHOTO && !autoNight && srFactor <= 1f && outScale <= 1f) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 // Testes de super-resolução: rajada da tele também com luz boa, e mais longa.
@@ -2473,7 +2479,8 @@ class NovaCamera(
         // AF já tinha voltado ao contínuo) ou no centro (Noturno, super-resolução, tele multiquadro —
         // o AF contínuo "caça" no escuro e na tele, e um quadro fora de foco borra a fusão).
         val plan = com.novacamera.s24.core.FocusPolicy.beforeBurst(
-            night = kind == JobKind.NIGHT, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
+            // Noturno automático da FOTO mantém o foco da FOTO (assunto do AF contínuo); o modo Noturno não muda.
+            night = kind == JobKind.NIGHT && !autoNight, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
             manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE,
             continuousSettled = (mode == CaptureMode.FOTO || mode == CaptureMode.RETRATO) && caps?.manualFocus == true &&

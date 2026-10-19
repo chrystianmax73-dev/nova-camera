@@ -1,4 +1,14 @@
-# 0.30.5 — IA na Alta resolução em meia resolução (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.30.6 — Noturno automático na FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Retorno do dono (19/10):** a FOTO comum no 5×/10× no escuro sai fraca, enquanto o modo Noturno na mesma cena está "perfeito". Pediu resolver, não desligar opção, e não mexer no que funciona.
+- **Raiz:** na FOTO, a tele no escuro ia para a Alta resolução (8 quadros com o tempo/ISO do automático — ISO 2056 1/24 s — ampliados para 49 MP) ou para 3 quadros iguais; nunca usava o plano de exposição do Noturno (tempo mais longo por quadro pelo giroscópio, ISO menor, fusão e tom do Noturno).
+- **Mudança (`core/AutoNightPolicy.kt`):** FOTO, antes do disparo: tempo do automático ≥ 25 ms e ISO ≥ 800 na tele (≥ 2,5×) ou ≥ 2400 na principal → a captura e o processamento usam o motor do Noturno, **sem mudar o Noturno**. Nesses casos não há Alta resolução (com ISO alto ela só ampliava ruído). 10× com recorte usa a super-resolução do Noturno (0.29.6). Foco: o da FOTO (ponto tocado ou AF contínuo mantido), não o centro do modo Noturno. Quente/economia: não entra. Opção "Noturno automático na Foto" (ligada). Legenda "Noturno automático: …".
+- **Contrato de escopo (pedido do dono):** mudou só a decisão da FOTO no escuro. Intocados: modo Noturno (exposição, fusão, tom, lente), FOTO com luz, Retrato, vídeo, IA (0.30.4/0.30.5), foco (0.30.2/0.30.3).
+- **Não medido no aparelho.** Testes: `AutoNightPolicyTest` (usa as fotos reais de 19/10 como casos).
+
+---
+
+# 0.30.5 — IA na Alta resolução em meia resolução (Claude; branch `claude/nova-interface`; APK de teste build106 entregue)
+- **[Baixar ZIP com app-release.apk — build106 (1106)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39342682636/artifacts/12229917609)**. Artefato 12229917609, 138717859 bytes; sha256:ce8449cc117fd39f32de0b4462321755239953850d0c68f7470ff62f61200b29; expira 2026-11-18T23:43:48Z; sem release. Gatilho restaurado em 369a11b.
 - **Retorno do dono (19/10 20:22, 0.30.4, 5× Alta resolução 49 MP):** a IA não entrou. Diagnóstico: "IA dispensada sem carregar: a última projeção para 6120×8160 excedeu o orçamento" — 768 blocos × ~0,35–0,45 s não cabem em 300 s, e a projeção passa a pular a foto por 30 min.
 - **Correção (`core/imaging/HalfResidual.kt`, `NcnnDenoiser.denoiseHalf/denoiseAuto`):** acima de 16,5 MP a foto é reduzida 2× (média 2×2, em faixas), a rede limpa a reduzida (¼ dos blocos, custo de ~12 MP) e só a diferença que ela fez volta ampliada (bilinear) para a foto cheia. O detalhe da foto grande não passa pela rede. A prévia por região da revisão usa o mesmo caminho (recorte mínimo 576 px) para mostrar o que a foto inteira vai receber.
 - **Limite conhecido (teste `HalfResidualTest`):** ruído de grão ~2 px (o da super-resolução, vindo dos quadros de 12 MP) cai bem; ruído de 1 pixel isolado cai pouco (~10%).
