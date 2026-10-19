@@ -32,8 +32,10 @@ object DenoisePolicy {
         (heat.thermalStatus < ThermalPolicy.MODERATE && !heat.powerSave &&
             (heat.charging || heat.batteryPercent < 0 || heat.batteryPercent > LOW_BATTERY))
 
-    fun canRun(pixels: Long, gpu: Boolean, heapHeadroom: Long): Boolean =
-        pixels > 0 && (gpu || pixels <= CPU_MAX_PIXELS) && heapHeadroom >= pixels * 8L + 16L * 1024 * 1024
+    /** Memória extra: ~3 faixas de 256 linhas ([DenoiseBands]), não uma cópia da foto. */
+    fun canRun(pixels: Long, gpu: Boolean, heapHeadroom: Long,
+               width: Int = kotlin.math.sqrt(pixels * 4.0 / 3.0).toInt()): Boolean =
+        pixels > 0 && (gpu || pixels <= CPU_MAX_PIXELS) && heapHeadroom >= 3L * 256 * width * 4 + 16L * 1024 * 1024
 
     /** A primeira chamada inclui preparação de pipelines; projeção conservadora, sem downscale. */
     fun projectedFits(firstTileMs: Long, tiles: Int, loadMs: Long, budget: Budget = FOREGROUND): Boolean =

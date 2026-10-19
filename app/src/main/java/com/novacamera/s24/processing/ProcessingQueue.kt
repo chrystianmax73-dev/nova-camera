@@ -464,11 +464,12 @@ object ProcessingQueue {
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
-            // Redução de ruído por IA (opcional): Noturno e Retrato. Roda depois que a foto já está
-            // na galeria (refino em segundo plano); a base sai com mais qualidade para a rede.
-            // Não em fotos de alta resolução (~48 MP): tempo e memória da rede fora de proporção.
-            val aiLater = aiDenoise && (job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT) && NcnnDenoiser.available(context) &&
-                base.width.toLong() * base.height <= 16_500_000L
+            // Redução de ruído por IA em segundo plano, depois que a foto já está na galeria ([AiAutoPolicy]:
+            // Noturno, Retrato, zoom e pouca luz; Alta resolução incluída, em faixas). A base sai com mais
+            // qualidade para a rede.
+            val aiLater = com.novacamera.s24.core.AiAutoPolicy.wanted(aiDenoise,
+                job.kind == JobKind.NIGHT || job.kind == JobKind.PORTRAIT, job.kind == JobKind.FOOD, job.zoom,
+                job.imagingFacts.iso ?: jpegIso(frame0.jpeg), base.width.toLong() * base.height) && NcnnDenoiser.available(context)
             timed(job,"codificação/gravação base") { MediaWriter.writeFile(session.base, base, if (aiLater) 98 else 95) }
 
             // 3. Retrato: segmentação + máscara refinada (guardada para reedição).
@@ -620,7 +621,9 @@ object ProcessingQueue {
             }) ?: error("base ilegível")
             if (session.meta.getProperty(AI_KEY) != AI_BASE) {
                 val t0 = android.os.SystemClock.elapsedRealtime()
-                val budget = if (manual) com.novacamera.s24.core.DenoisePolicy.MANUAL else com.novacamera.s24.core.DenoisePolicy.BACKGROUND
+                // Automático e pedido usam o mesmo teto: 12 MP leva ~1 min e 49 MP alguns minutos; temperatura,
+                // economia e bateria baixa continuam interrompendo, e uma foto nova cancela e reenfileira.
+                val budget = com.novacamera.s24.core.DenoisePolicy.MANUAL
                 val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, budget, skipClean = true) { refineFraction = 0.9f * it }
                 if (!ok) {
                     session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
@@ -680,15 +683,17 @@ object ProcessingQueue {
         session.meta.setProperty("nai.enabled", "true")
         val plan = Engine.planAdaptive(bmp, job.zoom, facts)
         val tone = job.autoTone && !plan.skip
-        if (!tone && job.signature == null && job.style.neutral) {
+        val aiLater = com.novacamera.s24.core.AiAutoPolicy.wanted(aiDenoise, false, false, job.zoom, facts.iso,
+            bmp.width.toLong() * bmp.height) && NcnnDenoiser.available(context)
+        if (!tone && !aiLater && job.signature == null && job.style.neutral) {
             bmp.recycle()
             session.dir.deleteRecursively()
             return finish(job, session, null, null, null)
         }
         if (job.cancel.cancelled) throw CancelledException()
-        MediaWriter.writeFile(session.original, bmp, 95)
+        MediaWriter.writeFile(session.original, bmp, if (aiLater) 98 else 95)
         session.base.delete(); session.original.copyTo(session.base)
-        val originalUri = if (keepOriginals && tone)
+        val originalUri = if (keepOriginals && (tone || aiLater))
             MediaWriter.insertBytes(resolver, frame.jpeg, "NOVA_${name}_original.jpg", MediaWriter.ORIGINALS) else null
         session.originalUri = originalUri
         session.note = listOfNotNull(if (tone) plan.reason else if (job.signature != null) "Só assinatura (ajuste automático desligado)" else null,
@@ -699,12 +704,21 @@ object ProcessingQueue {
         Engine.styleInPlace(bmp, job.style, job.cancel)
         job.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
         if (job.cancel.cancelled) throw CancelledException()
-        MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
+        // Só a IA vai mexer (sem tom, assinatura nem estilo): a foto da galeria fica intacta até ela terminar.
+        if (tone || job.signature != null || !job.style.neutral)
+            MediaWriter.write(resolver, target, bmp, session.exif, "Nova · ${session.note}")
         bmp.recycle()
         session.enhancedUri = target
+        if (aiLater) session.meta.setProperty(AI_KEY, AI_PENDING)
         session.save()
         finish(job, session, target, originalUri, null)
+        if (aiLater) synchronized(refines) { refines.remove(session.id); refines.addLast(session.id) }
     }
+
+    private fun jpegIso(jpeg: ByteArray): Int? = runCatching {
+        androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(jpeg))
+            .getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 }
+    }.getOrNull()
 
     /** Ajuste e assinatura em faixas para 50/200 MP; grava novamente a única URI final. */
     private fun runHighResolutionAuto(context: Context,job: Job,session: Session) {

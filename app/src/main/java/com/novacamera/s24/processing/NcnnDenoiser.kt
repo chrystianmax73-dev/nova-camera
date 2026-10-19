@@ -97,7 +97,7 @@ object NcnnDenoiser {
         val pixels = w.toLong() * h
         val runtime = Runtime.getRuntime()
         val headroom = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
-        if (!DenoisePolicy.canRun(pixels, gpu, headroom)) {
+        if (!DenoisePolicy.canRun(pixels, gpu, headroom, w)) {
             report = "IA dispensada: backend=${if (gpu) "Vulkan" else "CPU"}, pixels=$pixels, memória Java disponível=$headroom, carga=${loadMs}ms"
             release()
             return false
@@ -116,66 +116,84 @@ object NcnnDenoiser {
         var completed = 0
         var inferred = 0
         var skipped = 0
-        var result: IntArray? = null
         var status = "interrompida"
-        // Apenas o buffer separado recebe os resultados. Cancelamento/fallback deixa bmp intacto.
+        // Resultados por faixa ([DenoiseBands]); a faixa volta ao bitmap quando ninguém mais lê as
+        // linhas dela. Cancelamento/fallback pode deixar bmp em parte refinado: quem chama descarta.
+        val pending = ArrayDeque<Pair<Int, IntArray>>()
+        val free = ArrayDeque<IntArray>()
+        fun flush(before: Int?) {
+            while (pending.isNotEmpty()) {
+                val (band, buf) = pending.first()
+                if (before != null && !com.novacamera.s24.core.DenoiseBands.writable(band, before, h, TILE, PAD)) break
+                pending.removeFirst()
+                val y0 = band * TILE
+                bmp.setPixels(buf, 0, w, 0, y0, w, com.novacamera.s24.core.DenoiseBands.outputEnd(band, h, TILE) - y0)
+                free.addLast(buf)
+            }
+        }
         try {
             outTile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-            for (ty in 0 until ny) for (tx in 0 until nx) {
-                val tileStarted = SystemClock.elapsedRealtime()
-                if (cancel.cancelled) throw CancelledException()
-                if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
-                    DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted, budget)) {
-                    status = "fallback por custo/temperatura"
-                    return false
-                }
-                val x0 = tx * TILE; val y0 = ty * TILE
-                val sx = (x0 - PAD).coerceIn(0, w - size); val sy = (y0 - PAD).coerceIn(0, h - size)
-                bmp.getPixels(src, 0, size, sx, sy, size, size)
-                val tw = min(TILE, w - x0); val th = min(TILE, h - y0)
-                if (result == null) result = IntArray(w * h)
-                if (skipClean && com.novacamera.s24.core.imaging.TileNoise.clean(src, size, size)) {
-                    for (y in 0 until th) System.arraycopy(src, (y0 + y - sy) * size + (x0 - sx), result, (y0 + y) * w + x0, tw)
-                    completed++; skipped++
+            for (ty in 0 until ny) {
+                flush(ty)
+                val result = free.removeFirstOrNull() ?: IntArray(TILE * w)
+                pending.addLast(ty to result)
+                for (tx in 0 until nx) {
+                    val tileStarted = SystemClock.elapsedRealtime()
+                    if (cancel.cancelled) throw CancelledException()
+                    if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
+                        DenoisePolicy.expired(SystemClock.elapsedRealtime() - started, SystemClock.elapsedRealtime() - inferenceStarted, budget)) {
+                        status = "fallback por custo/temperatura"
+                        return false
+                    }
+                    val x0 = tx * TILE; val y0 = ty * TILE
+                    val sx = (x0 - PAD).coerceIn(0, w - size); val sy = (y0 - PAD).coerceIn(0, h - size)
+                    bmp.getPixels(src, 0, size, sx, sy, size, size)
+                    val tw = min(TILE, w - x0); val th = min(TILE, h - y0)
+                    if (skipClean && com.novacamera.s24.core.imaging.TileNoise.clean(src, size, size)) {
+                        for (y in 0 until th) System.arraycopy(src, (y0 + y - sy) * size + (x0 - sx), result, y * w + x0, tw)
+                        completed++; skipped++
+                        progress(completed.toFloat() / (nx * ny))
+                        continue
+                    }
+                    inTile.setPixels(src, 0, size, 0, 0, size, size)
+                    val t = SystemClock.elapsedRealtime()
+                    if (!nativeRun(handle, inTile, outTile)) {
+                        status = "fallback: inferência falhou"
+                        retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
+                        release()
+                        return false
+                    }
+                    val elapsed = SystemClock.elapsedRealtime() - t
+                    runMs += elapsed
+                    completed++; inferred++
+                    if (inferred == 1) firstTileMs = elapsed
+                    outTile.getPixels(den, 0, size, 0, 0, size, size)
+                    for (y in 0 until th) for (x in 0 until tw) {
+                        val i = (y0 + y - sy) * size + (x0 + x - sx)
+                        val o = src[i]; val d = den[i]
+                        result[y * w + x0 + x] = Px.argb(
+                            (Px.r(o) + (Px.r(d) - Px.r(o)) * s + 0.5f).toInt(),
+                            (Px.g(o) + (Px.g(d) - Px.g(o)) * s + 0.5f).toInt(),
+                            (Px.b(o) + (Px.b(d) - Px.b(o)) * s + 0.5f).toInt())
+                    }
+                    // A primeira chamada Vulkan pode compilar pipelines. Medir dois blocos
+                    // seguintes, incluindo cópias/mistura, antes de projetar a foto inteira.
+                    // Todos os blocos continuam sujeitos aos mesmos limites de tempo/térmica.
+                    if (inferred == 2 || inferred == 3) {
+                        steadyTileMs = maxOf(steadyTileMs, SystemClock.elapsedRealtime() - tileStarted)
+                    }
+                    // Projeção pelos blocos que de fato passam pela rede (os limpos pulados até aqui).
+                    val remainingInferred = ((nx * ny - completed).toLong() * inferred + completed - 1) / completed
+                    if (inferred >= 3 && !DenoisePolicy.remainingFits(
+                            SystemClock.elapsedRealtime() - started,
+                            SystemClock.elapsedRealtime() - inferenceStarted,
+                            steadyTileMs, remainingInferred.toInt(), budget)) {
+                        status = "fallback: custo sustentado projetado excede orçamento"
+                        overBudget.recordOverBudget(pixels, budget, SystemClock.elapsedRealtime())
+                        return false
+                    }
                     progress(completed.toFloat() / (nx * ny))
-                    continue
                 }
-                inTile.setPixels(src, 0, size, 0, 0, size, size)
-                val t = SystemClock.elapsedRealtime()
-                if (!nativeRun(handle, inTile, outTile)) {
-                    status = "fallback: inferência falhou"
-                    retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
-                    release()
-                    return false
-                }
-                val elapsed = SystemClock.elapsedRealtime() - t
-                runMs += elapsed
-                completed++; inferred++
-                if (inferred == 1) firstTileMs = elapsed
-                outTile.getPixels(den, 0, size, 0, 0, size, size)
-                for (y in 0 until th) for (x in 0 until tw) {
-                    val i = (y0 + y - sy) * size + (x0 + x - sx)
-                    val o = src[i]; val d = den[i]
-                    result!![(y0 + y) * w + x0 + x] = Px.argb(
-                        (Px.r(o) + (Px.r(d) - Px.r(o)) * s + 0.5f).toInt(),
-                        (Px.g(o) + (Px.g(d) - Px.g(o)) * s + 0.5f).toInt(),
-                        (Px.b(o) + (Px.b(d) - Px.b(o)) * s + 0.5f).toInt())
-                }
-                // A primeira chamada Vulkan pode compilar pipelines. Medir dois blocos
-                // seguintes, incluindo cópias/mistura, antes de projetar a foto inteira.
-                // Todos os blocos continuam sujeitos aos mesmos limites de tempo/térmica.
-                if (inferred == 2 || inferred == 3) {
-                    steadyTileMs = maxOf(steadyTileMs, SystemClock.elapsedRealtime() - tileStarted)
-                }
-                if (inferred >= 3 && !DenoisePolicy.remainingFits(
-                        SystemClock.elapsedRealtime() - started,
-                        SystemClock.elapsedRealtime() - inferenceStarted,
-                        steadyTileMs, nx * ny - completed, budget)) {
-                    status = "fallback: custo sustentado projetado excede orçamento"
-                    overBudget.recordOverBudget(pixels, budget, SystemClock.elapsedRealtime())
-                    return false
-                }
-                progress(completed.toFloat() / (nx * ny))
             }
             if (cancel.cancelled) throw CancelledException()
             if (!DenoisePolicy.allowed(ProcessingQueue.heat) ||
@@ -183,7 +201,7 @@ object NcnnDenoiser {
                 status = "fallback por custo/temperatura"
                 return false
             }
-            bmp.setPixels(result!!, 0, w, 0, 0, w, h)
+            flush(null)
             status = "concluída"
             return true
         } finally {

@@ -1,4 +1,18 @@
-# 0.30.3 — Toque no objeto: exposição volta à região normal (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.30.4 — IA automática em zoom e pouca luz, inclusive Alta resolução (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (19/10):** IA em toda foto em que ajude (zoom 3×/5×/10× ou recorte digital, foto ruim/escura), nunca na foto boa de dia; aprovado o critério proposto.
+- **Critério (`core/AiAutoPolicy.kt`):** Noturno e Retrato (como antes) + zoom ≥ 1,3× + ISO ≥ 800, até ~52 MP (200 MP fora). Food fora. Vale também para a FOTO comum de um quadro (antes a IA nunca entrava nela): nesse caso, sem tom/assinatura/estilo, a foto da galeria fica intacta até a IA terminar, e o original vai para Originais se "manter originais" estiver ligado.
+- **Padrão:** "Redução de ruído por IA" agora vem ligada (quem desligou antes continua desligado).
+- **Alta resolução (49 MP):** a IA processa em faixas no próprio bitmap (`core/DenoiseBands.kt`): memória extra ~3 faixas (≈19 MB) em vez de uma cópia (≈196 MB). Teste prova que nenhuma faixa é gravada antes de a última leitura das linhas dela.
+- **Orçamento:** automático passa a usar o mesmo teto do pedido manual (300 s; antes 60 s, que fazia o 12 MP desistir sempre). Projeção do custo conta os blocos limpos já pulados. Temperatura ≥ moderada, economia de bateria, bateria ≤ 15% fora do carregador e foto nova continuam interrompendo.
+- **Revisão:** quando a IA não está disponível, a tela agora diz por quê (antes simplesmente não aparecia nada).
+- **Limite (dito ao dono):** a rede tira ruído; não recupera foco nem detalhe. O realce de detalhe da tele (já existente, depois da IA) aproveita a base mais limpa.
+- **Não medido:** tempo real em 12/49 MP, calor em sequência de fotos, quanto pula. Diagnóstico: linha "NAFNet …" com blocos/limpos pulados/tempo/térmico.
+- Testes: `AiAutoPolicyTest` (inclui faixas).
+
+---
+
+# 0.30.3 — Toque no objeto: exposição volta à região normal (Claude; branch `claude/nova-interface`; APK de teste build104 entregue)
+- **[Baixar ZIP com app-release.apk — build104 (1104)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39338267955/artifacts/12228546256)**. Artefato 12228546256, 138712317 bytes; sha256:b96e18657abf48b2d0b8ada21701efa98daeac6ba387223d85204e9436f763ec; expira 2026-11-18T23:05:07Z; sem release. Gatilho restaurado em a2d2a51.
 - **Retorno do dono (19/10, 3×, Alta resolução 49 MP, 0.30.2):** foto "mais clara, esbranquiçada". Medido: os mesmos frascos saíram ~40% mais claros que na foto 5× da 0.30.1 (lado do frasco 83→117), com exposição 1,55× maior na captura (ISO 2056→3196, 1/24 s) — a diferença veio da exposição do sensor, não do tom (pipeline de tom inalterado desde 0.30.0).
 - **Causa provável (minha, 0.30.2):** o refino do toque no objeto movia AF **e AE** para dentro do objeto; tocar a caixa na sombra fazia a exposição medir só a sombra e clarear a foto inteira.
 - **Correção:** só o AF vai para o objeto; a AE fica na região normal do toque (15% em volta do dedo, como até a 0.30.1), também no refoco antes da rajada e no retorno ao automático (`NovaCamera.meterAction`).

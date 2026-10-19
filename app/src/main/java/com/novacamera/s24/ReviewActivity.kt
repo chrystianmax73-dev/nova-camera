@@ -63,7 +63,8 @@ class ReviewActivity : NovaScreen() {
             content.addView(refineButton, LinearLayout.LayoutParams(-1, dpi(48)).apply { topMargin = dpi(12) })
             compare.onViewport = { rect, zoom -> onViewport(rect, zoom) }
             showRefineState()
-        }
+        } else content.addView(caption(if (s.meta.getProperty("banded") == "true") "IA indisponível nesta foto (200 MP)."
+            else "IA indisponível nesta versão: o modelo ou a biblioteca nativa não carregou."))
 
         slider(if (s.kind == JobKind.NIGHT) "Intensidade (tons e sombras)" else "Intensidade", tone) { tone = it; scheduleRender() }
         if (s.kind == JobKind.PORTRAIT && s.hasPerson) slider("Desfoque do fundo", blur) { blur = it; scheduleRender() }

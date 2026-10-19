@@ -63,7 +63,7 @@ class NovaSettings(context: Context) {
     var autoProcess get() = bool("auto_process", true); set(v) = put("auto_process", v)
 
     /** Redução de ruído por IA (NAFNet) no Noturno e no Retrato — experimental. */
-    var aiDenoise get() = bool("ai_denoise", false); set(v) = put("ai_denoise", v)
+    var aiDenoise get() = bool("ai_denoise", true); set(v) = put("ai_denoise", v)
 
     // Assinatura
     var signatureEnabled get() = bool("signature", false); set(v) = put("signature", v)
