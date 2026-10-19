@@ -33,6 +33,9 @@ object NcnnDenoiser {
     @Volatile var report = "IA ainda não executada"
         private set
 
+    /** Decisão final da última foto (medida, recusada, aceita), para o diagnóstico. */
+    fun noteDecision(text: String) { report = text }
+
     @JvmStatic private external fun nativeLoad(assets: AssetManager, param: String, bin: String, useGpu: Boolean): Long
     @JvmStatic private external fun nativeUsesGpu(handle: Long): Boolean
     @JvmStatic private external fun nativeRun(handle: Long, input: Bitmap, output: Bitmap): Boolean

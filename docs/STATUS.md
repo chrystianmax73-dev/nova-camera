@@ -1,3 +1,14 @@
+# 0.30.7 — IA que mede, age na medida e prova que melhorou; Noturno automático da FOTO desligado por padrão (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (19/10):** IA com identificação e validação (aprovada); **não** entrar no Noturno sozinho na FOTO.
+- **Pesquisa (resumo):** Night Sight (Liba et al., SIGGRAPH Asia 2019) tira o ganho da captura adaptada ao movimento + fusão robusta + balanço de branco aprendido (FFCC) + tom; redes de clarear (Zero-DCE/SCI) erram cor/fidelidade (~15 dB no LOL); NAFNet generaliza bem para ruído de outros celulares (~38,4 dB fora do SIDD); avaliação sem referência no aparelho é prática com medidas por defeito (ruído, nitidez).
+- **Medir (`core/imaging/AiQuality.kt`):** ruído = mediana do σ de 9 blocos em resolução cheia; bordas = média dos 5% maiores gradientes (Sobel) na foto reduzida 4× (o ruído some, o contorno real fica).
+- **Agir na medida:** força da rede pelo ruído: σ < 1,2 nada (foto já limpa), < 3 → 55%, < 6 → 75% (antes fixo), ≥ 6 → 90%.
+- **Validar:** a foto só é trocada se o ruído caiu ≥ 10% e as bordas perderam ≤ 8%; senão fica a da galeria e o diagnóstico registra "IA recusada pela validação (ruído σ a→b, bordas x→y, força z%)". Aceita: "IA aceita (…)". Testes: limpeza real aceita, limpeza que borra o texto recusada, sem ganho recusada.
+- **Noturno automático da FOTO (0.30.6):** continua no código, **desligado por padrão** (opção em Ajustes).
+- **Escopo:** mudou só a decisão de força/aceite da IA e o padrão da opção. Intocados: Noturno, tom, fusão, foco, vídeo, Retrato.
+
+---
+
 # 0.30.6 — Noturno automático na FOTO (Claude; branch `claude/nova-interface`; APK de teste build107 entregue)
 - **[Baixar ZIP com app-release.apk — build107 (1107)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39343446835/artifacts/12230131842)**. Artefato 12230131842, 138719617 bytes; sha256:a87c7668b7331bd2c5e4afdc14bc94cea0ab797cdc371762018240cb3b5780f5; expira 2026-11-18T23:53:01Z; sem release. Gatilho restaurado em e4f9eb3.
 - **Retorno do dono (19/10):** a FOTO comum no 5×/10× no escuro sai fraca, enquanto o modo Noturno na mesma cena está "perfeito". Pediu resolver, não desligar opção, e não mexer no que funciona.

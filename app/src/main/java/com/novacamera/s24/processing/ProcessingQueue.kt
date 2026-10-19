@@ -624,11 +624,25 @@ object ProcessingQueue {
                 // Automático e pedido usam o mesmo teto: 12 MP leva ~1 min e 49 MP alguns minutos; temperatura,
                 // economia e bateria baixa continuam interrompendo, e uma foto nova cancela e reenfileira.
                 val budget = com.novacamera.s24.core.DenoisePolicy.MANUAL
-                val ok = NcnnDenoiser.denoiseAuto(context, bmp, 0.75f, token, budget) { refineFraction = 0.9f * it }
+                // Mede antes, age na medida, prova depois ([AiQuality]); recusada, a galeria fica como está.
+                val before = aiStats(bmp)
+                val strength = com.novacamera.s24.core.imaging.AiQuality.strengthFor(before.noise)
+                fun skip(reason: String) {
+                    session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", reason); session.save()
+                    NcnnDenoiser.noteDecision(reason)
+                }
+                if (strength <= 0f) return skip("IA dispensada: foto já limpa (ruído σ=${"%.1f".format(Locale.US, before.noise)})")
+                val ok = NcnnDenoiser.denoiseAuto(context, bmp, strength, token, budget) { refineFraction = 0.9f * it }
                 if (!ok) {
                     session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
                     return
                 }
+                val after = aiStats(bmp)
+                val measured = "ruído σ ${"%.1f".format(Locale.US, before.noise)}→${"%.1f".format(Locale.US, after.noise)}, " +
+                    "bordas ${"%.0f".format(Locale.US, before.edges)}→${"%.0f".format(Locale.US, after.edges)}, força ${(strength * 100).toInt()}%"
+                if (!com.novacamera.s24.core.imaging.AiQuality.accept(before, after))
+                    return skip("IA recusada pela validação ($measured); foto mantida · ${NcnnDenoiser.report}")
+                NcnnDenoiser.noteDecision("IA aceita ($measured) · ${NcnnDenoiser.report}")
                 MediaWriter.writeFile(session.base, bmp, 98)
                 val secs = (android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0
                 session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") + "ruído reduzido por IA em $secs s"
@@ -713,6 +727,33 @@ object ProcessingQueue {
         session.save()
         finish(job, session, target, originalUri, null)
         if (aiLater) synchronized(refines) { refines.remove(session.id); refines.addLast(session.id) }
+    }
+
+    /** Ruído (mediana de 9 blocos em resolução cheia) e bordas (5% maiores gradientes na foto reduzida 4×). */
+    private fun aiStats(bmp: Bitmap): com.novacamera.s24.core.imaging.AiQuality.Stats {
+        val n = 288
+        val tile = IntArray(n * n)
+        val sigmas = ArrayList<Float>()
+        if (bmp.width >= n && bmp.height >= n) for (gy in 1..3) for (gx in 1..3) {
+            val x = ((bmp.width - n) * gx / 4); val y = ((bmp.height - n) * gy / 4)
+            bmp.getPixels(tile, 0, n, x, y, n, n)
+            sigmas += com.novacamera.s24.core.imaging.TileNoise.sigma(tile, n, n)
+        }
+        val w = bmp.width - bmp.width % 4; val h = bmp.height - bmp.height % 4
+        val small = IntArray((w / 4) * (h / 4))
+        val rows = 256
+        val buf = IntArray(bmp.width * rows)
+        var y = 0
+        while (y < h) {
+            val r = minOf(rows, h - y)
+            bmp.getPixels(buf, 0, bmp.width, 0, y, bmp.width, r)
+            if (bmp.width != w) for (k in 0 until r) System.arraycopy(buf, k * bmp.width, buf, k * w, w)
+            com.novacamera.s24.core.imaging.AiQuality.box4Luma(buf, w, r, small, y / 4)
+            y += r
+        }
+        return com.novacamera.s24.core.imaging.AiQuality.Stats(
+            com.novacamera.s24.core.imaging.AiQuality.median(sigmas.toFloatArray()),
+            com.novacamera.s24.core.imaging.AiQuality.edgeEnergy(small, w / 4, h / 4))
     }
 
     private fun jpegIso(jpeg: ByteArray): Int? = runCatching {
