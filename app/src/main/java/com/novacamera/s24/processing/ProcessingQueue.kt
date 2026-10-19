@@ -58,6 +58,10 @@ class Job(
     val imagingFacts: com.novacamera.s24.core.imaging.ImagingFacts = com.novacamera.s24.core.imaging.ImagingFacts(),
     /** Retrato: intensidade escolhida antes da foto (a mesma da prévia). */
     val portraitBlur: Float = 0.6f,
+    /** Retrato: iluminação "Fundo escuro" (fundo ~1,2 EV mais escuro, pessoa intacta). */
+    val portraitDarkBackground: Boolean = false,
+    /** Nova Live: clipe curto ao redor do disparo, anexado à foto final quando os dois estiverem prontos. */
+    val liveClip: LiveClips.Clip? = null,
     /** Tom e temperatura escolhidos ao vivo (a mesma conta da prévia). */
     val style: com.novacamera.s24.core.imaging.PhotoStyle = com.novacamera.s24.core.imaging.PhotoStyle(),
     /** Retrato: ponto tocado (0..1 na foto final, já orientada) que define o assunto do desfoque. */
@@ -81,6 +85,8 @@ data class JobProgress(
     val pending: Int, val finished: Boolean = false,
     val enhancedUri: Uri? = null, val originalUri: Uri? = null, val sessionId: String? = null,
     val message: String? = null,
+    /** Miniatura do quadro da câmera (antes do processamento), enviada uma vez logo após a captura. */
+    val preview: android.graphics.Bitmap? = null,
 )
 
 /**
@@ -174,6 +180,20 @@ object ProcessingQueue {
         Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "nova-processing")
     }
     private val main = Handler(Looper.getMainLooper())
+    private val thumbs = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-thumb") }
+
+    /** ~1/16 da foto (12 MP → ~255×190): suficiente para a miniatura de 48 dp, ~30 ms. */
+    internal fun previewOf(frame: CapturedFrame, mirror: Boolean): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
+        val small = BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size,
+            BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        if (frame.rotationDegrees % 360 == 0 && !mirror) return small
+        val m = android.graphics.Matrix().apply { postRotate(frame.rotationDegrees.toFloat()); if (mirror) postScale(-1f, 1f) }
+        return Bitmap.createBitmap(small, 0, 0, small.width, small.height, m, true).also { if (it !== small) small.recycle() }
+    }
     private val listeners = mutableListOf<(JobProgress) -> Unit>()
     private val queued = ArrayList<Job>()
     @Volatile private var current: Job? = null
@@ -192,18 +212,70 @@ object ProcessingQueue {
 
     private fun post(p: JobProgress) = main.post { listeners.toList().forEach { it(p) } }
 
+    /** Para anexar o Nova Live em [finish] (que não recebe contexto). */
+    @Volatile private var resolver: android.content.ContentResolver? = null
+
     fun submit(context: Context, job: Job) {
         val app = context.applicationContext
+        resolver = app.contentResolver
         MediaWriter.identify(app)
         synchronized(queued) { queued += job }
+        // Processo protegido enquanto há foto na fila (abrir a galeria não deve perder a foto).
+        ProcessingService.start(app)
         // A foto nova tem prioridade sobre a IA em segundo plano; o refino recomeça depois.
         refineCancel?.cancelled = true
         post(JobProgress(job.id, job.kind, 0f, "Na fila", pending))
+        // Fotografia progressiva (fase 1): a miniatura mostra a foto da câmera em ~1 s, sem esperar o
+        // processamento. Decodificada reduzida numa thread própria (não atrasa a fila); AUTO já está na galeria.
+        if (job.kind != JobKind.AUTO) job.frames.firstOrNull()?.let { frame -> thumbs.execute {
+            runCatching { previewOf(frame, job.mirror) }.getOrNull()?.let { bmp ->
+                post(JobProgress(job.id, job.kind, 0f, "Na fila", pending, preview = bmp))
+            }
+        } }
         executor.execute {
             synchronized(queued) { queued -= job }
             current = job
             started[job.id] = android.os.SystemClock.elapsedRealtime() to heat
-            try { job.trace?.mark("saída da fila");run(app, job) } finally { job.trace?.publish("processamento encerrado (consultar resultado)");current = null; started.remove(job.id) }
+            try { job.trace?.mark("saída da fila");run(app, job) } finally {
+                job.trace?.publish("processamento encerrado (consultar resultado)");current = null; started.remove(job.id)
+                // Tarefa tratada (com ou sem sucesso): sem marca de interrompida.
+                File(sessionsDir(app), "${job.id}/$INTERRUPTED_MARK").delete()
+                if (pending == 0) ProcessingService.stop(app)
+            }
+        }
+    }
+
+    private const val INTERRUPTED_MARK = "interrupted"
+
+    /**
+     * Fotos cujo processamento foi interrompido porque o processo morreu (sistema encerrou o app,
+     * travamento): o original já salvo na sessão vai para a galeria, sem processamento, uma vez.
+     * Roda na fila de processamento, então nunca disputa com uma tarefa viva. AUTO não precisa:
+     * a foto comum já estava na galeria antes do processamento.
+     */
+    fun recoverInterrupted(context: Context, done: (Int) -> Unit) {
+        val app = context.applicationContext
+        executor.execute {
+            var recovered = 0
+            sessionsDir(app).listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+                val mark = File(dir, INTERRUPTED_MARK)
+                if (!mark.exists()) return@forEach
+                val kind = runCatching { mark.readText().trim() }.getOrDefault("")
+                val session = Session(dir)
+                if (kind != JobKind.AUTO.name && session.enhancedUri == null && session.original.exists()) {
+                    runCatching {
+                        val bmp = BitmapFactory.decodeFile(session.original.path) ?: error("original ilegível")
+                        try {
+                            MediaWriter.insert(app.contentResolver, bmp, "NOVA_${dir.name}_recuperada.jpg", MediaWriter.GALLERY,
+                                session.exif, "Nova · processamento interrompido; original recuperado")
+                        } finally { bmp.recycle() }
+                        recovered++
+                    }.onFailure { Log.w(TAG, "recuperação falhou: ${dir.name}", it) }
+                }
+                mark.delete()
+            }
+            if (recovered > 0) Log.i(TAG, "fotos recuperadas: $recovered")
+            main.post { done(recovered) }
         }
     }
 
@@ -255,10 +327,13 @@ object ProcessingQueue {
         val name = stamp()
         val session = Session(File(sessionsDir(context), "${job.id}"))
         session.dir.mkdirs()
+        // Marca apagada ao fim da tarefa (submit); se o processo morrer antes, a próxima abertura recupera.
+        runCatching { File(session.dir, INTERRUPTED_MARK).writeText(job.kind.name) }
         session.kind = job.kind
         session.style = job.style
         if (contrastProfile) session.meta.setProperty("profile", "contrast")
         if (job.kind == JobKind.PORTRAIT) session.blur = job.portraitBlur
+        if (job.kind == JobKind.PORTRAIT && job.portraitDarkBackground) session.meta.setProperty("portrait.light", "dark")
         // Noturno: referência de melhor nitidez medida, apenas com exposição/geometria iguais.
         // HDR conserva a exposição normal; não compara nitidez de exposições diferentes.
         val orderedFrames = if (job.kind.merges && job.frames.size > 1) runCatching {
@@ -293,6 +368,7 @@ object ProcessingQueue {
         facts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
         session.zoom = job.zoom
         session.signature = job.signature
+        runCatching { session.save() } // data/EXIF já gravados, para uma eventual recuperação
         try {
             // Núcleos para alinhamento e super-resolução nesta foto (um só com calor ou economia).
             Parallel.workers = heat.let { hh -> com.novacamera.s24.core.Workers.count(hh?.thermalStatus ?: 0, hh?.powerSave == true,
@@ -359,7 +435,7 @@ object ProcessingQueue {
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind.merges) {
                         val rejected = Engine.mergeInto(sources, base, a, job.cancel, temporalNoise = temporalNoise,
-                            onNoise={job.trace?.mark("fusão: sigma rejeição=${it} níveis0..255; ruído alinhamento=${a.noise} escala0..1")}) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
+                            onNoise={job.trace?.mark("fusão: $it; ruído alinhamento=${a.noise} escala0..1 · por par=${a.pairNoise}")}) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
                         val n = a.usedFrames
                         job.trace?.mark("fusão temporal: usados=$n/${frames.size}, ruído alinhamento=${a.noise}, rejeição=$rejected, correlação=$temporalNoise, inseguro=${a.unsafe}")
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"
@@ -628,6 +704,9 @@ object ProcessingQueue {
     private val started = java.util.concurrent.ConcurrentHashMap<Long, Pair<Long, DeviceHeat?>>()
 
     private fun finish(job: Job, session: Session, enhanced: Uri?, original: Uri?, message: String?) {
+        val r = resolver
+        if (enhanced != null && r != null) job.liveClip?.let { LiveClips.bind(r, enhanced, it) }
+        else job.liveClip?.complete(null, 0)
         started.remove(job.id)?.let { (t0, h0) ->
             com.novacamera.s24.core.CostLog.add(com.novacamera.s24.core.CostLog.Entry(
                 job.kind.label, android.os.SystemClock.elapsedRealtime() - t0, h0, heat))
@@ -676,6 +755,8 @@ object ProcessingQueue {
         if (kind == JobKind.PORTRAIT && session.hasPerson) {
             val matte = session.loadMatte()
             if (matte != null) step("acabamento/desfoque") { Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) } }
+            if (matte != null && session.meta.getProperty("portrait.light") == "dark")
+                step("acabamento/fundo escuro") { Engine.darkBackgroundInPlace(bmp, matte, cancel) }
         }
         // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
         step("acabamento/estilo") { Engine.styleInPlace(bmp, session.style, cancel) }
@@ -712,7 +793,10 @@ object ProcessingQueue {
                     unrotated.recycle()
                     val output=File(session.dir,"reedit.tmp.jpg")
                     check(JpegBands.process(session.base,output,plan,tone,session.signature?.withExif(session.exif),CancelToken(),session.exif,session.style){})
-                    app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    synchronized(LiveClips.lock) {
+                        app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
+                    }
+                    session.enhancedUri?.let { LiveClips.reattach(app.contentResolver, it) }
                     output.delete();session.tone=tone;session.save()
                     return@runCatching
                 }

@@ -45,6 +45,7 @@ object CameraDiagnostics {
             appendLine(exitReport(context))
             appendLine(com.novacamera.s24.core.imaging.HdrGain.lastReport)
             appendLine(com.novacamera.s24.processing.UltraHdr.deviceReport)
+            appendLine(com.novacamera.s24.processing.LiveClips.report)
             if (extra.isNotBlank()) { appendLine(); append(extra.trimEnd()); appendLine() }
             val ids = runCatching { manager.cameraIdList.toList() }.getOrElse {
                 appendLine("Falha ao listar câmeras: ${it.message}"); return@buildString
@@ -215,6 +216,11 @@ fun exitReport(context: Context): String = buildString {
             val trace = runCatching { e.traceInputStream?.bufferedReader()?.use { r -> r.readLines() } }.getOrNull().orEmpty()
             val start = trace.indexOfFirst { it.startsWith("\"main\"") }
             if (start >= 0) trace.drop(start).take(25).forEach { append("\n      $it") }
+        }
+        if (e.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE && Build.VERSION.SDK_INT >= 31) {
+            val bytes = runCatching { e.traceInputStream?.use { it.readBytes() } }.getOrNull()
+            if (bytes == null) append("\n      (tombstone indisponível)")
+            else com.novacamera.s24.core.NativeCrashHints.extract(bytes).forEach { append("\n      $it") }
         }
     }
 }

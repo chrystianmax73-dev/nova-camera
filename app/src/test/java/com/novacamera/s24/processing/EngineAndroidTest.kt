@@ -144,6 +144,29 @@ class EngineAndroidTest {
     }
 
     @Test
+    fun fusaoEmParaleloIgualAUmNucleo() {
+        val shifts = listOf(0 to 0, 6 to -4, -5 to 3, 3 to 7, -7 to -6)
+        val frames = shifts.mapIndexed { i, (dx, dy) -> CapturedFrame(scene(dx, dy, 300L + i, 14f), 0, null) }
+        val before = Parallel.workers
+        try {
+            fun run(workers: Int): Pair<IntArray, Long> {
+                Parallel.workers = workers
+                val sources = frames.map(::JpegSource)
+                val a = Engine.align(sources, CancelToken(), temporalNoise = true) {}
+                val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val t = System.nanoTime()
+                Engine.mergeInto(sources, out, a, CancelToken(), temporalNoise = true) {}
+                val ms = (System.nanoTime() - t) / 1_000_000
+                sources.forEach { it.close() }
+                return IntArray(w * h).also { out.getPixels(it, 0, w, 0, 0, w, h) } to ms
+            }
+            val (one, t1) = run(1); val (four, t4) = run(4)
+            println("FUSAO_PARALELA 1 núcleo=${t1}ms · 4 núcleos=${t4}ms (Robolectric/JVM, não S24)")
+            assertTrue("a foto não pode mudar com o número de núcleos", one.contentEquals(four))
+        } finally { Parallel.workers = before }
+    }
+
+    @Test
     fun cancelStopsProcessing() {
         val sources = listOf(CapturedFrame(scene(0, 0, 1, 8f), 0, null), CapturedFrame(scene(2, 2, 2, 8f), 0, null)).map(::JpegSource)
         val token = CancelToken().apply { cancelled = true }

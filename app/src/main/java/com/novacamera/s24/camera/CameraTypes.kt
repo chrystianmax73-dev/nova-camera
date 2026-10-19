@@ -63,6 +63,9 @@ data class CameraState(
     val videoQualityOptions: List<com.novacamera.s24.settings.VideoQualityOption> = emptyList(),
     val videoFpsOptions: List<Int> = emptyList(),
     val videoFpsVariable: Boolean = false,
+    val videoFpsRange: Pair<Int, Int>? = null,
+    val videoHdrAvailable: Boolean = false,
+    val videoHdr: Boolean = false,
     /** Prévia pode existir numa combinação recusada; não autoriza gravar em outra qualidade. */
     val videoCaptureProblem: String? = null,
     /** Alternativa na mesma resolução; só se aplica após confirmação na interface. */
@@ -86,6 +89,8 @@ interface CameraListener {
     fun onMessage(text: String)
     /** Lente física ativa mudou (só quando a câmera informa). */
     fun onActiveLens(label: String?) {}
+    /** Rostos detectados pelo sensor, em coordenadas da prévia (px da PreviewView); vazio = nenhum. */
+    fun onFaces(faces: List<android.graphics.RectF>) {}
     /** Estado da prévia do desfoque do Retrato (null = funcionando ou desligada). Thread principal. */
     fun onPortraitPreview(state: String?) {}
     /** O vigia do modo manual devolveu ISO/velocidade ao automático. */

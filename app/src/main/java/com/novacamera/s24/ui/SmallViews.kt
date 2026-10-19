@@ -40,6 +40,11 @@ class ThumbnailView(context: Context) : View(context) {
 
     val hasImage get() = bitmap != null
 
+    /** Foto ainda sendo aprimorada: anel de progresso (0..1) em volta da miniatura; null = pronta. */
+    var progress: Float? = null
+        set(value) { field = value; invalidate() }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = updateMatrix()
 
     private fun updateMatrix() {
@@ -61,6 +66,15 @@ class ThumbnailView(context: Context) : View(context) {
         canvas.drawRoundRect(rect, r, r, if (bitmap != null) paint else empty)
         border.strokeWidth = dp(1.5f)
         canvas.drawRoundRect(rect, r, r, border)
+        progress?.let { f ->
+            ring.strokeWidth = dp(2.5f)
+            ring.color = 0x33EDF7FF
+            canvas.drawRoundRect(rect, r, r, ring)
+            // Arco no quadro arredondado: aproximado por um círculo inscrito (legível em 48 dp).
+            ring.color = Nova.ACCENT
+            val arc = RectF(inset, inset, width - inset, height - inset)
+            canvas.drawArc(arc, -90f, 360f * f.coerceIn(0.04f, 1f), false, ring)
+        }
         canvas.restore()
     }
 }

@@ -85,8 +85,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var monitor: DeviceMonitor
     private val handler = Handler(Looper.getMainLooper())
     private val quickVideoWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler)
+    private val cinemaWarmup=com.novacamera.s24.core.QuickVideoWarmup(handler, 4000)
     // Threads com nome: o bloco "CPU por thread" do diagnóstico precisa dizer quem consome.
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-ui-io") }
+    private val contourExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "nova-contour") }
     private val sound = MediaActionSound()
 
     // Views
@@ -102,12 +104,22 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var settingsButton: NovaIconView
     private lateinit var ratioChip: TextChip
     private lateinit var hdrChip: TextChip
+    private lateinit var videoHdrChip: TextChip
+    private lateinit var lightChip: TextChip
+    private lateinit var liveChip: TextChip
     private lateinit var qualityChip: TextChip
     private lateinit var fpsChip: TextChip
     private lateinit var resChip: TextChip
     private lateinit var rawChip: TextChip
     private lateinit var lensChip: TextView
     private lateinit var modeGrid: ModeGrid
+    private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
+    private lateinit var toolsButton: NovaIconView
+    /** Job cuja prévia está na miniatura enquanto é processado (fotografia progressiva, fase 1). */
+    private var processingPreview: Long? = null
+    private var shutterZoomStart = 1f
+    private var shutterZoomDp = 0f
+    private var lastShutterZoom = 0f
     private lateinit var recChip: TextView
     private lateinit var statusRow: LinearLayout
     private lateinit var trackingChip: TextView
@@ -227,6 +239,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (hasPermission(Manifest.permission.CAMERA)) startCamera() else askCamera.launch(Manifest.permission.CAMERA)
         loadLatestMedia()
         ProcessingQueue.addListener(onProcessing)
+        ProcessingQueue.recoverInterrupted(this) { n ->
+            if (n > 0 && !isDestroyed) hint.show(if (n == 1) "1 foto interrompida foi salva na galeria (sem processamento)"
+                else "$n fotos interrompidas foram salvas na galeria (sem processamento)", 4000)
+        }
         com.novacamera.s24.processing.VideoFinishJob.restore(this)
         com.novacamera.s24.processing.VideoFinishJob.addListener(onVideoFinish)
     }
@@ -442,6 +458,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         quickVideoWarmup.cancel()
+        cinemaWarmup.cancel()
+        contourGeneration++
+        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release() }
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -465,7 +484,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        // UI_HIDDEN (20) e BACKGROUND (40) chegam só por sair para a galeria/outro app (no Android 14+ são
+        // os ÚNICOS níveis entregues): não são falta de memória. Antes, `>= RUNNING_LOW` cancelava o
+        // acabamento do vídeo e o rastreio toda vez que a pessoa abria o vídeo recém-gravado.
+        val pressure = level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE
+        if (pressure) {
             if (::tracking.isInitialized) tracking.stop("Memória limitada")
             com.novacamera.s24.processing.VideoFinishJob.cancel("Memória limitada; acabamento cancelado e original preservado")
             ProcessingQueue.trimModelMemory()
@@ -485,6 +510,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.release()
         sound.release()
         io.shutdown()
+        contourExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -497,7 +523,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun signature() = listOf(settings.cinematicVideo, settings.mirrorFrontVideo, settings.videoQuality, settings.videoFps,
         settings.videoCenterMetering, settings.photoPixelsSignature, settings.hdr, settings.oemPortrait, settings.oemNight,
         settings.signatureEnabled, settings.signatureVideo, settings.signaturePosition, settings.signatureSize, settings.signatureOpacity,
-        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf).joinToString()
+        settings.videoStabilization, settings.facePriority, settings.lockWhiteBalanceWithAeAf, settings.videoHdr, settings.novaLive).joinToString()
 
     // ------------------------------------------------------------------ interface
 
@@ -543,13 +569,39 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         qualityChip = TextChip(this).apply { setOnClickListener { cycleVideoQuality() }; contentDescription = "Resolução do vídeo" }
         fpsChip = TextChip(this).apply { setOnClickListener { cycleFps() }; contentDescription = "Quadros por segundo" }
         resChip = TextChip(this).apply { setOnClickListener { cyclePhotoResolution() }; contentDescription = "Resolução da foto" }
+        liveChip = TextChip(this).apply { text = "LIVE"; setOnClickListener { toggleLive() }; contentDescription = "Nova Live: foto com movimento" }
+        lightChip = TextChip(this).apply { setOnClickListener { toggleLight() }; contentDescription = "Iluminação do Retrato" }
+        videoHdrChip = TextChip(this).apply { text = "HDR"; setOnClickListener { toggleVideoHdr() }; contentDescription = "Vídeo HDR (HLG 10 bits)" }
         rawChip = TextChip(this).apply { text = "RAW"; setOnClickListener { toggleRaw() }; contentDescription = "Salvar RAW (DNG) junto do JPEG" }
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, qualityChip, fpsChip, hdrChip, rawChip).forEach { v ->
-            val cell = FrameLayout(this)
-            cell.addView(v, FrameLayout.LayoutParams(if (v is NovaIconView) dpi(48) else -2, if (v is NovaIconView) dpi(48) else -2, Gravity.CENTER))
-            topBar.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
+        // Topo enxuto: flash à esquerda; formato do vídeo e ferramentas à direita. O centro fica livre
+        // (câmera frontal do S24 no meio da tela). O resto foi para o painel de ferramentas.
+        toolsButton = icon(Icon.TOOLS) { if (toolsPanel.visibility == View.VISIBLE) hideTools() else showTools() }.apply {
+            background = Nova.pill(0x33000000, dp(24f))
         }
+        flashButton.background = Nova.pill(0x33000000, dp(24f))
+        topBar.setPadding(dpi(12), 0, dpi(12), 0)
+        topBar.addView(flashButton, LinearLayout.LayoutParams(dpi(48), dpi(48)))
+        topBar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        listOf<View>(qualityChip, fpsChip).forEach { v ->
+            val cell = FrameLayout(this)
+            cell.addView(v, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+            topBar.addView(cell, LinearLayout.LayoutParams(-2, -1).apply { marginEnd = dpi(4) })
+        }
+        topBar.addView(toolsButton, LinearLayout.LayoutParams(dpi(48), dpi(48)))
         root.addView(topBar, FrameLayout.LayoutParams(-1, dpi(TOP_BAR_DP), Gravity.TOP))
+        toolsPanel = com.novacamera.s24.ui.ToolsPanel(this).apply {
+            visibility = View.GONE
+            add("Timer", timerButton)
+            add("Proporção", ratioChip)
+            add("Resolução", resChip)
+            add("HDR", hdrChip)
+            add("HDR vídeo", videoHdrChip)
+            add("Iluminação", lightChip)
+            add("Nova Live", liveChip)
+            add("RAW", rawChip)
+            add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
+            add("Ajustes", settingsButton)
+        }
 
         recChip = TextView(this).apply {
             setTextColor(Nova.TEXT); textSize = 14f; typeface = Nova.MEDIUM
@@ -660,8 +712,17 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                         hint.show("Gravação bloqueada · toque no botão para finalizar")
                     }
                 }
+                override fun onZoomStart() { shutterZoomStart = zoomBar.zoom; shutterZoomDp = 0f; lastShutterZoom = shutterZoomStart }
                 override fun onZoom(deltaDp:Float) {
-                    if(quickRecording.active) camera.zoomBy(kotlin.math.exp((deltaDp/240f).toDouble()).toFloat())
+                    if (countdown != 0) return
+                    val s = cameraState ?: return
+                    shutterZoomDp += deltaDp
+                    val z = com.novacamera.s24.core.ShutterZoom.target(shutterZoomStart, shutterZoomDp, s.zoomStops, s.zoomMin, s.zoomMax)
+                    if (z == lastShutterZoom) return
+                    // Um degrau por vez, animado como o toque numa parada (sem trocar de câmera no meio do gesto).
+                    Haptics.tick(shutter)
+                    lastShutterZoom = z
+                    camera.zoomTo(z, allowLensSwitch = false)
                 }
                 override fun onRelease() = runQuickAction(quickRecording.release())
                 override fun onCancel() = runQuickAction(quickRecording.interrupt())
@@ -688,6 +749,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
+        root.addView(toolsPanel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
 
         idleOverlay = TextView(this).apply {
             text = "Câmera pausada para poupar bateria\n\nToque para continuar"
@@ -783,6 +845,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
             (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
         (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
+        (toolsPanel.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
         bottomScrim.visibility = if (pTop + pHeight > h - bottom.measuredHeight - insetBottom) View.VISIBLE else View.GONE
         topBar.setBackgroundColor(if (aspect == AspectRatioOption.FULL) 0x59000000 else 0)
@@ -804,8 +867,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.setRotation(CameraMath.surfaceRotationFor(deg))
         overlay.orientation = deg
         zoomBar.orientation = deg
+        val landscape = deg == 90 || deg == 270
+        preview.scaleType = if (landscape) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
+        transitionImage.scaleType = if (landscape) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, timerButton, ratioChip, resChip, hdrChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -843,7 +909,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Faixa principal: RETRATO · FOTO · VÍDEO · (modo extra ativo ou MAIS). */
     private fun refreshStrip(mode: CaptureMode, animate: Boolean = true) {
-        val extra = if (mode.primary) "MAIS" else mode.label
+        val extra = if (mode in PRIMARY_MODES) "MAIS" else mode.label
         modeStrip.labels = PRIMARY_MODES.map { it.label } + extra
         val index = PRIMARY_MODES.indexOf(mode).takeIf { it >= 0 } ?: PRIMARY_MODES.size
         if (animate) modeStrip.selectedIndex = index else modeStrip.jumpTo(index)
@@ -857,8 +923,28 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         } else if (modeGrid.visibility == View.VISIBLE) hideGrid() else showGrid()
     }
 
+    private fun showTools() {
+        if (camera.isRecording) return
+        hideGrid()
+        updateTopBar()
+        toolsPanel.alpha = 0f
+        toolsPanel.translationY = dp(16f)
+        toolsPanel.visibility = View.VISIBLE
+        zoomBar.animate().alpha(0f).setDuration(Nova.FAST).start()
+        handler.removeCallbacks(hideLens); lensChip.visibility = View.GONE
+        Haptics.tick(toolsButton)
+        toolsPanel.animate().alpha(1f).translationY(0f).setDuration(Nova.NORMAL).setInterpolator(Nova.EASE).start()
+    }
+
+    private fun hideTools() {
+        if (toolsPanel.visibility != View.VISIBLE) return
+        zoomBar.animate().alpha(1f).setDuration(Nova.NORMAL).start()
+        toolsPanel.animate().alpha(0f).translationY(dp(12f)).setDuration(Nova.FAST).withEndAction { toolsPanel.visibility = View.GONE }.start()
+    }
+
     private fun showGrid() {
         if (camera.isRecording) return
+        hideTools()
         modeGrid.bind(EXTRA_MODES.map { it to camera.supportFor(it) }, camera.mode)
         modeGrid.alpha = 0f
         modeGrid.translationY = dp(16f)
@@ -877,6 +963,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun selectMode(m: CaptureMode) {
         if (camera.isRecording || countdown > 0 || quickReturnMode != null) return
+        hideTools()
         refreshStrip(m)
         showTransition()
         overlay.hideFocusRing()
@@ -898,6 +985,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun onShutter() {
+        hideTools(); hideGrid() // painéis não ficam abertos sobre a prévia durante a captura/gravação
         if(com.novacamera.s24.processing.VideoFinishJob.state.running)
             com.novacamera.s24.processing.VideoFinishJob.cancel("Acabamento cancelado para priorizar captura; original preservado")
         val s = cameraState ?: return
@@ -928,12 +1016,31 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun startVideo() {
-        camera.cinematicUnavailableReason?.let { reason ->
-            com.novacamera.s24.ui.CinematicFallbackDialog.show(this,reason) {
-                if(camera.chooseCommonVideo()) hint.show("Preparando vídeo comum na mesma qualidade. Toque novamente para gravar",4500)
-            }
+        // CINEMA: a máscara pode estar a caminho (profundidade leva ~1 s sem pessoa na cena). Aguarda até
+        // 4 s com aviso em vez de abrir o diálogo na hora; só sem máscara depois disso pergunta.
+        if (camera.cinemaMode && camera.cinematicBound && camera.cinematicUnavailableReason != null && !camera.cinematicThermallyBlocked) {
+            hint.show("Preparando o desfoque… toque no assunto para escolher o foco", 2500)
+            cinemaWarmup.await(
+                valid = { camera.cinemaMode && !camera.isRecording && !isDestroyed && !isFinishing },
+                ready = { camera.cinematicUnavailableReason == null },
+                start = { startVideoNow() },
+                expired = { showCinematicFallback(camera.cinematicUnavailableReason ?: "A máscara não ficou pronta") })
             return
         }
+        camera.cinematicUnavailableReason?.let { reason ->
+            showCinematicFallback(reason)
+            return
+        }
+        startVideoNow()
+    }
+
+    private fun showCinematicFallback(reason: String) {
+        com.novacamera.s24.ui.CinematicFallbackDialog.show(this,reason) {
+            if(camera.chooseCommonVideo()) hint.show("Preparando vídeo comum na mesma qualidade. Toque novamente para gravar",4500)
+        }
+    }
+
+    private fun startVideoNow() {
         // Timelapse e câmera lenta não gravam som: não pede o microfone à toa.
         val silent = camera.mode == CaptureMode.TIMELAPSE || camera.mode == CaptureMode.CAMERA_LENTA
         if (!silent && settings.recordAudio && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -1089,14 +1196,49 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }, 1800)
     }
 
+    /** Nova Live: liga/desliga a foto com movimento (religa a sessão para incluir/tirar o codificador). */
+    private fun toggleLive() {
+        settings.novaLive = !settings.novaLive
+        settingsSignature = signature()
+        showTransition()
+        camera.requestRebind()
+        hint.show(if (settings.novaLive) "Nova Live: cada foto leva ~3 s de movimento (1,5 s antes e depois). Gasta mais bateria enquanto ligado"
+            else "Nova Live desligado", 3000)
+    }
+
+    /** Retrato · iluminação: Natural ↔ Fundo escuro (aplicado na foto final, sobre a mesma máscara do desfoque). */
+    private fun toggleLight() {
+        settings.portraitDarkBackground = !settings.portraitDarkBackground
+        updateTopBar()
+        hint.show(if (settings.portraitDarkBackground) "Fundo escuro: o fundo sai ~1 EV mais escuro na foto; a pessoa não muda. A prévia não mostra o escurecimento"
+            else "Iluminação natural", 3000)
+    }
+
+    /** Vídeo HDR (HLG 10-bit): só aparece onde a câmera anunciou; sem assinatura no vídeo enquanto ligado. */
+    private fun toggleVideoHdr() {
+        if (camera.isRecording) return hint.show("Pare a gravação para trocar HDR", 1600)
+        settings.videoHdr = !settings.videoHdr
+        settingsSignature = signature()
+        showTransition()
+        camera.requestRebind()
+        hint.show(if (settings.videoHdr) "Vídeo HDR (HLG 10 bits) · sem assinatura no vídeo" else "Vídeo SDR", 2200)
+    }
+
     /** Percorre só as resoluções que esta câmera realmente grava. */
     private fun cycleVideoQuality() {
         val options = cameraState?.videoQualityOptions?.takeIf { it.isNotEmpty() } ?: return
         val i = options.indexOf(settings.videoQuality)
         settings.videoQuality = options[(i + 1) % options.size]
+        // 60 fps em FHD e depois 4K: se esta câmera já recusou 4K/60, pede 4K/30 em vez de abrir só a prévia.
+        val refused = camera.refusedVideoFps(settings.videoQuality)
+        val note = if (cameraState?.mode != CaptureMode.CAMERA_LENTA && settings.videoFps in refused) {
+            val before = settings.videoFps
+            settings.videoFps = listOf(60, 30, 24).firstOrNull { it < before && it !in refused } ?: 30
+            " · $before fps não é aceito nesta resolução; usando ${settings.videoFps} fps"
+        } else ""
         showTransition()
         camera.requestRebind()
-        hint.show("Vídeo: ${settings.videoQuality.label}", 1400)
+        hint.show("Vídeo: ${settings.videoQuality.label}$note", if (note.isEmpty()) 1400 else 3000)
     }
 
     /** Percorre só as taxas aceitas (24/30/60; 120/240 na câmera lenta). */
@@ -1109,7 +1251,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             camera.bind()
             return hint.show("1 quadro a cada ${TimelapsePlan.intervalLabel(plan.intervalMs)} · ${plan.speedup}× mais rápido", 1800)
         }
-        val options = s.videoFpsOptions.takeIf { it.isNotEmpty() }
+        val refused = if (s.mode == CaptureMode.CAMERA_LENTA) emptySet() else camera.refusedVideoFps(settings.videoQuality)
+        val options = s.videoFpsOptions.filter { it !in refused }.takeIf { it.isNotEmpty() }
             ?: return hint.show("Nenhuma taxa disponível nesta combinação; escolha outra resolução", 1800)
         if (options.size == 1 && s.videoFps in options)
             return hint.show("Esta câmera só oferece ${options.single()} fps aqui", 1600)
@@ -1176,10 +1319,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ratioChip.text = settings.aspect.label
         qualityChip.visibility = if (video && s?.videoQualityLabel != null) View.VISIBLE else View.GONE
         qualityChip.text = s?.videoQualityLabel ?: ""
-        qualityChip.isEnabled=!(camera.portraitVideoSession && settings.cinematicVideo)
+        qualityChip.isEnabled=!(camera.portraitVideoSession && (settings.cinematicVideo || camera.cinemaMode))
         fpsChip.isEnabled=qualityChip.isEnabled
         fpsChip.visibility = if (video && s != null) View.VISIBLE else View.GONE
-        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) "15–30 fps alvo" else "${s?.videoFps ?: 30} fps alvo"
+        fpsChip.text = s?.timelapseIntervalMs?.let { "⏱ " + TimelapsePlan.intervalLabel(it) } ?: if (s?.videoFpsVariable == true) (s.videoFpsRange?.let { "${it.first}–${it.second} fps alvo" } ?: "fps variável") else "${s?.videoFps ?: 30} fps alvo"
         hdrChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
         hdrChip.active = s?.hdr != null && s.hdr != HdrOption.OFF
         hdrChip.text = when(s?.hdr) { HdrOption.AUTO -> "AUTO"; HdrOption.OEM -> "HDR·S"; else -> "HDR" }
@@ -1189,17 +1332,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         resChip.text = res?.let(::mp) ?: ""
         resChip.contentDescription = resChip.text.toString() + if(s?.photoNativeCapture==true) ", captura nativa solicitada; resolução conferida após fotografar" else ", resolução de captura"
         resChip.active = s?.photoSize != null && s.photoSizeOptions.size > 1 && s.photoSize != s.photoSizeOptions.last()
+        liveChip.visibility = if (s?.mode == CaptureMode.FOTO && photoCapable) View.VISIBLE else View.GONE
+        liveChip.active = settings.novaLive && camera.liveActive
+        lightChip.visibility = if (s?.mode == CaptureMode.RETRATO && s.support.engine == ModeEngine.NOVA && s.support.canCapture) View.VISIBLE else View.GONE
+        lightChip.text = if (settings.portraitDarkBackground) "Escuro" else "Natural"
+        lightChip.active = settings.portraitDarkBackground
+        videoHdrChip.visibility = if (video && s?.videoHdrAvailable == true) View.VISIBLE else View.GONE
+        videoHdrChip.active = s?.videoHdr == true
         rawChip.visibility = if (s?.rawAvailable == true) View.VISIBLE else View.GONE
         rawChip.active = s?.rawActive == true
-        listOf<View>(hdrChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        listOf<View>(hdrChip, videoHdrChip, lightChip, liveChip, ratioChip, qualityChip, fpsChip, resChip, rawChip).forEach { (it.parent as? View)?.visibility = it.visibility }
+        toolsPanel.sync()
     }
 
     // ------------------------------------------------------------------ CameraListener
 
     override fun onCameraState(state: CameraState) {
+        overlay.faces = emptyList() // nova sessão/lente: rostos da anterior não valem mais
         if (::tracking.isInitialized) tracking.stop()
         cameraState = state
-        refreshStrip(quickReturnMode ?: state.mode)
+        refreshStrip(quickReturnMode ?: if (camera.cinemaMode) CaptureMode.VIDEO_RETRATO else state.mode)
         shutter.quickEnabled = state.support.canCapture && quickReturnMode == null &&
             (state.mode == CaptureMode.FOTO || state.mode == CaptureMode.RETRATO)
         shutter.kind = if (state.mode.isVideo) ShutterButton.Kind.VIDEO else ShutterButton.Kind.PHOTO
@@ -1256,6 +1408,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+
+    override fun onFaces(faces: List<android.graphics.RectF>) {
+        overlay.faces = faces
+    }
 
     override fun onPortraitPreview(state: String?) = liveControls.setNote(state)
 
@@ -1326,7 +1482,19 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun onProcessingProgress(p: JobProgress) {
         if (isDestroyed) return
         val auto = p.kind == JobKind.AUTO
+        p.preview?.let { bmp ->
+            thumbnail.setImage(bmp, animate = true)
+            thumbnail.progress = 0f
+            processingPreview = p.jobId
+            return
+        }
+        if (processingPreview == p.jobId) thumbnail.progress = if (p.finished) null else p.fraction
         if (p.finished) {
+            if (processingPreview == p.jobId) {
+                processingPreview = null
+                // Nada foi salvo (ex.: falha sem original): a miniatura volta para a última mídia real.
+                if (p.enhancedUri == null && p.originalUri == null) lastMedia?.let { (u, m) -> showMedia(u, m, animate = false) }
+            }
             if (!auto || p.pending == 0) procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
             val shown = p.enhancedUri ?: if (auto) null else p.originalUri
             // AUTO regrava a mesma foto: só atualiza a miniatura se ela ainda for a última.
@@ -1396,6 +1564,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.selectCinematicSubject(x,y)
         lockChip.visibility = View.GONE
         overlay.showFocusAt(x, y)
+        showTapContour(x, y)
         if (settings.videoSubjectTracking && camera.mode in setOf(CaptureMode.VIDEO,CaptureMode.VIDEO_PRO,CaptureMode.RETRATO)) {
             if (camera.beginSubjectTracking()) {
                 selectedTrackingEpoch = camera.trackingEpoch
@@ -1407,6 +1576,25 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             hint.show("Acompanhamento indisponível com estes controles; foco por toque", 2400)
         }
         camera.focusAt(x, y, lock = false)
+    }
+
+    /**
+     * Contorno ao toque (MagicTouch): uma inferência por toque na prévia reduzida, fora da thread da
+     * interface. Toques seguidos descartam o anterior. Não muda foco, foto ou rastreio: só mostra.
+     */
+    private var contourGeneration = 0
+    private fun showTapContour(x: Float, y: Float) {
+        overlay.clearContour()
+        if (!settings.tapContour || camera.isRecording || camera.mode.isPro || preview.width <= 0) return
+        val frame = runCatching { preview.bitmap }.getOrNull() ?: return
+        val gen = ++contourGeneration
+        val nx = x / preview.width; val ny = y / preview.height
+        contourExecutor.execute {
+            val r = runCatching { com.novacamera.s24.processing.ContourSegmenter.contour(this, frame, nx, ny, Nova.ACCENT_SOFT) }
+                .onFailure { com.novacamera.s24.core.CrashLog.record(this, "contorno (não fatal)", it) }.getOrNull()
+            frame.recycle()
+            if (r != null) runOnUiThread { if (gen == contourGeneration && !isDestroyed) overlay.showContour(r) }
+        }
     }
 
     override fun onLongPress(x: Float, y: Float) {
@@ -1567,6 +1755,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun openLastMedia() {
+        // A miniatura já mostra a foto nova, mas a galeria só a recebe ao fim do processamento.
+        if (processingPreview != null) return hint.show("Aprimorando a foto… ela abre na galeria assim que terminar", 2200)
         val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
@@ -1594,8 +1784,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     companion object {
         private const val TAG = "NovaCamera"
         private const val TOP_BAR_DP = 52
-        private val PRIMARY_MODES = CaptureMode.entries.filter { it.primary }
-        private val EXTRA_MODES = CaptureMode.entries.filterNot { it.primary }
+        /** Faixa principal (proposta de interface aprovada): Retrato · Foto · Vídeo · Noturno · Pro. */
+        private val PRIMARY_MODES = listOf(CaptureMode.RETRATO, CaptureMode.FOTO, CaptureMode.VIDEO, CaptureMode.VIDEO_RETRATO, CaptureMode.NOITE, CaptureMode.PRO)
+        private val EXTRA_MODES = CaptureMode.entries.filterNot { it in PRIMARY_MODES }
         private const val IDLE_CHECK_MS = 10_000L
         private const val ENERGY_EVERY_MS = 10_000L
         /** Auxílios do visor: 2 medições por segundo; 1 por segundo se copiar a prévia ficar caro. */

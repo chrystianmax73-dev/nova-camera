@@ -21,8 +21,13 @@ class ShutterButton(context: Context) : View(context) {
         fun onLock()
         fun onRelease()
         fun onCancel()
-        /** Positivo ao subir, negativo ao descer; câmera aplica seu amortecimento e limites. */
+        /**
+         * Arrastar o botão para cima aproxima, para baixo afasta (com ou sem gravação; soltar depois de
+         * arrastar não fotografa). Positivo ao subir; a câmera aplica amortecimento e limites.
+         */
         fun onZoom(deltaDp:Float) {}
+        /** Começo de um arraste de zoom (o alvo é calculado a partir do zoom deste momento). */
+        fun onZoomStart() {}
     }
     var quickListener: QuickListener? = null
     var quickEnabled = false
@@ -122,6 +127,14 @@ class ShutterButton(context: Context) : View(context) {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.x-downX
                     val dy = event.y-downY
+                    if(!held && !zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx)) {
+                        zooming=true; moved=true; quickHandler.removeCallbacks(holdTask); quickListener?.onZoomStart()
+                    }
+                    if(!held && zooming) {
+                        quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
+                        lastY=event.y
+                        return true
+                    }
                     if(!held && dx>=dp(64f) && dx>kotlin.math.abs(dy)) {
                         quickHandler.removeCallbacks(holdTask)
                         held=true;holdAccepted=quickListener?.onHold()==true
@@ -130,7 +143,7 @@ class ShutterButton(context: Context) : View(context) {
                         moved = true; quickHandler.removeCallbacks(holdTask)
                     }
                     if(held && holdAccepted) {
-                        if(!zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx))zooming=true
+                        if(!zooming && kotlin.math.abs(dy)>=dp(12f) && kotlin.math.abs(dy)>kotlin.math.abs(dx)) { zooming=true; quickListener?.onZoomStart() }
                         if(zooming) {
                             quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
                         } else if(!locked && dx>=dp(64f)) { locked=true;quickListener?.onLock() }
@@ -147,9 +160,29 @@ class ShutterButton(context: Context) : View(context) {
             }
             return true
         }
+        // Sem gravação rápida (ex.: modos de vídeo): o arraste vertical também controla o zoom.
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> animatePress(1f)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> animatePress(0f)
+            MotionEvent.ACTION_DOWN -> {
+                animatePress(1f); downX = event.x; downY = event.y; lastY = event.y; zooming = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x-downX; val dy = event.y-downY
+                if (!zooming && kotlin.math.abs(dy) >= dp(12f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+                    zooming = true
+                    quickListener?.onZoomStart()
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    cancelPendingInputEvents()
+                }
+                if (zooming) {
+                    quickListener?.onZoom((lastY-event.y)/resources.displayMetrics.density)
+                    lastY = event.y
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                animatePress(0f)
+                if (zooming) { zooming = false; isPressed = false; parent?.requestDisallowInterceptTouchEvent(false); return true }
+            }
         }
         return super.onTouchEvent(event)
     }

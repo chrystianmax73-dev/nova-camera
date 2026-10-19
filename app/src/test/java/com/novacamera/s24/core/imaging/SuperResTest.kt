@@ -83,6 +83,26 @@ class SuperResTest {
         assertTrue(pSr > pOne + 1.0)
     }
 
+    /** Noturno 10× (tele 5× + recorte): ruído em manchas de 4 px; o espacial cai no piso 0,002. */
+    @Test fun noturnoComRuidoEmManchasPrecisaDoRuidoEntreQuadros() {
+        val rnd = Random(21)
+        val shifts = listOf(0f to 0f) + List(4) { rnd.nextFloat() * 2f to rnd.nextFloat() * 2f }
+        val frames = shifts.map { (sx, sy) ->
+            val f = frame(sx, sy, rnd, 0f); val w = f.w
+            val cells = FloatArray((w / 4) * (w / 4)) { (rnd.nextFloat() - 0.5f) * 3.46f * 0.025f }
+            SuperRes.Region(IntArray(w * w) { i -> val v = (Px.r(f.px[i]) + cells[(i / w / 4) * (w / 4) + (i % w) / 4] * 255).toInt().coerceIn(0, 255); Px.argb(v, v, v) }, 0, 0, w, w)
+        }
+        val list = frames.mapIndexed { k, f -> f to (-shifts[k].first / 2f to -shifts[k].second / 2f) }
+        val floor = psnr(SuperRes.mergeTile(big, big, 0, 0, 2f, 0f, 0f, list, 0.002f), big, 8)
+        val measured = psnr(SuperRes.mergeTile(big, big, 0, 0, 2f, 0f, 0f, list, 0.025f), big, 8)
+        val single = psnr(IntArray(big * big) { i -> SuperRes.bilinear(frames[0], (i % big + 0.5f) / 2f - 0.5f, (i / big + 0.5f) / 2f - 0.5f) }, big, 8)
+        println("PSNR noturno manchas: um quadro=%.2f, SR piso=%.2f, SR ruído medido=%.2f dB".format(single, floor, measured))
+        // A robustez pela faixa 3×3 da referência já tolera manchas: o ruído medido não muda o resultado
+        // (0,05 dB), então a SR segue com o ruído espacial. O ganho é sobre ampliar um quadro.
+        assertTrue("SR no Noturno ganha de ampliar um quadro: $floor vs $single", floor > single + 1.5)
+        assertEquals(floor, measured, 0.5)
+    }
+
     @Test fun objetoQueSeMexeuNaoViraFantasma() {
         val rnd = Random(3)
         val f0 = frame(0f, 0f, rnd, 0f)

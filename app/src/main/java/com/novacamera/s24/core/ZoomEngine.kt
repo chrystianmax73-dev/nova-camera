@@ -58,31 +58,42 @@ class ZoomCurve(private val photo: Boolean) {
 }
 
 /**
- * Controle de vazão das requisições de zoom à câmera: no máximo uma em voo.
- * Enquanto a anterior não é aplicada, só o valor mais recente é guardado (nunca empilha).
+ * Controle de vazão das requisições de zoom à câmera. Só o valor mais recente é guardado (nunca empilha).
+ * - [maxWaitMs] = 0: no máximo uma em voo; a próxima só depois que a câmera aplicar a anterior (foto).
+ * - [maxWaitMs] > 0: se a anterior demora mais que isso, envia a mais nova mesmo assim (a câmera
+ *   descarta a antiga). Vídeo com estabilização: cada pedido leva ~130 ms para ser confirmado
+ *   (diagnóstico 0.27.2), o que limitava o zoom a ~7 passos/s — degraus visíveis ao arrastar.
  */
-class ZoomRequestGate {
+class ZoomRequestGate(var maxWaitMs: Long = 0L) {
     var generation = 0L; private set
+    var sequence = 0L; private set
     private var inFlight = false
+    private var sentAtMs = 0L
     private var pending: Float? = null
     private var lastSent = 0f
 
     /** Retorna o valor a enviar agora, ou null se deve aguardar a requisição em voo. */
-    fun offer(value: Float): Float? {
-        if (inFlight) { pending = value; return null }
-        if (lastSent > 0f && abs(value / lastSent - 1f) < 0.0015f) return null
+    fun offer(value: Float, nowMs: Long = 0L): Float? {
+        if (inFlight && (maxWaitMs <= 0L || nowMs - sentAtMs < maxWaitMs)) { pending = value; return null }
+        if (lastSent > 0f && abs(value / lastSent - 1f) < 0.0015f) { pending = null; return null }
         inFlight = true
         lastSent = value
+        sentAtMs = nowMs
+        pending = null
+        sequence++
         return value
     }
 
-    /** Chamado quando a câmera concluiu (ou descartou) a requisição; devolve a próxima, se houver. */
-    fun completed(requestGeneration: Long = generation): Float? {
-        if (requestGeneration != generation) return null
+    /**
+     * Chamado quando a câmera concluiu (ou descartou) uma requisição; devolve a próxima, se houver.
+     * Uma requisição antiga substituída por outra (cancelada pela câmera) não libera a vazão.
+     */
+    fun completed(requestGeneration: Long = generation, requestSequence: Long = sequence, nowMs: Long = 0L): Float? {
+        if (requestGeneration != generation || requestSequence != sequence) return null
         inFlight = false
         val next = pending ?: return null
         pending = null
-        return offer(next)
+        return offer(next, nowMs)
     }
 
     fun reset() { generation++; inFlight = false; pending = null; lastSent = 0f }

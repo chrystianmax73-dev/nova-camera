@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Serviço curto em primeiro plano só enquanto uma foto termina de processar (ProcessingService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <!-- Sem permissão de internet: nenhum dado sai do aparelho. A biblioteca de segmentação (MediaPipe Tasks)
          traz um componente de telemetria de uso que declara estas permissões; elas são removidas aqui,
@@ -30,6 +32,8 @@
         </activity>
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <service android:name=".processing.ProcessingService" android:exported="false"
+            android:foregroundServiceType="shortService" />
         <activity android:name=".ReviewActivity" android:exported="false"
             android:screenOrientation="portrait" />
     </application>

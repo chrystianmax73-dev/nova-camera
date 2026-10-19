@@ -41,7 +41,18 @@ class PortraitMaskAnalyzer(
 ) : ImageAnalysis.Analyzer, java.io.Closeable {
     private val app = context.applicationContext
     private var segmenter: PersonSegmenter.Live? = null
-    private var depth: DepthEstimator.Session? = null
+    @Volatile private var depth: DepthEstimator.Session? = null
+    /**
+     * Cinematográfico (0.28.1): profundidade em thread própria. Antes ela rodava dentro do quadro (~1,4 s)
+     * e esse quadro passava do limite de 650 ms → máscara apagada; enquanto isso a máscara anterior
+     * vencia (750 ms). Sem pessoa na cena (só profundidade) o desfoque quase nunca ficava "pronto"
+     * (dono 0.28.0: "A máscara ainda não está pronta ou perdeu validade"). Agora a pessoa/plano segue
+     * a cada quadro e a profundidade nova entra quando termina; movimento descarta a que está em curso.
+     */
+    private val depthExecutor by lazy { java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-cine-depth") } }
+    @Volatile private var depthInFlight = false
+    @Volatile private var depthDone: Plane? = null
+    private val depthGeneration = java.util.concurrent.atomic.AtomicInteger()
     private var depthFailed = false
     private var wasPersonOnly = false
     private val createdAt=SystemClock.uptimeMillis()
@@ -58,6 +69,8 @@ class PortraitMaskAnalyzer(
     private var prevAmount: FloatArray? = null
     /** Quadros seguidos com a máscara praticamente igual (cena e aparelho parados). */
     private var stillFrames = 0
+    /** Quadros restantes da transição de foco entre assuntos (ver [RACK_KEEP]). */
+    private var rackFocusFrames = 0
     @Volatile private var closed = false
     private var lastState: String? = "init"
     private val metricsToken=metricsGeneration.incrementAndGet()
@@ -121,7 +134,19 @@ class PortraitMaskAnalyzer(
 
             if (cinematic) {
                 if(sceneGuard.moved(lumaGrid(upright),selectedTap)) {
-                    depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
+                    if (sceneGuard.selectionOnly) {
+                        // Troca de assunto com a cena parada (toque ou rosto novo): a profundidade da cena
+                        // continua certa; só o plano de foco muda. Mantém a máscara anterior e deixa a
+                        // suavização [RACK_KEEP] levar o foco até o novo assunto em ~1 s ("rack focus",
+                        // como o Cinematográfico do iPhone), em vez de apagar o desfoque e recalcular.
+                        rackFocusFrames = RACK_FRAMES
+                    } else if (sceneGuard.sceneCut) {
+                        depthGeneration.incrementAndGet(); depthDone=null
+                        depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
+                    }
+                    // Tremor/pan leve: a profundidade anterior continua valendo até a próxima (já no ritmo
+                    // de cena em movimento). Antes cada tremor descartava a inferência em voo e apagava a
+                    // máscara: na tele ela quase nunca ficava pronta e o vídeo caía em "indisponível".
                 }
             }
             // Prévia da foto: modelo leve (só mostra o desfoque; a foto usa o multiclasse). O vídeo
@@ -132,7 +157,10 @@ class PortraitMaskAnalyzer(
             val segmentStart=SystemClock.uptimeMillis()
             val segCpu0=SystemClock.currentThreadTimeMillis()
             val segResult = runCatching { seg.segment(upright) }.getOrNull()
-            val person = segResult?.takeIf { it.coverage >= 0.03f }?.person
+            val person = segResult?.takeIf { it.coverage >= 0.03f }?.person?.takeIf { p ->
+                !cinematic || com.novacamera.s24.core.CinematicPolicy.personSubject(segResult.coverage,
+                    selectedTap?.let { (tx, ty) -> p[(tx * (p.w - 1)).roundToInt(), (ty * (p.h - 1)).roundToInt()] >= .5f } == true)
+            }
             segmentMs=SystemClock.uptimeMillis()-segmentStart
             com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.SEGMENT,
                 SystemClock.currentThreadTimeMillis()-segCpu0, segmentMs)
@@ -158,7 +186,31 @@ class PortraitMaskAnalyzer(
             val sceneLuma = if (!cinematic && depthN != null) lumaGrid(upright) else null
             val sceneChanged = sceneLuma == null || depthRefresh.needed(now, sceneLuma, selectedTap,
                 if (lowPower) com.novacamera.s24.core.LivePortraitPolicy.LOW_POWER_MAX_AGE_MS else com.novacamera.s24.core.DepthRefreshPolicy.MAX_AGE_MS)
-            if (!depthFailed && !personOnly && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+            if (cinematic && !depthFailed && !personOnly && !depthInFlight && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
+                lastDepth = now
+                depthInFlight = true
+                val input = upright.copy(Bitmap.Config.ARGB_8888, false)
+                val gen = depthGeneration.get()
+                depthExecutor.execute {
+                    val started=SystemClock.uptimeMillis()
+                    val depthCpu0=SystemClock.currentThreadTimeMillis()
+                    try {
+                        if (closed || gen != depthGeneration.get()) return@execute
+                        val session = DepthEstimator.shared(app).also { if (it == null) depthFailed = true; depth = it }
+                        val plane = session?.run(input)?.let { DepthPortrait.normalize(Planes.resize(it, mw, mh)) }
+                        if (plane != null && !closed && gen == depthGeneration.get()) depthDone = plane
+                    } catch (e: Throwable) { Log.w(TAG, "profundidade do cinematográfico falhou", e) }
+                    finally {
+                        input.recycle()
+                        depthBudget.completed(started,SystemClock.uptimeMillis())
+                        com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.DEPTH,
+                            SystemClock.currentThreadTimeMillis()-depthCpu0, SystemClock.uptimeMillis()-started)
+                        depthInFlight = false
+                    }
+                }
+            }
+            if (cinematic) depthDone?.let { depthN = it; depthDone = null }
+            if (!cinematic && !depthFailed && !personOnly && sceneChanged && depthBudget.allowed(now,depthEvery,lastDepth) && ProcessingQueue.pending == 0) {
                 lastDepth = now
                 if (!cinematic) depthRefresh.done(now, sceneLuma ?: lumaGrid(upright), selectedTap)
                 val started=SystemClock.uptimeMillis()
@@ -189,8 +241,9 @@ class PortraitMaskAnalyzer(
                 stillFrames = if (d / p.size < STILL_DIFF) stillFrames + 1 else 0
             } ?: run { stillFrames = 0 }
             // Suaviza no tempo: sem tremulação na borda entre quadros.
-            val sub = smooth(subject.data, prevSubject).also { prevSubject = it }
-            val amt = smooth(amount.data, prevAmount).also { prevAmount = it }
+            val keep = if (rackFocusFrames > 0) { rackFocusFrames--; RACK_KEEP } else 0.4f
+            val sub = smooth(subject.data, prevSubject, keep).also { prevSubject = it }
+            val amt = smooth(amount.data, prevAmount, keep).also { prevAmount = it }
             if(cinematic && (SystemClock.uptimeMillis()-now>650 || (heat()?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE)) {
                 effect.clearMask(); state("Desfoque pausado: análise atrasada ou temperatura; vídeo comum mantido"); return
             }
@@ -231,8 +284,8 @@ class PortraitMaskAnalyzer(
         when(rot%360) {90->1f-ny to nx;180->1f-nx to 1f-ny;270->ny to 1f-nx;else->nx to ny}
     }
 
-    private fun smooth(now: FloatArray, prev: FloatArray?): FloatArray =
-        if (prev == null || prev.size != now.size) now else FloatArray(now.size) { prev[it] * 0.4f + now[it] * 0.6f }
+    private fun smooth(now: FloatArray, prev: FloatArray?, keep: Float = 0.4f): FloatArray =
+        if (prev == null || prev.size != now.size) now else FloatArray(now.size) { prev[it] * keep + now[it] * (1f - keep) }
 
     private fun lumaGrid(bmp: Bitmap): FloatArray {
         val px = IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }
@@ -255,8 +308,12 @@ class PortraitMaskAnalyzer(
     /** Chamar na mesma thread da análise (depois de [ImageAnalysis.clearAnalyzer]). */
     override fun close() {
         closed = true
+        depthGeneration.incrementAndGet(); depthDone = null
+        if (cinematic) {
+            depthExecutor.shutdown()
+            runCatching { depthExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS) }
+        }
         runCatching { segmenter?.close() }; segmenter = null
-        // A sessão de profundidade é compartilhada com a foto: não fecha aqui, só agenda a liberação por ociosidade.
         if (depth != null) ProcessingQueue.scheduleDepthRelease()
         depth = null
         depthN=null;prevSubject=null;prevAmount=null
@@ -270,5 +327,8 @@ class PortraitMaskAnalyzer(
         /** Diferença média da máscara entre quadros abaixo disso = parado. */
         private const val STILL_DIFF = 0.006f
         private const val STILL_AFTER = 10
+        /** Rack focus: 70% do plano anterior por quadro analisado (~3/s) → ~90% do caminho em ~2 s, sem salto. */
+        private const val RACK_KEEP = 0.7f
+        private const val RACK_FRAMES = 8
     }
 }

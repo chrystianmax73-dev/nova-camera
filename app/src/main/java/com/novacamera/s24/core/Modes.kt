@@ -1,13 +1,16 @@
 package com.novacamera.s24.core
 
 /**
- * Modos da câmera. Os quatro primeiros ficam na faixa principal; os demais no painel MAIS.
+ * Modos da câmera. [primary] = faixa principal (Retrato · Foto · Vídeo · Cinema · Noturno · Pro; a ordem da faixa
+ * está em MainActivity.PRIMARY_MODES); os demais ficam no painel MAIS / Ferramentas › Mais modos.
  * Um modo só captura quando há implementação real no aparelho (ver [ModeResolver]).
  */
 enum class CaptureMode(val label: String, val primary: Boolean = false) {
     RETRATO("RETRATO", true), FOTO("FOTO", true), VIDEO("VÍDEO", true),
-    PRO("PRO"), VIDEO_PRO("VÍDEO PRO"), NOITE("NOTURNO"), CAMERA_LENTA("CÂMERA LENTA"),
-    PANORAMA("PANORÂMICA"), TIMELAPSE("TIMELAPSE"), FOOD("FOOD"), VIDEO_RETRATO("VÍDEO RETRATO");
+    PRO("PRO", true), VIDEO_PRO("VÍDEO PRO"), NOITE("NOTURNO", true), CAMERA_LENTA("CÂMERA LENTA"),
+    PANORAMA("PANORÂMICA"), TIMELAPSE("TIMELAPSE"), FOOD("FOOD"),
+    /** CINEMA: vídeo com fundo desfocado por profundidade ao vivo (sessão cinematográfica do Retrato). */
+    VIDEO_RETRATO("CINEMA", true);
 
     val isVideo get() = this == VIDEO || this == VIDEO_PRO || this == CAMERA_LENTA || this == VIDEO_RETRATO || this == TIMELAPSE
     val isPro get() = this == PRO || this == VIDEO_PRO
@@ -70,8 +73,9 @@ object ModeResolver {
         CaptureMode.TIMELAPSE -> ModeSupport(mode, ModeEngine.NOVA,
             "Timelapse: um quadro por intervalo (toque no botão de intervalo para mudar), vídeo a 30 fps sem áudio. " +
                 "Apoie o aparelho e mantenha o app aberto.")
-        CaptureMode.VIDEO_RETRATO -> ModeSupport(mode, ModeEngine.UNAVAILABLE,
-            "Em desenvolvimento: o desfoque de fundo em vídeo exige segmentação a 30 fps; ainda não implementado.")
+        CaptureMode.VIDEO_RETRATO -> ModeSupport(mode, ModeEngine.NOVA,
+            "Cinema: fundo desfocado por profundidade ao vivo, Full HD 30 fps sem estabilização eletrônica. " +
+                "Toque no assunto para escolher o foco. Calor alto pausa o desfoque.")
     }
 
     /** Escolhe a faixa de fps de AE que mais estende a exposição sem passar de 30 fps. */
@@ -79,12 +83,15 @@ object ModeResolver {
         ranges.filter { (lo, hi) -> hi in 15..30 && lo in 1 until 15 }.minOfOrNull { it.first }
 
     /**
-     * Vídeo a 30 fps com pouca luz: faixa variável (ex.: 15–30) para o automático alongar a exposição
-     * em vez de escurecer. Com luz boa a câmera continua em 30 fps; o quadro só fica mais longo
-     * quando falta luz (tele 5× e 10× escura). Mínimo de 15 fps — abaixo disso o movimento trava.
+     * Vídeo a 30 ou 60 fps com pouca luz: faixa variável (ex.: 15–30, 15–60) para o automático alongar
+     * a exposição em vez de escurecer. Com luz boa a câmera continua no alvo; o quadro só fica mais
+     * longo quando falta luz (tele 3×/5×/10× escura: a 60 fps fixos cada quadro tinha no máximo 1/60 s).
+     * Mínimo de 15 fps — abaixo disso o movimento trava. 24 fps fica fixo (escolha de cinema).
      */
-    fun autoVideoFps(ranges: List<Pair<Int, Int>>): Pair<Int, Int>? =
-        ranges.filter { (lo, hi) -> hi == 30 && lo in 15..24 }.minByOrNull { it.first }
+    fun autoVideoFps(ranges: List<Pair<Int, Int>>, target: Int = 30): Pair<Int, Int>? {
+        if (target != 30 && target != 60) return null
+        return ranges.filter { (lo, hi) -> hi == target && lo in 15..(target * 4 / 5) }.minByOrNull { it.first }
+    }
 
     /** Índices de compensação para o bracketing do HDR Nova (0, ≈−2 EV, ≈+1 EV), dentro da faixa. */
     fun hdrBracket(stepNum: Int, stepDen: Int, min: Int, max: Int): List<Int> {

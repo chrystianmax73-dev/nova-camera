@@ -1,8 +1,52 @@
+# Etapa 0.29.7 (Claude) — auditoria do Noturno em zoom: ler `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md`
+- Codex: propostas de qualidade A–D lá (mais quadros na tele, YUV, crominância pelo ruído medido, RAW). 0.29.2–0.29.6 mexeram em `Merge`, `Consistency`, `Engine.align/mergeInto/superRes`, `NightLensPolicy` (pedido do dono enquanto o teu plano estava encerrado) — revisar antes de mudar a fusão.
+- `Engine.mergeInto` agora paralelo (imagem idêntica, teste pixel a pixel); `readAligned` = `fetchAligned` + `finishAligned`.
+
+# Etapa 0.29.2 (Claude) — qualidade de imagem passou para o Claude (plano do Codex encerrado)
+- **Fusão (Noturno/zoom):** sigma da fusão e da verificação de confiabilidade agora = máx(espacial, medido entre quadros alinhados). Tocados: `Merge.temporalNoise`, `Consistency.pairNoise`, `Engine.align` (`Alignment.pairNoise`), `Engine.mergeInto` (`onNoise` virou String). Motivo e números em STATUS 0.29.2. Tetos: 8 níveis / 0,025.
+- **Cinema:** pessoa só vira assunto no vídeo com ≥12% do quadro ou sob o toque (`CinematicPolicy.personSubject`).
+
+# Etapa 0.29.0 (Claude) — Nova Live, branch `claude/nova-interface`
+- Novos (meus): `core/MotionPhoto.kt`, `camera/LiveRecorder.kt`, `processing/LiveClips.kt`. Tocados: `MediaWriter.write` (lock + reanexo depois do EXIF), `ProcessingQueue` (`Job.liveClip`, `finish`, reedição em faixas), `NovaCamera` (análise YUV só na Foto com Nova Live ligado; recuo de bind; clipe por disparo). **Pixels da foto inalterados**: o vídeo vai depois do fim do JPEG.
+- Codex: se o Ultra HDR passar a ser gerado em mais fotos, o Nova Live some nelas (recusa MPF). Juntar os dois exige um Container com GainMap + MotionPhoto (formato do Pixel) — próximo passo, se quiser.
+
+# Etapa 0.28.2 (Claude) — Cinema estilo iPhone, branch `claude/nova-interface`
+- `core/CinematicPolicy.kt` (`CinematicSceneGuard.selectionOnly`), `camera/PortraitMaskAnalyzer.kt` (rack focus só no cinematográfico), `NovaCamera.publishFaces/cinemaFace` (rosto como alvo sem toque). Sem mudança de pixels fora do vídeo cinematográfico.
+
+# Etapa 0.28.1 (Claude) — Cinema e 4K/60, branch `claude/nova-interface`
+- `camera/PortraitMaskAnalyzer.kt` (área compartilhada): só no `cinematic`, profundidade assíncrona (`depthExecutor`, `depthDone`, `depthGeneration`); o caminho da foto/Retrato ao vivo não mudou. `DepthDutyBudget` com campos voláteis (lido/escrito em duas threads).
+- `NovaCamera`: recusa definitiva de fps troca para a maior taxa aceita. `MainActivity.startVideo`: espera de máscara no CINEMA (`cinemaWarmup`, 4 s).
+
+# Etapa 0.28.0 (Claude) — pendentes da reformulação, branch `claude/nova-interface`
+- Arquivos meus nesta etapa: `core/ContourMask.kt`, `processing/ContourSegmenter.kt`, `assets/magic_touch.tflite`, `ui/LiveControls.kt` (rótulo f/), `ui/ViewfinderOverlay.kt` (contorno), modo CINEMA (`core/Modes.kt`, `NovaCamera.setMode/cinemaMode`), HDR de vídeo e recusa 4K/60 (`NovaCamera` bloco de vídeo, `NovaSettings.videoRefused/videoHdr`).
+- **Toca em imagem (atenção Codex):** (1) `autoVideoFps` agora 15–60 a 60 fps no escuro; (2) "Fundo escuro" do Retrato multiplica o fundo na foto final (depois do desfoque, antes do estilo). Ambos opcionais/ajustáveis; nada mudou no Noturno, tom, assinatura ou processamento da Foto.
+- Corrigido bug do `onTrimMemory` (UI_HIDDEN cancelava acabamento do vídeo).
+
+# Etapa 0.27.4 (Claude) — zoom do disparador em degraus, branch `claude/nova-interface`
+- `core/ShutterZoom.kt` (meu): arraste do disparador anda em degraus da escada (paradas + inteiros), cada degrau via `NovaCamera.zoomTo(z, allowLensSwitch = false)`. `MainActivity` (onZoomStart/onZoom do disparador) só chama isso. Barra/pinça/`zoomFollow` inalterados. Sem efeito em imagem.
+
+# Etapa 0.27.2 (Claude) — confiabilidade e interface, branch `claude/nova-interface`
+
+**Codex: ao trabalhar em qualidade de imagem, estas peças são minhas e não precisam ser refeitas; se precisar mudá-las, me avise pelo handoff.**
+- `processing/ProcessingService.kt` (novo) e, em `ProcessingQueue`: `ProcessingService.start/stop` em `submit`, marca `interrupted` por sessão (`run` cria, `submit` apaga), `recoverInterrupted`, `previewOf` + executor `thumbs`, campo `JobProgress.preview`, `session.save()` logo após EXIF/zoom/assinatura. **Nada disso altera pixels**: o pipeline de imagem (`Engine`, `render`, fusão, retrato, NAFNet) não foi tocado.
+- `core/ShutterZoom.kt`, `ui/ShutterButton.kt` (arraste = zoom), `ui/SmallViews.kt` (anel na miniatura), `ui/ViewfinderOverlay.kt` (rostos), `NovaCamera.applyInterop` (STATISTICS_FACE_DETECT_MODE) e `publishFaces`, `settings.showFaces`.
+- **Vigia da prévia (`NovaCamera`): marca `visible`.** Era a provável causa raiz do P0 da prévia (ida à galeria tratada como travamento → escalada que desligava Tom/Temperatura). A escalada em `onPreviewStalled` continua como estava; se ainda houver paradas com o app visível, o StallLog dirá.
+- **0.27.3:** `ZoomRequestGate(maxWaitMs)` + `sequence`; no vídeo `NovaCamera` usa 33 ms (`VIDEO_ZOOM_REQUEST_MS`). Se mexer no zoom do vídeo, manter o número de sequência (callbacks de pedidos substituídos chegam cancelados).
+- Se o pipeline ganhar uma etapa nova que demore, a marca `interrupted` já cobre (é por sessão, não por etapa).
+
+---
+
 # Aviso (Claude, 18/10) — reformulação visual em branch próprio: `claude/nova-interface`
 
 - O dono aprovou a nova interface; a etapa 1 (topo enxuto, painel Ferramentas, faixa Retrato · Foto · Vídeo · Noturno · Pro) está no branch `claude/nova-interface` (PR #6 contra este branch, rascunho), APK de teste build84.
 - **Enquanto a reformulação durar, evite mexer em `MainActivity.kt` (montagem da tela: `buildInterface`, `layoutAll`, `updateTopBar`, faixa de modos) e em `ui/`.** Câmera, processamento, modelos e vídeo seguem aqui; trago para o branch da interface por merge.
 - Detalhes da etapa: STATUS/handoff do branch `claude/nova-interface`.
+# Etapa 0.27.0 (Claude) — Interface Nova, etapa 1, no branch `claude/nova-interface`; APK de teste build84 entregue
+
+- **[Baixar ZIP com app-release.apk — build84 (1084)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39159177607/artifacts/12148223515)**. Mesma assinatura permanente. Artefato 12148223515, 132857618 bytes; digest do ZIP sha256:46b0487c4cd3379eeeac2102611db00f86a688f78b4bda6a46a9d01fa0c6f070; expira 2026-11-17T19:40:18Z. [Actions 39159177607](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39159177607) com sucesso; **publicação pulada** (condição do passo estendida a este branch só no commit do gatilho f5180f3; o run 83 sem essa condição foi cancelado antes de publicar — nenhuma release nova). Gatilho restaurado em eba9f72 (blob a82bc113b2de207b7a3e9a9660cc19af520167ff).
+**Codex: a reformulação visual acontece neste branch (pedido do dono). Enquanto ela durar, evite mexer em `MainActivity.kt` (montagem da tela: `buildInterface`, `layoutAll`, `updateTopBar`, faixa de modos) e em `ui/`; mudanças de câmera/processamento seguem no teu branch e eu trago por merge.**
+- Arquivos: `MainActivity.kt` (topo, `showTools`/`hideTools`, `PRIMARY_MODES` explícito), `ui/ToolsPanel.kt` (novo), `ui/NovaIconView.kt` (ícones TOOLS/MODES), `core/Modes.kt` (Noturno e Pro primários), teste de render.
+- Nenhuma mudança de captura, processamento, modelos ou vídeo.
 
 ---
 

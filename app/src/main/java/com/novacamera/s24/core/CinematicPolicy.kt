@@ -24,6 +24,9 @@ object CinematicPolicy {
         return RenderWork(blur || (enabled && calibrationPending),blur)
     }
     fun fresh(now:Long,at:Long) = at>0 && now>=at && now-at<750
+    /** Pessoa que vira assunto no vídeo: 3% do quadro deixava figura de pôster/TV no escuro desfocar o objeto real. */
+    const val MIN_PERSON_SUBJECT = .12f
+    fun personSubject(coverage:Float,tapOnPerson:Boolean) = tapOnPerson || coverage>=MIN_PERSON_SUBJECT
     /** A inferência tem orçamento próprio; movimento invalida cache sem contornar esse limite. */
     fun depthInterval(thermal:Int,still:Boolean) = if(thermal>=2) 1500L else if(still) 2500L else 900L
 }
@@ -31,12 +34,23 @@ object CinematicPolicy {
 class CinematicSceneGuard {
     private var previous:FloatArray?=null
     private var tap:Pair<Float,Float>?=null
+    /** Último [moved] foi só troca de assunto (cena parada): a profundidade continua valendo. */
+    var selectionOnly=false;private set
+    /** Último [moved] foi troca de cena (não tremor da mão): a profundidade anterior não serve mais. */
+    var sceneCut=false;private set
     fun moved(luma:FloatArray,target:Pair<Float,Float>?):Boolean {
         val old=previous
-        val movement=old!=null && (old.size!=luma.size || old.indices.sumOf { abs(old[it]-luma[it]).toDouble() }/luma.size>0.045)
+        val diff=if(old==null) 0.0 else if(old.size!=luma.size) 1.0 else old.indices.sumOf { abs(old[it]-luma[it]).toDouble() }/luma.size
+        val movement=diff>0.045
+        sceneCut=diff>SCENE_CUT
         val previousTap=tap
         val selection=(previousTap==null)!=(target==null) || (previousTap!=null && target!=null && hypot(previousTap.first-target.first,previousTap.second-target.second)>.04f)
         previous=luma.copyOf(); if(selection || tap==null) tap=target
+        selectionOnly=selection && !movement
         return movement || selection
+    }
+    companion object {
+        /** Diferença média (0..1) acima da qual é outra cena. Tremor na tele (3×) passava de 0,045 a cada análise. */
+        const val SCENE_CUT=0.15
     }
 }

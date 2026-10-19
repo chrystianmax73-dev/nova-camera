@@ -129,6 +129,25 @@ object Portrait {
      * desfocado com raio menor e maior; [distance] escolhe entre eles (desfoque gradual).
      * Onde α = 1 (pessoa) o pixel original é copiado sem alteração.
      */
+    /** Fundo escuro: multiplica o fundo por [keep] (0,42 ≈ −1,25 EV), em transição suave pela máscara. */
+    const val DARK_BACKGROUND_KEEP = 0.42f
+
+    fun darkenBackgroundTile(tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int,
+                             matte: Plane, keep: Float = DARK_BACKGROUND_KEEP) {
+        val mx = matte.w.toFloat() / fullW; val my = matte.h.toFloat() / fullH
+        for (ty in 0 until th) for (tx in 0 until tw) {
+            val a = matte.sample((x0 + tx + 0.5f) * mx - 0.5f, (y0 + ty + 0.5f) * my - 0.5f).coerceIn(0f, 1f)
+            if (a >= 0.999f) continue
+            val f = keep + (1f - keep) * a
+            val i = ty * tw + tx
+            val c = tile[i]
+            val r = ((c shr 16 and 0xFF) * f + 0.5f).toInt()
+            val g = ((c shr 8 and 0xFF) * f + 0.5f).toInt()
+            val b = ((c and 0xFF) * f + 0.5f).toInt()
+            tile[i] = (c and -0x1000000) or (r shl 16) or (g shl 8) or b
+        }
+    }
+
     fun compositeTile(
         tile: IntArray, tw: Int, th: Int, x0: Int, y0: Int, fullW: Int, fullH: Int,
         matte: Plane, distance: Plane, blurNear: IntArray, blurFar: IntArray, smallW: Int, smallH: Int,

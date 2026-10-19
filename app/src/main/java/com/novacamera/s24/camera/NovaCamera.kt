@@ -107,6 +107,16 @@ class NovaCamera(
     private val main = ContextCompat.getMainExecutor(activity)
     /** Trabalho pesado fora da thread de interface (ex.: espelhar a selfie). */
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-camera-io") }
+    /** Nova Live: análise + codificador na própria thread; fechado sempre nela (sem corrida com analyze). */
+    private val liveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-live") }
+    private var liveRecorder: LiveRecorder? = null
+    private var liveBlocked = false
+    /** Clipe do disparo em curso; consumido ao criar o Job ou ao salvar a foto comum. */
+    private var nextLiveClip: com.novacamera.s24.processing.LiveClips.Clip? = null
+    val liveActive get() = liveRecorder != null
+    private fun closeLive() { liveRecorder?.let { old -> liveExecutor.execute { old.close() } }; liveRecorder = null }
+    private fun takeLiveClip() = nextLiveClip.also { nextLiveClip = null }
+    private fun dropLiveClip() { takeLiveClip()?.complete(null, 0) }
     private val handler = Handler(Looper.getMainLooper())
 
     private var provider: ProcessCameraProvider? = null
@@ -118,7 +128,7 @@ class NovaCamera(
     private var paused = false
     private var freshSessionRequested = false
 
-    var mode: CaptureMode = settings.lastMode; private set
+    var mode: CaptureMode = settings.lastMode.let { if (it == CaptureMode.VIDEO_RETRATO) CaptureMode.VIDEO else it }; private set
     var isFront = false; private set
     var state: CameraState? = null; private set
     var recordingPhase = RecordingPhase.IDLE; private set
@@ -128,6 +138,10 @@ class NovaCamera(
     private var currentLensId: String? = null
     private var currentLens: LensOption? = null
     private val failedPhysicalRoutes = mutableSetOf<String>()
+    /** Lente física fixada pelo Noturno (não pela Foto com luz boa); a tele que não focou nesta visita ao Noturno. */
+    private var nightPinned = false
+    private val nightFocusFailed = mutableSetOf<String>()
+    private val nightFocus = com.novacamera.s24.core.NightLensPolicy.FocusWatch()
     private var nativeRun: NativePhotoCapture? = null
     private var released = false
     private var nativePhotoSelected = false
@@ -142,7 +156,7 @@ class NovaCamera(
     private var oemFacts = mapOf<Boolean, Triple<Boolean, Boolean, Boolean>>() // isFront → (bokeh, night, hdr)
 
     // Foco / exposição
-    private var userPointActive = false
+    @Volatile private var userPointActive = false
     private var aeLocked = false
     private var focusToken = 0
     /** Ponto tocado (para focar de novo nele antes de uma rajada) e o zoom no momento do toque. */
@@ -165,6 +179,18 @@ class NovaCamera(
     private val motionLifecycle = object : androidx.lifecycle.DefaultLifecycleObserver {
         override fun onResume(owner: androidx.lifecycle.LifecycleOwner) { if (motionWanted) motion.start() }
         override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { motion.stop() }
+    }.also { activity.lifecycle.addObserver(it) }
+    /**
+     * App visível (iniciado). Fora disso o CameraX fecha a câmera de propósito (galeria, outra tela,
+     * tela apagada) e a falta de quadros NÃO é prévia parada. Antes desta marca o vigia tratava a ida
+     * à galeria como travamento: reabria a câmera com o app escondido (sem efeito), repetia a cada
+     * ~11 s e, na 2ª vez, desligava o desfoque e Tom/Temperatura até reabrir o app — os trios de
+     * "prévia parada" com efeito=false análise=false dos diagnósticos 0.26.8–0.27.1.
+     */
+    @Volatile private var visible = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+    private val visibilityLifecycle = object : androidx.lifecycle.DefaultLifecycleObserver {
+        override fun onStart(owner: androidx.lifecycle.LifecycleOwner) { visible = true }
+        override fun onStop(owner: androidx.lifecycle.LifecycleOwner) { visible = false }
     }.also { activity.lifecycle.addObserver(it) }
     /**
      * Vigia da prévia (thread própria): se a câmera está aberta e os resultados de captura param por
@@ -198,8 +224,10 @@ class NovaCamera(
                 watchedCamera = cam; sampledGeneration = generation
                 watchStartFrames = frames; watchHasFrame = false
                 watchFrames = frames; watchSince = now
-            } else if (cam == null || cam !== camera || paused || released) {
+            } else if (cam == null || cam !== camera || paused || released || !visible) {
                 watchFrames = frames; watchSince = now
+                // Ao voltar, a câmera reabre do zero: vale o prazo do primeiro quadro (10 s), não o de 3 s.
+                if (!visible) { watchStartFrames = frames; watchHasFrame = false }
             } else if (capturing && stillLease.defersRecovery(now)) {
                 watchFrames = frames; watchSince = now
             } else if (com.novacamera.s24.core.ModelLoadWindow.defersStall(now)) {
@@ -234,7 +262,7 @@ class NovaCamera(
 
     private fun onPreviewStalled(cam: Camera) {
         if (capturing && stillLease.defersRecovery(SystemClock.uptimeMillis())) return
-        if (cam !== camera || cam !== watchCamera || released || paused) return
+        if (cam !== camera || cam !== watchCamera || released || paused || !visible) return
         if (mode.isVideo) {
             if ((mode==CaptureMode.VIDEO || mode==CaptureMode.VIDEO_PRO) && videoCapture==null) return
             val action = videoRecovery.stalled(isRecording, boundVideoStabilization)
@@ -307,6 +335,16 @@ class NovaCamera(
     /** Faixa 15–30 fps aplicada nesta ligação do vídeo; bloqueada na sessão se a câmera recusar. */
     private var autoFpsApplied = false
     private var autoFpsBlocked = false
+    /** Faixa variável realmente pedida (15–30 ou 15–60); o chip mostra esta, não um texto fixo. */
+    private var autoFpsRange: Pair<Int, Int>? = null
+    /**
+     * Vídeo HDR (HLG 10-bit): só quando o Recorder desta câmera anuncia HLG para a resolução escolhida.
+     * Sem assinatura nem Retrato (o desenho em GL é 8-bit). Recusado pela sessão → SDR e aviso.
+     */
+    private var videoHdrAvailable = false
+    private var videoHdrBound = false
+    private var videoHdrBlocked = false
+    private var dynamicRangesLogged = false
     /** Vídeo: fps e estabilização da ligação atual; desligados na sessão se a prévia parar com eles. */
     private var boundVideoFps = 30
     private var boundVideoStabilization = false
@@ -364,6 +402,7 @@ class NovaCamera(
         nativeRun?.cancel()
         synchronized(telemetry) { telemetry.breakStream() }
         provider?.unbindAll()
+        closeLive()
         camera = null
     }
 
@@ -398,6 +437,7 @@ class NovaCamera(
         videoEffects.close()
         Handler(effectThread.looper).post { effectThread.quitSafely() }
         io.shutdown()
+        closeLive(); liveExecutor.shutdown()
         videoInspection.shutdown()
         timelapseExecutor.shutdown()
     }
@@ -409,10 +449,15 @@ class NovaCamera(
      * o ViewPort precisa ser lido depois do novo layout para a foto corresponder ao enquadramento.
      */
     fun setMode(m: CaptureMode, rebind: Boolean = true, remember: Boolean = true, portraitVideo: Boolean = false) {
-        if (isRecording || nativeRun != null || m == mode) return
+        // CINEMA é a mesma sessão do vídeo cinematográfico do Retrato, como modo próprio da faixa.
+        val cinema = m == CaptureMode.VIDEO_RETRATO
+        val target = if (cinema) CaptureMode.VIDEO else m
+        if (isRecording || nativeRun != null || (target == mode && cinema == cinemaMode && !portraitVideo)) return
         videoRecovery.reset()
-        portraitVideoSession=portraitVideo && m==CaptureMode.VIDEO
-        mode = m
+        cinemaMode = cinema
+        commonVideoChosen = false
+        portraitVideoSession=(portraitVideo || cinema) && target==CaptureMode.VIDEO
+        mode = target
         if (remember) settings.lastMode = m
         resetFocusState()
         evIndex = 0; backlightBoost = 0
@@ -514,7 +559,7 @@ class NovaCamera(
         val p = provider ?: return
         if (isRecording || paused || nativeRun != null || released) return
         if (cinematicClosing) return
-        if (!settings.cinematicVideo) commonVideoChosen=false
+        if (!cinematicPreference) commonVideoChosen=false
         if(cinematicRequested && commonEffectPending) {
             cinematicClosing=true;invalidateSubjectTracking();watchCamera=null;watchGeneration++;videoEffectGeneration++
             p.unbindAll();camera=null
@@ -572,6 +617,29 @@ class NovaCamera(
             currentLensId=child.cameraId
         }
 
+        // Noturno na tele: lente nativa fixa (ver NightLensPolicy). Ao sair do Noturno, volta à lógica
+        // para não mudar a Foto (que só fixa com luz boa).
+        val routeLens = lenses.firstOrNull { it.routeKey == currentLensId }
+        if (mode == CaptureMode.NOITE && routeLens != null && routeLens.physicalCameraId == null) {
+            val eq = routeLens.intrinsic * (pendingZoomOnLens ?: zoomOnLens)
+            if (com.novacamera.s24.core.NightLensPolicy.pinNative(true, isFront, eq))
+                LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes && it.routeKey !in nightFocusFailed },
+                    currentLensId, defaultLensId, eq, preferNative = true)
+                    ?.takeIf { c -> c.cameraId != currentLensId && lenses.any { it.routeKey == c.cameraId && it.physicalCameraId != null &&
+                        it.intrinsic >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM } }
+                    ?.let { c -> currentLensId = c.cameraId; pendingZoomOnLens = c.zoomOnLens; nightPinned = true; nightFocus.reset() }
+        } else if (mode != CaptureMode.NOITE) {
+            nightFocusFailed.clear()
+            if (nightPinned) {
+                nightPinned = false
+                routeLens?.takeIf { it.physicalCameraId != null }?.let { child ->
+                    val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null }
+                    pendingZoomOnLens = child.intrinsic * (pendingZoomOnLens ?: zoomOnLens) / (parent?.intrinsic ?: 1f)
+                    currentLensId = child.cameraId
+                }
+            }
+        }
+
         // Extensões do fabricante só existem na câmera padrão de cada lado.
         val wantedExtension = when {
             !support.canCapture -> ExtensionMode.NONE
@@ -590,9 +658,9 @@ class NovaCamera(
             return
         }
         val info = runCatching { p.getCameraInfo(baseSelector) }.getOrNull() ?: return
-        val profile = "${Camera2CameraInfo.from(info).cameraId}/${selectedVideoQuality}/${selectedVideoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}/${cinematicRequested}/${portraitVideoSession}"
+        val profile = "${Camera2CameraInfo.from(info).cameraId}/${selectedVideoQuality}/${selectedVideoFps}/${isFront}/${mode}/${settings.mirrorFrontVideo}/${settings.signatureEnabled && settings.signatureVideo}/${cinematicRequested}/${portraitVideoSession}/hdr=${settings.videoHdr}"
         if (profile != videoProfile) {
-            videoProfile = profile; videoStabilizationBlocked = false
+            videoProfile = profile; videoStabilizationBlocked = false; videoHdrBlocked = false
             videoEffectFailed = profile in failedVideoEffectProfiles
         }
         currentLens = lenses.firstOrNull { it.routeKey == currentLensId }
@@ -717,6 +785,20 @@ class NovaCamera(
                 else QualitySelector.fromOrderedList(wanted, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
             val recorder = Recorder.Builder().setQualitySelector(selectorForVideo).build()
             val vb = VideoCapture.Builder(recorder)
+            val hlg = DynamicRange.HLG_10_BIT
+            val dynamicRanges = runCatching { capabilities.supportedDynamicRanges }.getOrDefault(emptySet())
+            if (!dynamicRangesLogged) {
+                dynamicRangesLogged = true
+                com.novacamera.s24.core.VideoLog.add(activity, "Faixas dinâmicas anunciadas (câmera ${Camera2CameraInfo.from(info).cameraId}): " +
+                    dynamicRanges.joinToString { "${it.encoding}/${it.bitDepth}bit" } +
+                    " · HLG por qualidade: " + runCatching { capabilities.getSupportedQualities(hlg).joinToString() }.getOrDefault("—"))
+            }
+            videoHdrAvailable = hlg in dynamicRanges && chosen != null &&
+                runCatching { chosen in capabilities.getSupportedQualities(hlg) }.getOrDefault(false)
+            if (videoHdrAvailable) settings.videoHdrSeen = true
+            videoHdrBound = settings.videoHdr && videoHdrAvailable && !videoHdrBlocked && !portraitProfile &&
+                !cinematicRequested && mode != CaptureMode.TIMELAPSE
+            if (videoHdrBound) vb.setDynamicRange(hlg)
                 .setTargetRotation(targetRotation)
                 .setMirrorMode(if (settings.mirrorFrontVideo) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             if (selectedVideoStabilization && !videoStabilizationBlocked) {
@@ -736,12 +818,11 @@ class NovaCamera(
             if (limitVideo && requestedFps > 30)
                 videoBindingIssue = "${requestedFps} fps bloqueado por temperatura/economia; escolha 30 fps ou aguarde"
             val wantedFps = requestedFps.takeIf { it in fpsOptions } ?: 30 // só prévia quando bloqueado
-            if (wantedFps != 30) { vb.setTargetFrameRate(Range(wantedFps, wantedFps)); fps = wantedFps }
-            else if (settings.videoAutoFps && !portraitProfile && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE) {
-                ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
-                    ?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
-            }
-            if (wantedFps == 30 && !autoFpsApplied) vb.setTargetFrameRate(Range(30, 30))
+            fps = wantedFps
+            autoFpsRange = if (settings.videoAutoFps && !portraitProfile && !autoFpsBlocked && mode != CaptureMode.TIMELAPSE)
+                ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper }, wantedFps) else null
+            autoFpsRange?.let { (lo, hi) -> vb.setTargetFrameRate(Range(lo, hi)); autoFpsApplied = true }
+            if (!autoFpsApplied) vb.setTargetFrameRate(Range(wantedFps, wantedFps))
             boundVideoFps = fps; boundVideoStabilization = stabilization
             videoCapture = vb.build()
         } else if (support.canCapture) {
@@ -804,6 +885,21 @@ class NovaCamera(
             rawActive = rawAvailable && settings.raw
             if (rawActive) ib.setOutputFormat(ImageCapture.OUTPUT_FORMAT_RAW_JPEG)
             imageCapture = ib.build()
+            closeLive()
+            if (mode == CaptureMode.FOTO && settings.novaLive && !liveBlocked && wantedExtension == ExtensionMode.NONE &&
+                !nativePhotoSelected && !rawActive) {
+                // ~1280×960 (ou 1280×720 em 16:9): o bastante para o movimento, leve para o codificador.
+                val rec = LiveRecorder(java.io.File(activity.cacheDir, "live"))
+                analysis = ImageAnalysis.Builder()
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(aspectStrategy)
+                        .setResolutionStrategy(ResolutionStrategy(android.util.Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                        .build())
+                    .setTargetRotation(targetRotation)
+                    .build().also { it.setAnalyzer(liveExecutor, rec) }
+                liveRecorder = rec
+            }
         }
 
         var group = if (highSpeedConfig == null) {
@@ -817,7 +913,7 @@ class NovaCamera(
             } ?: listener.onPortraitPreview(null)
             val sig = signatureStyle()
             // O renderizador compensa recorte, rotação e espelho para manter o texto legível.
-            if (videoBindingIssue==null && !cinematicBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
+            if (videoBindingIssue==null && !cinematicBound && !videoHdrBound && sig != null && settings.signatureVideo && !videoEffectFailed && !videoRecovery.exhausted && videoCapture != null &&
                 (mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO)) {
                 videoEffects.replace { signatureEffect(sig) }
             }
@@ -839,8 +935,7 @@ class NovaCamera(
             }.onFailure {
                 com.novacamera.s24.core.VideoLog.add(activity, "Consulta da sessão indisponível: ${it.javaClass.simpleName}: ${it.message}")
             }.getOrNull()
-            val automaticRange = ModeResolver.autoVideoFps(info.supportedFrameRateRanges.map { it.lower to it.upper })
-            if (autoFpsApplied && ranges != null && automaticRange !in ranges) {
+            if (autoFpsApplied && ranges != null && autoFpsRange !in ranges) {
                 autoFpsBlocked = true
                 listener.onMessage("Faixa automática recusada pela sessão; tentando 30 fps fixos")
                 handler.post { if (!released && !paused) bind() }
@@ -850,6 +945,12 @@ class NovaCamera(
             com.novacamera.s24.core.VideoLog.add(activity,
                 "Sessão ${videoProfile} · zoom=${equivalent(pendingZoomOnLens ?: zoomOnLens)}× · EIS=$stabilization · assinatura=${videoEffect != null || (cinematicBound && settings.signatureEnabled && settings.signatureVideo)} · cinematográfico=$cinematicBound · FPS da sessão=${ranges ?: "consulta indisponível"}")
             if (selectedVideoFps !in fpsOptions && videoBindingIssue == null) {
+                if (videoHdrBound) {
+                    videoHdrBlocked = true
+                    listener.onMessage("HDR recusado em ${selectedVideoQuality.label}/${selectedVideoFps} fps; gravando em SDR")
+                    handler.post { if (!released && !paused) bind() }
+                    return
+                }
                 if (stabilization) {
                     videoStabilizationBlocked = true
                     listener.onMessage("Tentando ${selectedVideoQuality.label}/${selectedVideoFps} fps sem estabilização eletrônica")
@@ -865,6 +966,22 @@ class NovaCamera(
                     return
                 }
                 videoBindingIssue = "${selectedVideoQuality.label}/${selectedVideoFps} fps não aceito pela sessão desta câmera"
+                // Recusa da sessão base (sem EIS, sem assinatura, sem Retrato): os seletores param de oferecer.
+                if (ranges != null && !cinematicBound && !portraitVideoSession && selectedVideoQuality != VideoQualityOption.AUTO) {
+                    settings.markVideoRefused(Camera2CameraInfo.from(info).cameraId, selectedVideoQuality, selectedVideoFps)
+                    // Recusa definitiva da sessão (já sem EIS e sem assinatura): em vez de deixar só a prévia
+                    // com o cartão de erro (dono 0.28.0, 4K/60), escolhe a maior taxa aceita e avisa.
+                    val accepted = listOf(60, 30, 24).filter { it < selectedVideoFps }
+                        .firstOrNull { f -> ranges.any { it.first == f && it.second == f } }
+                    if (accepted != null && !isRecording) {
+                        val before = selectedVideoFps
+                        settings.videoFps = accepted
+                        videoBindingIssue = null
+                        listener.onMessage("${selectedVideoQuality.label} não grava a $before fps nesta câmera; usando $accepted fps")
+                        handler.post { if (!released && !paused) bind() }
+                        return
+                    }
+                }
                 suggestedVideoFps = com.novacamera.s24.core.VideoSessionSupport.alternative(selectedVideoFps, fpsOptions)
             }
             if (videoBindingIssue != null && (videoRecovery.exhausted || selectedVideoFps !in fpsOptions) && !limitVideo &&
@@ -909,6 +1026,12 @@ class NovaCamera(
             if (mode.isVideo) com.novacamera.s24.core.VideoLog.add(activity,
                 "Bind recusado: $videoProfile · EIS=$stabilization · assinatura=${videoEffect != null} · ${e.javaClass.simpleName}: ${e.message}")
             camera = null
+            if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && videoHdrBound) {
+                videoHdrBlocked = true
+                listener.onMessage("HDR recusado nesta combinação; gravando em SDR")
+                handler.post { if (!released && !paused) bind() }
+                return
+            }
             if ((mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO) && stabilization) {
                 videoStabilizationBlocked = true
                 listener.onMessage("Esta combinação recusou EIS; tentando a mesma resolução e FPS sem EIS")
@@ -936,6 +1059,10 @@ class NovaCamera(
             }
             // Recuo em degraus, do ajuste mais específico ao mais básico.
             when {
+                liveRecorder != null -> {
+                    closeLive(); liveBlocked = true
+                    listener.onMessage("Nova Live indisponível nesta combinação; foto sem movimento")
+                }
                 videoEffect != null -> {
                     videoEffects.close()
                     videoEffectFailed = true
@@ -1045,14 +1172,15 @@ class NovaCamera(
             oemHdrActive = wantedExtension == ExtensionMode.HDR,
             extensionActive = wantedExtension != ExtensionMode.NONE,
             canLockExposure = wantedExtension == ExtensionMode.NONE && caps!!.aeLockAvailable,
-            videoQualityLabel = qualityLabel, videoFps = fps, stabilization = stabilization,
+            videoQualityLabel = qualityLabel?.let { if (videoHdrBound && videoCapture != null) "$it HDR" else it }, videoFps = fps,
+            videoHdrAvailable = videoHdrAvailable && !portraitVideoSession, videoHdr = videoHdrBound && videoCapture != null, stabilization = stabilization,
             screenFlash = isFront && !cam.cameraInfo.hasFlashUnit(),
             photoResolution = if (nativePhotoSelected) chosenSize?.let { android.util.Size(it.width,it.height) } else imageCapture?.resolutionInfo?.resolution,
             photoSizeOptions = if (mode == CaptureMode.FOTO || processingKind(support) == null) sizeOptions else emptyList(),
             photoSize = chosenSize, photoNativeCapture=nativePhotoSelected, photoSizeBlocked = sizeBlocked,
             rawAvailable = rawAvailable, rawActive = rawActive,
             videoQualityOptions = qualityOptions, videoFpsOptions = fpsOptions,
-            videoFpsVariable = autoFpsApplied, videoCaptureProblem = videoBindingIssue,
+            videoFpsVariable = autoFpsApplied, videoFpsRange = autoFpsRange.takeIf { autoFpsApplied }, videoCaptureProblem = videoBindingIssue,
             videoSuggestedFps = suggestedVideoFps,
             timelapseIntervalMs = if (mode == CaptureMode.TIMELAPSE) settings.timelapseIntervalMs else null,
         )
@@ -1148,9 +1276,13 @@ class NovaCamera(
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val st = latestStats
             val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
+            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(mode == CaptureMode.NOITE, isFront, equivalentZoom)
+            if (mode == CaptureMode.NOITE) nightFocusFailed.clear()
             val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes &&
                     ((!mode.isVideo && mode != CaptureMode.RETRATO) || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
-                preferNative = !mode.isVideo && !isFront && enoughLight)
+                preferNative = !mode.isVideo && !isFront && (enoughLight || nightTele))
+            if (choice != null && choice.cameraId != currentLensId && nightTele &&
+                lenses.any { it.routeKey == choice.cameraId && it.physicalCameraId != null }) { nightPinned = true; nightFocus.reset() }
             if (choice != null && choice.cameraId != currentLensId) {
                 currentLensId = choice.cameraId
                 pendingZoomOnLens = choice.zoomOnLens
@@ -1244,6 +1376,18 @@ class NovaCamera(
         }, PINNED_STALL_MS)
     }
 
+    /** Tele fixada pelo Noturno sem foco: volta à lógica (o firmware pode usar outra lente com recorte). */
+    private fun nightFocusFallback(route: String) {
+        if (released || paused || !nightPinned || mode != CaptureMode.NOITE || isRecording || capturing) return
+        val child = currentLens?.takeIf { it.routeKey == route && it.physicalCameraId != null } ?: return
+        val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null } ?: return
+        nightFocusFailed.add(route); nightPinned = false; nightFocus.reset()
+        pendingZoomOnLens = child.intrinsic * zoomOnLens / parent.intrinsic
+        currentLensId = parent.routeKey
+        listener.onMessage("A tele não focou (perto ou escuro demais); o Noturno usa a lente automática")
+        bind()
+    }
+
     private fun clampZoom(onLens: Float): Float? {
         val z = camera?.cameraInfo?.zoomState?.value ?: return null
         return onLens.coerceIn(z.minZoomRatio, z.maxZoomRatio)
@@ -1266,7 +1410,9 @@ class NovaCamera(
             }
             // A interface acompanha a curva a cada quadro; a câmera recebe só o valor mais recente
             // quando terminou de aplicar o anterior (sem fila de requisições = sem engasgos).
-            zoomGate.offer(value)?.let(::sendZoom)
+            // Vídeo: não esperar a confirmação lenta (estabilização) — no máximo um pedido a cada ~2 quadros.
+            zoomGate.maxWaitMs = if (mode.isVideo) VIDEO_ZOOM_REQUEST_MS else 0L
+            zoomGate.offer(value, now)?.let(::sendZoom)
             if (!zoomCurve.finished(now)) Choreographer.getInstance().postFrameCallback(this)
             else zoomAnimating = false
         }
@@ -1277,9 +1423,16 @@ class NovaCamera(
         synchronized(telemetry) { telemetry.command(value, SystemClock.uptimeMillis()) }
         val future = cam.cameraControl.setZoomRatio(cameraZoom(value))
         val generation = zoomGate.generation
+        val sequence = zoomGate.sequence
         future.addListener({
-            if (camera === cam) zoomGate.completed(generation)?.let(::sendZoom)
+            if (camera === cam) zoomGate.completed(generation, sequence, SystemClock.uptimeMillis())?.let(::sendZoom)
         }, main)
+    }
+
+    /** Taxas que a sessão desta câmera já recusou para [quality] (ver [NovaSettings.videoRefused]). */
+    fun refusedVideoFps(quality: VideoQualityOption): Set<Int> {
+        val info = camera?.cameraInfo ?: return emptySet()
+        return settings.videoRefused(Camera2CameraInfo.from(info).cameraId, quality)
     }
 
     /** Nome da lente física ativa, quando a câmera informa (LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID). */
@@ -1561,6 +1714,9 @@ class NovaCamera(
 
     private fun applyInterop(): com.google.common.util.concurrent.ListenableFuture<Void?>? {
         val cam = camera ?: return null
+        facesSupported = runCatching { Camera2CameraInfo.from(cam.cameraInfo).getCameraCharacteristic(
+            android.hardware.camera2.CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES)
+            ?.contains(CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE) == true }.getOrDefault(false)
         if (activeExtension != ExtensionMode.NONE) return null
         val c = caps ?: return null
         val b = CaptureRequestOptions.Builder()
@@ -1597,6 +1753,9 @@ class NovaCamera(
         val normalVideoMode = mode == CaptureMode.VIDEO || mode == CaptureMode.VIDEO_PRO
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !normalVideoMode &&
             !mode.isPro && !m.manualExposure && night == null
+        // Rostos do próprio sensor (modo simples, sem custo de CPU do app): só para desenhar onde estão.
+        if ((settings.showFaces || cinematicRequested) && facesSupported && !mode.isPro && night == null)
+            b.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
@@ -1690,8 +1849,41 @@ class NovaCamera(
         }
     }
 
+    /** O aparelho anuncia detecção de rostos simples nesta câmera (lido a cada vínculo). */
+    @Volatile private var facesSupported = false
+    private var lastFacesMs = 0L
+    private var hadFaces = false
+
+    /**
+     * Cinematográfico sem toque: o maior rosto do sensor vira o assunto (como o iPhone, que acompanha
+     * rostos sozinho). Coordenadas do sensor, as mesmas de [cinematicTap]. Some 1 s depois do último rosto.
+     */
+    @Volatile private var cinemaFace: Pair<Float, Float>? = null
+    @Volatile private var cinemaFaceAt = 0L
+    private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 600L }
+
+    private fun publishFaces(result: TotalCaptureResult) {
+        val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
+        if (cinematicRequested) faces.filter { it.score >= 75 && it.bounds.width() >= 80 && it.bounds.height() >= 80 }
+            .maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
+            cinemaFace = it.bounds.exactCenterX() to it.bounds.exactCenterY(); cinemaFaceAt = SystemClock.uptimeMillis()
+        }
+        if (!settings.showFaces) return
+        val now = SystemClock.uptimeMillis()
+        if (faces.isEmpty() && !hadFaces) return
+        if (now - lastFacesMs < 120L && faces.isNotEmpty()) return
+        lastFacesMs = now; hadFaces = faces.isNotEmpty()
+        val rects = faces.filter { it.score >= 50 }.take(6).map { android.graphics.RectF(it.bounds) }
+        handler.post {
+            // Coordenadas do sensor (região ativa, já com o zoom) → prévia: a mesma transformação do toque.
+            val t = previewView.sensorToViewTransform
+            listener.onFaces(if (t == null) emptyList() else rects.map { r -> android.graphics.RectF(r).also { t.mapRect(it) } })
+        }
+    }
+
     private val statsCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+            publishFaces(result)
             val opticalResult = currentLens?.physicalCameraId?.let { result.physicalCameraResults[it] } ?: result
             val zoom = if (Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
             val physical = runCatching { result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) }.getOrNull()
@@ -1704,6 +1896,11 @@ class NovaCamera(
             val focus = opticalResult.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
+            if (nightPinned && mode == CaptureMode.NOITE && !capturing) {
+                val route = currentLens?.routeKey
+                if (route != null && nightFocus.failed(SystemClock.uptimeMillis(), result.get(CaptureResult.CONTROL_AF_STATE)))
+                    handler.post { nightFocusFallback(route) }
+            }
             previewOptics = (currentLens?.physicalCameraId ?: physical) to opticalResult.get(CaptureResult.LENS_FOCAL_LENGTH)
             if(!isFront && !referenceMeasured && currentLensId==defaultLensId && currentLens?.physicalCameraId==null && zoom!=null && kotlin.math.abs(zoom-1f)<0.02f) {
                 val realSize=runCatching { activity.getSystemService(android.hardware.camera2.CameraManager::class.java)
@@ -1764,9 +1961,11 @@ class NovaCamera(
             put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Nova Camera")
         }
         val shot = ShotTimer(ic)
+        dropLiveClip(); nextLiveClip = liveRecorder?.capture()
         processingKind()?.let { return captureForProcessing(ic, it, shot) }
-        if (isFront && settings.mirrorFrontPhoto) return captureMirrored(ic, values, shot)
+        if (isFront && settings.mirrorFrontPhoto) { dropLiveClip(); return captureMirrored(ic, values, shot) }
         if (state?.rawActive == true) {
+            dropLiveClip()
             return if (settings.collectBursts) captureRawBurst(ic, RAW_BURST_FRAMES) else captureRawPlusJpeg(ic, values)
         }
         val metadata = ImageCapture.Metadata()
@@ -1777,6 +1976,8 @@ class NovaCamera(
             override fun onCaptureStarted() { shot.started(); listener.onCaptureStarted() }
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
                 shot.done(null)
+                val live = takeLiveClip()
+                result.savedUri?.let { uri -> live?.let { com.novacamera.s24.processing.LiveClips.bind(activity.contentResolver, uri, it) } } ?: live?.complete(null, 0)
                 listener.onPhotoSaved(result.savedUri)
                 result.savedUri?.let(::enhanceIfEnabled)
             }
@@ -2000,9 +2201,13 @@ class NovaCamera(
         // lente sem recorte e a foto final é montada com as amostras de todos os quadros.
         val lensNow = currentLens
         val srFactor = if (settings.superRes && !isFront && activeExtension == ExtensionMode.NONE &&
-            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM) &&
+            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM || kind == JobKind.NIGHT) &&
             lensNow?.physicalCameraId != null && lensNow.intrinsic >= 2.5f && zoomOnLens >= SR_MIN_DIGITAL) zoomOnLens else 1f
-        if (srFactor > 1f) {
+        if (srFactor > 1f && kind == JobKind.NIGHT) {
+            // Noturno com recorte digital (10× na tele 5×): mesma rajada/exposição e tom do Noturno; só a
+            // montagem final usa as amostras de todos os quadros na posição exata, em vez de ampliar um.
+            captureNote = "${captureNote ?: "Noturno"} · super-resolução ${steps.size} quadros"
+        } else if (srFactor > 1f) {
             kind = JobKind.ZOOM
             steps = List(SR_FRAMES) { 0 }
             captureNote = "Super-resolução: $SR_FRAMES quadros na lente sem recorte"
@@ -2052,7 +2257,8 @@ class NovaCamera(
             // Ordem do HDR: a referência (EV 0) é sempre o índice 0.
             ProcessingQueue.submit(activity, Job(kind, frames.sortedBy { if (it.evIndex == baseEv) 0 else 1 }, mirror,
                 zoom = captureZoom, srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
-                portraitBlur = settings.portraitBlur, style = currentStyle(),
+                portraitBlur = settings.portraitBlur, portraitDarkBackground = settings.portraitDarkBackground, style = currentStyle(),
+                liveClip = takeLiveClip(),
                 subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
             frames.clear() // Job e coleta já possuem listas próprias.
             if(ownsCapture) listener.onProcessingQueued(kind)
@@ -2300,21 +2506,24 @@ class NovaCamera(
     private var portraitEffect: PortraitPreviewEffect? = null
     var cinematicBound = false; private set
     private var commonVideoChosen = false
-    var portraitVideoSession=false;private set
-    private val portraitProfile get() = portraitVideoSession && settings.cinematicVideo
+    var portraitVideoSession=settings.lastMode == CaptureMode.VIDEO_RETRATO;private set
+    /** Modo CINEMA da faixa: liga o cinematográfico mesmo com a preferência do Retrato desligada. */
+    var cinemaMode=settings.lastMode == CaptureMode.VIDEO_RETRATO;private set
+    private val cinematicPreference get() = settings.cinematicVideo || cinemaMode
+    private val portraitProfile get() = portraitVideoSession && cinematicPreference
     private val selectedVideoQuality get() = if(portraitProfile) VideoQualityOption.FHD else settings.videoQuality
     private val selectedVideoFps get() = if(portraitProfile) 30 else settings.videoFps
     private val selectedVideoStabilization get() = if(portraitProfile) false else settings.videoStabilization
-    val cinematicRequested get() = com.novacamera.s24.core.CinematicPolicy.enabled(settings.cinematicVideo,portraitVideoSession,commonVideoChosen)
+    val cinematicRequested get() = com.novacamera.s24.core.CinematicPolicy.enabled(cinematicPreference,portraitVideoSession,commonVideoChosen)
     val cinematicUnavailableReason get() = if (!cinematicBound) {
         if(cinematicRequested) "Cinematográfico indisponível nesta sessão; nenhum vídeo com desfoque será iniciado" else null
     } else com.novacamera.s24.core.CinematicPolicy.unavailableReason(heat?.thermalStatus ?: 0,
             com.novacamera.s24.processing.VideoFinishJob.state.running, portraitEffect?.maskReady==true)
     val cinematicReady get() = com.novacamera.s24.core.CinematicPolicy.canStart(cinematicRequested,cinematicBound,cinematicUnavailableReason==null)
-    val portraitVideoThermallyBlocked get() = settings.cinematicVideo && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
+    val portraitVideoThermallyBlocked get() = cinematicPreference && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicThermallyBlocked get() = cinematicRequested && (heat?.thermalStatus ?: 0)>=ThermalPolicy.SEVERE
     val cinematicDiagnostic get() = when {
-        commonVideoChosen && settings.cinematicVideo -> "cinematográfico dispensado por escolha nesta sessão"
+        commonVideoChosen && cinematicPreference -> "cinematográfico dispensado por escolha nesta sessão"
         cinematicBound && cinematicUnavailableReason!=null -> "cinematográfico ligado, máscara suspensa/indisponível"
         cinematicBound -> "cinematográfico com máscara atual"
         else -> "sem cinematográfico"
@@ -2431,7 +2640,10 @@ class NovaCamera(
         val analysisGeneration=videoEffectGeneration
         val analyzer = PortraitMaskAnalyzer(activity, effect, { heat }, onState = { s -> handler.post {
             if(analysisGeneration==videoEffectGeneration && !released && !paused)listener.onPortraitPreview(s)
-        } },tapSensor={cinematicTap},captureBusy={capturing || ProcessingQueue.pending>0})
+        } },
+            // O toque vale enquanto o ponto de foco do usuário vale (mesma regra da foto em subjectPointForPhoto):
+            // quando ele expira, a prévia volta a "pessoa sem toque" e deixa de recalcular profundidade.
+            tapSensor={cinematicTap?.takeIf { userPointActive } ?: cinemaFaceTarget},captureBusy={capturing || ProcessingQueue.pending>0})
         analysis.setAnalyzer(portraitExecutor, analyzer)
         portraitAnalyzer = analyzer
         return effect to analysis
@@ -2767,6 +2979,8 @@ class NovaCamera(
         private const val COLLECT_TELE_FRAMES = 8
         private const val PINNED_STALL_MS = 3000L
         private const val STALL_PREVIEW_MS = 3000L
+        /** Intervalo mínimo entre pedidos de zoom no vídeo sem esperar confirmação (~2 quadros a 60 fps). */
+        private const val VIDEO_ZOOM_REQUEST_MS = 33L
         private const val TAG = "NovaCamera"
         private const val AUTO_RETURN_MS = 20_000L
         private const val STALL_TIMEOUT_MS = 1_500L

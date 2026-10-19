@@ -170,8 +170,11 @@ class SettingsActivity : NovaScreen() {
         }
         choice("Quadros por segundo", "60 fps só é usado quando a câmera aceita a combinação escolhida.",
             listOf("30 fps", "60 fps"), { if (settings.videoFps == 60) 1 else 0 }) { settings.videoFps = if (it == 1) 60 else 30 }
-        switch("Quadros automáticos com pouca luz", "A 30 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 5× e 10×). Com luz boa continua em 30 fps.",
+        switch("Quadros automáticos com pouca luz", "A 30 ou 60 fps, no escuro o vídeo pode cair até 15 fps para não escurecer (tele 3×, 5× e 10×). Com luz boa continua no fps escolhido. 24 fps fica fixo.",
             { settings.videoAutoFps }, { settings.videoAutoFps = it })
+        if (settings.videoHdrSeen) switch("Vídeo HDR (HLG 10 bits)", "A câmera anunciou HDR. Mais brilho e cor em telas HDR; " +
+            "em apps/telas sem HDR pode parecer apagado. Sem assinatura no vídeo enquanto ligado. Também no painel de ferramentas do Vídeo.",
+            { settings.videoHdr }, { settings.videoHdr = it })
         switch("Vídeo cinematográfico no Retrato", "Experimental, frontal/traseira: no Retrato, segure ou arraste o obturador à direita. " +
             "Perfil separado Full HD/30, sem EIS, confirmado antes do primeiro uso; não altera as configurações do Vídeo normal. " +
             "Profundidade na prévia e no MP4 exige máscara atual; calor ou perda podem pausar o efeito com aviso.",
@@ -201,6 +204,10 @@ class SettingsActivity : NovaScreen() {
             { settings.autoBacklight }, { settings.autoBacklight = it })
         switch("Priorizar rostos", "Quando a câmera suporta, foco e exposição favorecem rostos. Um toque no visor sempre prevalece.",
             { settings.facePriority }, { settings.facePriority = it })
+        switch("Contorno ao tocar", "Ao tocar num assunto, desenha o contorno dele por um instante (modelo MagicTouch, no aparelho, " +
+            "um cálculo por toque). Objetos pequenos ou distantes não recebem contorno.", { settings.tapContour }, { settings.tapContour = it })
+        switch("Mostrar rostos", "Marca discretamente os rostos que o próprio sensor detectou. Só aparece o que a câmera confirmou.",
+            { settings.showFaces }, { settings.showFaces = it })
         val holds = listOf(4, 8, 0)
         choice("Manter foco por toque", "Depois disso o foco volta a acompanhar o assunto; a exposição escolhida é preservada.",
             listOf("4 segundos", "8 segundos", "Até novo toque"), { holds.indexOf(settings.tapFocusHoldSeconds).takeIf { it >= 0 } ?: 0 }) {

@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
  * cada chip é o mesmo que a foto vai usar.
  */
 class LiveControls(context: Context) : LinearLayout(context) {
-    enum class Kind(val title: String) { BLUR("Desfoque"), EV("Exposição"), TONE("Tom"), WARMTH("Temperatura") }
+    enum class Kind(val title: String) { BLUR("Abertura"), EV("Exposição"), TONE("Tom"), WARMTH("Temperatura") }
 
     interface Listener {
         fun onBlur(v: Float)
@@ -111,13 +111,19 @@ class LiveControls(context: Context) : LinearLayout(context) {
         refreshChips()
     }
 
+    /**
+     * Desfoque mostrado como abertura simulada (f/16 nítido → f/1.4 máximo), como nas câmeras de
+     * celular. É a mesma intensidade de antes (0–100%): só o rótulo mudou; não é a abertura da lente.
+     */
+    private val APERTURES = listOf("f/16", "f/11", "f/8", "f/5.6", "f/4", "f/3.5", "f/2.8", "f/2.4", "f/2", "f/1.8", "f/1.4")
+
     private fun ev(i: Int) = if (evDen == 0) 0.0 else i * evNum.toDouble() / evDen
     private fun step(v: Float) = (v * 5).roundToInt().let { if (it > 0) "+$it" else if (it < 0) "−${-it}" else "0" }
 
     private fun refresh() {
         refreshChips()
         when (open) {
-            Kind.BLUR -> ruler.set(List(11) { if (it == 0) "Sem desfoque" else "${it * 10}%" }, (blur * 10).roundToInt())
+            Kind.BLUR -> ruler.set(List(11) { if (it == 0) "Sem desfoque" else APERTURES[it] }, (blur * 10).roundToInt())
             Kind.EV -> ruler.set((evMin..evMax).map { CameraMath.formatEv(ev(it)) + " EV" }, evIndex - evMin)
             Kind.TONE -> ruler.set(List(11) { step((it - 5) / 5f) }, (tone * 5).roundToInt() + 5)
             Kind.WARMTH -> ruler.set(List(11) { step((it - 5) / 5f) }, (warmth * 5).roundToInt() + 5)
@@ -128,7 +134,7 @@ class LiveControls(context: Context) : LinearLayout(context) {
     private fun refreshChips() {
         chips.forEach { (k, c) ->
             val value = when (k) {
-                Kind.BLUR -> "${(blur * 100).roundToInt()}%"
+                Kind.BLUR -> APERTURES[(blur * 10).roundToInt().coerceIn(0, 10)]
                 Kind.EV -> CameraMath.formatEv(ev(evIndex))
                 Kind.TONE -> step(tone)
                 Kind.WARMTH -> step(warmth)
