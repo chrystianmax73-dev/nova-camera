@@ -10,7 +10,8 @@
 
 ---
 
-# 0.30.0 — 4K60/8K: resposta definitiva no diagnóstico + tela poupando energia na gravação (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.30.0 — 4K60/8K: resposta definitiva no diagnóstico + tela poupando energia na gravação (Claude; branch `claude/nova-interface`; APK de teste build101 entregue)
+- **[Baixar ZIP com app-release.apk — build101 (1101)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39283541235/artifacts/12201559572)**. Artefato 12201559572, 138687599 bytes; sha256:af1777465f1fccc7e5f5dc2f5bdca8e31a12e93371af23b15d29d0587b4082ec; expira 2026-11-18T16:24:03Z; sem release. Gatilho restaurado em 6475691.
 - **Pedido do dono:** 4K/60 e 8K/30 como na câmera Samsung; filmar até uma hora sem esquentar.
 - **8K:** o diagnóstico já mostrava saída máxima 4080×3060 (12,5 MP) para apps de terceiros em JPEG, YUV e RAW, e "ultra-alta resolução: false"; 8K (7680×4320, 33 MP) não é possível sem a Samsung liberar. Nova linha no diagnóstico: "Maior gravação anunciada a apps (Camera2)" (tamanhos do `MediaRecorder`).
 - **4K/60:** a sessão UHD só listava fps até 30. Nova linha "Combinações de vídeo (consulta oficial do CameraX)": `CameraInfo.isSessionConfigSupported` com feature groups (CameraX 1.5+) para 4K/60, 4K/60 HLG, 4K/30 HLG e FHD/60 — só consulta, nada é vinculado.
