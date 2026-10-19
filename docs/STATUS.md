@@ -1,4 +1,5 @@
-# 0.30.4 — IA automática em zoom e pouca luz, inclusive Alta resolução (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.30.4 — IA automática em zoom e pouca luz, inclusive Alta resolução (Claude; branch `claude/nova-interface`; APK de teste build105 entregue)
+- **[Baixar ZIP com app-release.apk — build105 (1105)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39339531555/artifacts/12228572728)**. Artefato 12228572728, 138714343 bytes; sha256:4981141b0b60b68a246c2de887674a93d50367bc1cc2929742e9af384b894c3b; expira 2026-11-18T23:15:16Z; sem release. Gatilho restaurado em dc70ce4.
 - **Pedido do dono (19/10):** IA em toda foto em que ajude (zoom 3×/5×/10× ou recorte digital, foto ruim/escura), nunca na foto boa de dia; aprovado o critério proposto.
 - **Critério (`core/AiAutoPolicy.kt`):** Noturno e Retrato (como antes) + zoom ≥ 1,3× + ISO ≥ 800, até ~52 MP (200 MP fora). Food fora. Vale também para a FOTO comum de um quadro (antes a IA nunca entrava nela): nesse caso, sem tom/assinatura/estilo, a foto da galeria fica intacta até a IA terminar, e o original vai para Originais se "manter originais" estiver ligado.
 - **Padrão:** "Redução de ruído por IA" agora vem ligada (quem desligou antes continua desligado).
