@@ -356,7 +356,7 @@ object Engine {
                 out.setPixels(ref, 0, tw, x0, y0, tw, th)
             } else {
                 val others = used.map { k -> readAligned(frames[k], a, k, x0, y0, tw, th, ref) }
-                val r = Merge.mergeTile(ref, others, sigma, frameWeights = used.map { reliabilityTile(a, it, x0, y0, tw, th) })
+                val r = Merge.mergeTile(ref, others, sigma, frameWeights = used.map { reliabilityTile(a, it, x0, y0, tw, th) }, width = tw)
                 out.setPixels(r.pixels, 0, tw, x0, y0, tw, th)
                 rejected += r.rejectedFraction; count++
             }

@@ -88,6 +88,38 @@ class NightNoiseRegressionTest {
         for(y in 60..100)for(x in 80..140) assertEquals(frames[0][y*bw+x],out[y*bw+x])
     }
     private val Engine_MAX_UNSAFE=.22f
+    /** "Pontos" da foto 5× (0.29.2): ponto do ISP na referência sobrevivia porque os outros quadros eram rejeitados. */
+    private fun specks(seed:Long):List<IntArray> {
+        val rng=Random(seed)
+        return List(5){IntArray(w*h){val v=(80+rng.nextGaussian()*3).toInt();Px.argb(v,v,v)}}
+    }
+    private val speckAt=listOf(20*w+20,40*w+70,60*w+33,80*w+100,50*w+50)
+    @Test fun pontoIsoladoDaReferenciaSomeNaFusao() {
+        val frames=specks(700);for(p in speckAt)frames[0][p]=Px.argb(150,150,150)
+        val sigma=Merge.estimateNoise(frames[0],w,h)
+        val before=Merge.mergeTile(frames[0],frames.drop(1),sigma).pixels
+        val after=Merge.mergeTile(frames[0],frames.drop(1),sigma,width=w).pixels
+        for(p in speckAt){
+            assertTrue("sem a correção o ponto ficava: ${Px.r(before[p])}",Px.r(before[p])>140)
+            assertEquals("ponto da referência some",80.0,Px.r(after[p]).toDouble(),6.0)
+        }
+    }
+    @Test fun pontoRealEmTodosOsQuadrosFica() {
+        val frames=specks(701);for(f in frames)for(p in speckAt)f[p]=Px.argb(150,150,150)
+        val out=Merge.mergeTile(frames[0],frames.drop(1),Merge.estimateNoise(frames[0],w,h),width=w).pixels
+        for(p in speckAt)assertEquals(150,Px.r(out[p]))
+    }
+    @Test fun objetoPequenoSoNaReferenciaNaoEhApagado() {
+        val frames=specks(702);for(y in 30..32)for(x in 60..62)frames[0][y*w+x]=Px.argb(200,200,200)
+        val out=Merge.mergeTile(frames[0],frames.drop(1),Merge.estimateNoise(frames[0],w,h),width=w).pixels
+        for(y in 30..32)for(x in 60..62)assertEquals(frames[0][y*w+x],out[y*w+x])
+    }
+    @Test fun objetoMovelSemFantasmaComFiltroDePontos() {
+        val frames=List(5){frame(50L+it)}
+        for(k in 1..4)for(y in 30..50)for(x in 40..70)frames[k][y*w+x]=Px.argb(220,220,220)
+        val out=Merge.mergeTile(frames[0],frames.drop(1),Merge.estimateNoise(frames[0],w,h,correlated=true),width=w).pixels
+        for(y in 30..50)for(x in 40..70) assertEquals(frames[0][y*w+x],out[y*w+x])
+    }
     @Test fun objetoMovelNaoDeixaFantasmaNemHalo() {
         val frames=List(5){frame(50L+it)}
         for(k in 1..4)for(y in 30..50)for(x in 40..70)frames[k][y*w+x]=Px.argb(220,220,220)
