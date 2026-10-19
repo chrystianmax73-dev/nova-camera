@@ -165,6 +165,11 @@ class NovaCamera(
     private var zoomAtTap = 0f
     /** O AF ainda está parado no ponto tocado (falso depois que volta ao contínuo). */
     private var afAtPoint = false
+    /** Último estado do AF (CaptureResult) e a distância de foco em que a rajada fica presa ([FocusPolicy.Target.HOLD]). */
+    @Volatile private var lastAfState: Int? = null
+    private var heldFocusDiopters: Float? = null
+    /** Toque ativo: o contorno do objeto que chegar depois só vale para ele. */
+    val tapFocusToken get() = focusToken
     private var evIndex = 0
     /** Compensação automática de contraluz (passos de EV), somada ao EV do usuário só quando ele está em 0. */
     private var backlightBoost = 0
@@ -1135,7 +1140,7 @@ class NovaCamera(
 
         val exposure = cam.cameraInfo.exposureState
         evIndex = evIndex.coerceIn(exposure.exposureCompensationRange.lower, exposure.exposureCompensationRange.upper)
-        capturing = false; stillLease.end(); activePhotoTrace=null
+        capturing = false; stillLease.end(); activePhotoTrace=null; heldFocusDiopters = null
         backlightBoost = backlightBoost.coerceIn(0, maxOf(0, exposure.exposureCompensationRange.upper - evIndex))
         if (exposure.isExposureCompensationSupported) cam.cameraControl.setExposureCompensationIndex(appliedEv())
         applyInterop()
@@ -1551,7 +1556,21 @@ class NovaCamera(
         }
     }
 
-    fun focusAt(x: Float, y: Float, lock: Boolean) {
+    /**
+     * Contorno do objeto tocado chegou (MagicTouch, ~0,1–0,3 s depois do toque): Foto e Retrato refazem o
+     * AF numa região só dentro do objeto ([box] l,t,r,b normalizados da prévia), em vez dos 15% em volta do
+     * dedo que pegam o fundo junto. Toque mais novo, bloqueio, rastreio ou zoom diferente: ignora.
+     */
+    fun focusOnObject(token: Int, box: FloatArray) {
+        if (token != focusToken || !userPointActive || aeLocked || subjectTracking || capturing) return
+        if (mode != CaptureMode.FOTO && mode != CaptureMode.RETRATO) return
+        val w = previewView.width.toFloat(); val h = previewView.height.toFloat()
+        if (w <= 0f || h <= 0f || box.size < 4) return
+        val size = maxOf(box[2] - box[0], box[3] - box[1]).coerceIn(com.novacamera.s24.core.ContourMask.FOCUS_MIN, com.novacamera.s24.core.ContourMask.FOCUS_MAX)
+        focusAt((box[0] + box[2]) / 2f * w, (box[1] + box[3]) / 2f * h, lock = false, size = size)
+    }
+
+    fun focusAt(x: Float, y: Float, lock: Boolean, size: Float? = null) {
         endSubjectTracking()
         selectCinematicSubject(x,y)
         val cam = camera ?: return
@@ -1561,7 +1580,7 @@ class NovaCamera(
             tapOnView = (x / previewView.width).coerceIn(0f, 1f) to (y / previewView.height).coerceIn(0f, 1f)
         aeLocked = false
         applyInterop()
-        val point = previewView.meteringPointFactory.createPoint(x, y)
+        val point = if (size != null) previewView.meteringPointFactory.createPoint(x, y, size) else previewView.meteringPointFactory.createPoint(x, y)
         // Transformação pública: respeita rotação, recorte e escala da prévia.
         // MeteringPoint.x/y são API interna do CameraX e não devem ser lidos aqui.
         nativeMeterPoint = runCatching {
@@ -1739,6 +1758,11 @@ class NovaCamera(
         if (m.focusDiopters != null && c.manualFocus) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
             b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, m.focusDiopters.coerceIn(0f, c.minFocusDistance))
+        } else {
+            heldFocusDiopters?.takeIf { c.manualFocus }?.let { d ->
+                b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, d.coerceIn(0f, c.minFocusDistance))
+            }
         }
         if (subjectTracking) {
             trackedAfMode?.let { b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, it) }
@@ -1908,6 +1932,7 @@ class NovaCamera(
             val iso = opticalResult.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
             val exp = opticalResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
             val focus = opticalResult.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
+            if (heldFocusDiopters == null) lastAfState = result.get(CaptureResult.CONTROL_AF_STATE)
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
             if (nightPinned && mode == CaptureMode.NOITE && !capturing) {
@@ -2436,7 +2461,10 @@ class NovaCamera(
         val plan = com.novacamera.s24.core.FocusPolicy.beforeBurst(
             night = kind == JobKind.NIGHT, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
-            manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE)
+            manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE,
+            continuousSettled = (mode == CaptureMode.FOTO || mode == CaptureMode.RETRATO) && caps?.manualFocus == true &&
+                lastAfState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED && (latestStats?.focusDiopters ?: 0f) > 0f)
+        trace.mark("AF antes: estado=${lastAfState} foco=${latestStats?.focusDiopters} D ponto=${userPointActive}/${afAtPoint}")
         trace.mark("AF solicitado ${plan.target} limite${plan.waitMs}ms")
         focusBeforeBurst(cam, plan,trace) { trace.mark("AF liberou aquisição"); zoomOut() }
     }
@@ -2446,6 +2474,17 @@ class NovaCamera(
     private fun focusBeforeBurst(cam: Camera, plan: com.novacamera.s24.core.FocusPolicy.BeforeBurst, trace:com.novacamera.s24.core.PhotoTrace, then: () -> Unit) {
         val action = when (plan.target) {
             com.novacamera.s24.core.FocusPolicy.Target.NONE -> null
+            com.novacamera.s24.core.FocusPolicy.Target.HOLD -> {
+                heldFocusDiopters = latestStats?.focusDiopters
+                burstFocusHeld = true
+                val future = applyInterop()
+                if (future == null) { heldFocusDiopters = null; burstFocusHeld = false; trace.mark("AF mantido indisponível"); return then() }
+                var done = false
+                val go = { reason: String -> if (!done) { done = true; trace.mark(reason); if (activePhotoTrace === trace) then() else trace.publish("AF interrompido pela troca de sessão") } }
+                future.addListener({ go("AF mantido onde o contínuo focou: ${"%.2f".format(Locale.US, heldFocusDiopters ?: 0f)} D") }, main)
+                handler.postDelayed({ go("AF mantido: limite de espera") }, 300L)
+                return
+            }
             com.novacamera.s24.core.FocusPolicy.Target.POINT -> userPoint?.let {
                 FocusMeteringAction.Builder(it, userPointFlags or FocusMeteringAction.FLAG_AF).disableAutoCancel().build() }
             com.novacamera.s24.core.FocusPolicy.Target.CENTER -> FocusMeteringAction.Builder(
@@ -2482,6 +2521,7 @@ class NovaCamera(
     private fun releaseBurstFocus() {
         if (!burstFocusHeld) return
         burstFocusHeld = false
+        if (heldFocusDiopters != null) { heldFocusDiopters = null; applyInterop(); return }
         if (!userPointActive) camera?.cameraControl?.cancelFocusAndMetering()
     }
 

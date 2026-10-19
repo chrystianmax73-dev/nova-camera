@@ -1,3 +1,13 @@
+# 0.30.2 — Foco no objeto tocado e foco sem toque no assunto da câmera (Foto e Retrato) (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Retorno do dono (19/10, 5× à noite, Foto, Alta resolução 49 MP, ISO 2056 1/24 s × 8):** caixa com a criança na prateleira de baixo borrada na Nova e nítida na Samsung (mesma lente 115 mm f/3.4, ISO 2000 1/15 s). Frascos nítidos (até mais limpos) na Nova. O borrão é uniforme, sem contorno duplo: **profundidade de campo/foco**, não fusão nem IA — e não se recupera com IA de ruído (só uma IA generativa "inventaria" o desenho). Queixa junto: "toco e não acontece nada, só marca".
+- **Sem diagnóstico desta foto:** não dá para afirmar se houve toque. Sem toque, a rajada multiquadro da tele travava o AF no **centro** (parede/prateleira); a Samsung deixa o próprio AF escolher.
+- **Toque no objeto (Foto e Retrato):** o contorno MagicTouch que já aparecia ao toque agora define a região do AF: o maior retângulo dentro do objeto em volta do dedo (até 20% do menor lado; mín. 3%) — o AF refaz a medição só no objeto, sem o fundo que a região padrão (15% em volta do dedo) pegava. Dedo na borda: usa o ponto do objeto mais próximo. Toque no fundo/cena inteira: fica a região normal. Bloqueio (toque longo), rastreio e vídeo inalterados. Depende do "Contorno ao toque" ligado (padrão).
+- **Sem toque, rajada na tele (Foto/Retrato):** se o AF contínuo do aparelho já assentou (`PASSIVE_FOCUSED`) e a lente aceita foco manual, a lente fica exatamente onde ele focou durante a rajada (AF desligado na mesma distância; liberado ao terminar) — a escolha de assunto da própria câmera. AF ainda procurando: centro, como antes. Noturno inalterado.
+- **Diagnóstico:** o rastro da foto agora tem "AF antes: estado/foco D/ponto" e "AF mantido onde o contínuo focou: X D".
+- **Não medido no aparelho.** Testes: `FocusPolicyTest` (+1), `ContourFocusTest`.
+
+---
+
 # 0.30.1 — Vídeo travado no rosto/assunto + IA na região ampliada e na foto inteira (Claude; branch `claude/nova-interface`; APK de teste build102 entregue)
 - **[Baixar ZIP com app-release.apk — build102 (1102)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39288075407/artifacts/12203164450)**. Artefato 12203164450, 138706096 bytes; sha256:7cad63e2b47ab67863aef88713f99406072bea18b37d7a1341da99e4f71a1f08; expira 2026-11-18T16:53:45Z; sem release. Gatilho restaurado em 17d74b5.
 - **Responsabilidade:** o dono pediu os dois ao Claude em 19/10 ("pode fazer a IA e o vídeo travado no rosto ou tá nas pessoas também, objetos"), com o plano do Codex pausado. A rede (NAFNet), a força (75%) e o acabamento não mudaram; o que é novo é onde e quando ela roda.

@@ -1598,12 +1598,18 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             val r = runCatching { com.novacamera.s24.processing.ContourSegmenter.contour(this, frame, nx, ny, Nova.ACCENT_SOFT) }
                 .onFailure { com.novacamera.s24.core.CrashLog.record(this, "contorno (não fatal)", it) }.getOrNull()
             frame.recycle()
-            if (r != null) runOnUiThread { if (gen == contourGeneration && !isDestroyed) overlay.showContour(r) }
+            if (r != null) runOnUiThread {
+                if (gen != contourGeneration || isDestroyed) return@runOnUiThread
+                overlay.showContour(r)
+                // Foto/Retrato: o AF refaz a medição só dentro do objeto contornado.
+                r.focus?.let { camera.focusOnObject(camera.tapFocusToken, it) }
+            }
         }
     }
 
     override fun onLongPress(x: Float, y: Float) {
         if (!camera.ready) return
+        contourGeneration++ // contorno de um toque anterior não mexe no bloqueio
         tracking.stop()
         overlay.showFocusAt(x, y)
         camera.focusAt(x, y, lock = true)

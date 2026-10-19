@@ -37,7 +37,9 @@ object ContourSegmenter {
                 val buf = ByteBufferExtractor.extract(m).order(ByteOrder.nativeOrder()).asFloatBuffer()
                 buf.rewind()
                 val data = FloatArray(m.width * m.height) { buf.get() }
-                ContourMask.edges(data, m.width, m.height, color)
+                ContourMask.edges(data, m.width, m.height, color)?.let { r ->
+                    ContourMask.Result(r.w, r.h, r.edge, r.coverage, ContourMask.focusBox(data, m.width, m.height, nx, ny))
+                }
             } finally { masks.forEach { it.close() } }
         }
     }

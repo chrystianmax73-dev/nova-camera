@@ -10,7 +10,17 @@ class FocusPolicyTest {
     private fun plan(
         night: Boolean = false, frames: Int = 1, zoom: Float = 1f, sr: Boolean = false,
         point: Boolean = false, atPoint: Boolean = false, locked: Boolean = false, manual: Boolean = false, ext: Boolean = false,
-    ) = FocusPolicy.beforeBurst(night, frames, zoom, sr, point, atPoint, locked, manual, ext)
+        settled: Boolean = false,
+    ) = FocusPolicy.beforeBurst(night, frames, zoom, sr, point, atPoint, locked, manual, ext, settled)
+
+    @Test fun semToqueComAfContinuoAssentadoMantemOAssuntoDaCameraNaoOCentro() {
+        assertEquals(Target.HOLD, plan(frames = 8, zoom = 5f, sr = true, settled = true).target)
+        assertEquals(0L, plan(frames = 8, zoom = 5f, settled = true).waitMs) // sem atraso no disparo
+        assertEquals(Target.CENTER, plan(frames = 8, zoom = 5f, settled = false).target) // ainda procurando: centro
+        assertEquals(Target.CENTER, plan(night = true, settled = true).target) // Noturno inalterado
+        assertEquals(Target.POINT, plan(frames = 8, zoom = 5f, point = true, settled = true).target) // toque manda
+        assertEquals(Target.NONE, plan(frames = 1, zoom = 1f, settled = true).target)
+    }
 
     @Test fun pontoTocadoQueVoltouAoContinuoFocaDeNovoAntesDaFoto() {
         val p = plan(point = true, atPoint = false)
