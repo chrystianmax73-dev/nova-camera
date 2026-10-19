@@ -151,6 +151,34 @@ object Consistency {
         return if(correlated) CorrelatedNoise.sigma(p.w,p.h,base) { x,y -> p[x,y] } else base
     }
 
+    /** Teto do ruído do par (0..1): acima disso a diferença é movimento, não ruído. */
+    const val MAX_PAIR_NOISE = 0.025f
+
+    /**
+     * Ruído (0..1) medido entre a referência e o quadro alinhado (1º quartil das diferenças), no
+     * lugar do vizinho a vizinho de [noiseOf], cego a ruído em manchas. 0 = poucas amostras.
+     */
+    fun pairNoise(ref: Plane, mov: Plane, field: Array<Shift>, gx: Int, gy: Int, lut: ExposureLut): Float {
+        val d = ArrayList<Float>()
+        var y = 1
+        while (y < ref.h - 1) {
+            var x = 1
+            while (x < ref.w - 1) {
+                val s = Align.shiftAt(field, gx, gy, ref.w, ref.h, x.toFloat(), y.toFloat(), 1f)
+                val mx = x + s.dx; val my = y + s.dy
+                if (mx in 0 until mov.w && my in 0 until mov.h) {
+                    val r = ref[x, y]; val m = mov[mx, my]
+                    if (r in 0.02f..0.97f && m in 0.01f..0.985f) d += abs(lut.map(m) - r)
+                }
+                x += 3
+            }
+            y += 3
+        }
+        if (d.size < 64) return 0f
+        val arr = d.toFloatArray().also { it.sort() }
+        return min(MAX_PAIR_NOISE, arr[arr.size / 4] / 0.3186f / 1.4142f)
+    }
+
     /** Fração da área verificável em que o quadro não pode ser usado. */
     fun unsafeFraction(rel: Plane, ref: Plane): Float {
         var bad = 0; var n = 0

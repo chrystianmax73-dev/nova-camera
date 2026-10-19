@@ -435,7 +435,7 @@ object ProcessingQueue {
                     base = Bitmap.createBitmap(sources[0].width, sources[0].height, Bitmap.Config.ARGB_8888)
                     if (job.kind.merges) {
                         val rejected = Engine.mergeInto(sources, base, a, job.cancel, temporalNoise = temporalNoise,
-                            onNoise={job.trace?.mark("fusão: sigma rejeição=${it} níveis0..255; ruído alinhamento=${a.noise} escala0..1")}) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
+                            onNoise={job.trace?.mark("fusão: $it; ruído alinhamento=${a.noise} escala0..1 · por par=${a.pairNoise}")}) { progress(0.2f + 0.45f * it, "Reduzindo ruído") }
                         val n = a.usedFrames
                         job.trace?.mark("fusão temporal: usados=$n/${frames.size}, ruído alinhamento=${a.noise}, rejeição=$rejected, correlação=$temporalNoise, inseguro=${a.unsafe}")
                         note = if (n < 2) "Movimento ou alinhamento incerto: usado o quadro de referência, sem fusão"

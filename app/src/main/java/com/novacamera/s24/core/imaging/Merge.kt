@@ -2,6 +2,7 @@ package com.novacamera.s24.core.imaging
 
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
@@ -39,6 +40,30 @@ object Merge {
         val q1 = arr[arr.size / 4]
         val base = max(0.5f, q1 / 0.3186f / sqrt(2f))
         return if(correlated) CorrelatedNoise.sigma(w,h,base,step) { x,y -> Px.luma(px[y*w+x])*255f } else base
+    }
+
+    /** Teto do ruído temporal (0..255): acima disso a diferença entre quadros é movimento, não ruído. */
+    const val MAX_TEMPORAL_SIGMA = 8f
+
+    /**
+     * Ruído (0..255) medido entre a referência e quadros já alinhados: é a mesma diferença que a
+     * fusão compara. O vizinho a vizinho de [estimateNoise] não vê ruído em manchas de vários pixels
+     * (JPEG da tele alisado pelo ISP) e caía no piso, rejeitando a cena parada como movimento.
+     * 1º quartil: robusto a até ~75% de área em movimento. 0 = sem amostras suficientes.
+     */
+    fun temporalNoise(ref: IntArray, others: List<IntArray>, step: Int = 2): Float {
+        val d = ArrayList<Float>()
+        for (o in others) {
+            var i = 0
+            while (i < ref.size) {
+                val r = Px.luma(ref[i]) * 255f; val m = Px.luma(o[i]) * 255f
+                if (r in 5f..250f && m in 3f..252f) d += abs(r - m)
+                i += step
+            }
+        }
+        if (d.size < 256) return 0f
+        val arr = d.toFloatArray().also { it.sort() }
+        return min(MAX_TEMPORAL_SIGMA, arr[arr.size / 4] / 0.3186f / sqrt(2f))
     }
 
     class Result(val pixels: IntArray, val rejectedFraction: Float)

@@ -24,6 +24,9 @@ object CinematicPolicy {
         return RenderWork(blur || (enabled && calibrationPending),blur)
     }
     fun fresh(now:Long,at:Long) = at>0 && now>=at && now-at<750
+    /** Pessoa que vira assunto no vídeo: 3% do quadro deixava figura de pôster/TV no escuro desfocar o objeto real. */
+    const val MIN_PERSON_SUBJECT = .12f
+    fun personSubject(coverage:Float,tapOnPerson:Boolean) = tapOnPerson || coverage>=MIN_PERSON_SUBJECT
     /** A inferência tem orçamento próprio; movimento invalida cache sem contornar esse limite. */
     fun depthInterval(thermal:Int,still:Boolean) = if(thermal>=2) 1500L else if(still) 2500L else 900L
 }

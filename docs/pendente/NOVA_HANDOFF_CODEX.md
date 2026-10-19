@@ -1,3 +1,7 @@
+# Etapa 0.29.2 (Claude) — qualidade de imagem passou para o Claude (plano do Codex encerrado)
+- **Fusão (Noturno/zoom):** sigma da fusão e da verificação de confiabilidade agora = máx(espacial, medido entre quadros alinhados). Tocados: `Merge.temporalNoise`, `Consistency.pairNoise`, `Engine.align` (`Alignment.pairNoise`), `Engine.mergeInto` (`onNoise` virou String). Motivo e números em STATUS 0.29.2. Tetos: 8 níveis / 0,025.
+- **Cinema:** pessoa só vira assunto no vídeo com ≥12% do quadro ou sob o toque (`CinematicPolicy.personSubject`).
+
 # Etapa 0.29.0 (Claude) — Nova Live, branch `claude/nova-interface`
 - Novos (meus): `core/MotionPhoto.kt`, `camera/LiveRecorder.kt`, `processing/LiveClips.kt`. Tocados: `MediaWriter.write` (lock + reanexo depois do EXIF), `ProcessingQueue` (`Job.liveClip`, `finish`, reedição em faixas), `NovaCamera` (análise YUV só na Foto com Nova Live ligado; recuo de bind; clipe por disparo). **Pixels da foto inalterados**: o vídeo vai depois do fim do JPEG.
 - Codex: se o Ultra HDR passar a ser gerado em mais fotos, o Nova Live some nelas (recusa MPF). Juntar os dois exige um Container com GainMap + MotionPhoto (formato do Pixel) — próximo passo, se quiser.

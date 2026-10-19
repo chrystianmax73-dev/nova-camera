@@ -154,7 +154,10 @@ class PortraitMaskAnalyzer(
             val segmentStart=SystemClock.uptimeMillis()
             val segCpu0=SystemClock.currentThreadTimeMillis()
             val segResult = runCatching { seg.segment(upright) }.getOrNull()
-            val person = segResult?.takeIf { it.coverage >= 0.03f }?.person
+            val person = segResult?.takeIf { it.coverage >= 0.03f }?.person?.takeIf { p ->
+                !cinematic || com.novacamera.s24.core.CinematicPolicy.personSubject(segResult.coverage,
+                    selectedTap?.let { (tx, ty) -> p[(tx * (p.w - 1)).roundToInt(), (ty * (p.h - 1)).roundToInt()] >= .5f } == true)
+            }
             segmentMs=SystemClock.uptimeMillis()-segmentStart
             com.novacamera.s24.core.LiveAnalysisCpu.add(com.novacamera.s24.core.LiveAnalysisCpu.Stage.SEGMENT,
                 SystemClock.currentThreadTimeMillis()-segCpu0, segmentMs)

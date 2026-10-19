@@ -56,4 +56,9 @@ class CinematicPolicyTest {
         assertTrue(g.moved(FloatArray(20){.1f},.8f to .5f))
         assertFalse(g.selectionOnly)
     }
+    @Test fun figuraPequenaNaoViraAssuntoDoVideo() {
+        assertFalse("pôster/TV a 4% do quadro não desfoca o objeto real",CinematicPolicy.personSubject(.04f,false))
+        assertTrue("pessoa em plano médio",CinematicPolicy.personSubject(.2f,false))
+        assertTrue("toque na pessoa vale mesmo pequena",CinematicPolicy.personSubject(.04f,true))
+    }
 }

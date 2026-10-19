@@ -157,6 +157,8 @@ object Engine {
         val luts: List<ExposureLut>, val reliability: List<Plane?>, val unsafe: List<Float>, val noise: Float,
         /** Campos com fração de pixel (null = alinhamento só inteiro). */
         val fieldsF: List<Array<FShift>>? = null,
+        /** Ruído usado na verificação de cada quadro (máximo entre o espacial e o medido no par). */
+        val pairNoise: List<Float> = emptyList(),
     ) {
         val usable: List<Boolean> = unsafe.mapIndexed { k, u -> k == 0 || u < MAX_UNSAFE }
         val usedFrames get() = usable.count { it }
@@ -184,7 +186,8 @@ object Engine {
         fieldsF += Array(gx * gy) { FShift(0f, 0f) }
         // Cada quadro é alinhado à referência de forma independente: em paralelo ([Parallel]), com o
         // resultado montado na ordem dos quadros (igual ao de um núcleo só).
-        class One(val field: Array<Shift>, val lut: ExposureLut, val rel: Plane?, val unsafe: Float, val fieldF: Array<FShift>?)
+        class One(val field: Array<Shift>, val lut: ExposureLut, val rel: Plane?, val unsafe: Float, val fieldF: Array<FShift>?, val pair: Float)
+        val pairs = ArrayList<Float>().apply { add(noise) }
         val doneFrames = java.util.concurrent.atomic.AtomicInteger()
         val each = Parallel.map(frames.size - 1) { j ->
             val i = j + 1
@@ -194,17 +197,18 @@ object Engine {
             val movN = Plane(mov.w, mov.h, FloatArray(mov.data.size) { lut.map(mov.data[it]) })
             val global = Align.globalShift(ref, movN, maxShift = max(ref.w, ref.h) / 20)
             val field = Align.tileShifts(ref, movN, global, gx, gy, radius = 3)
-            val r = Consistency.reliability(ref, mov, field, gx, gy, lut, noise)
+            val pair = max(noise, Consistency.pairNoise(ref, mov, field, gx, gy, lut))
+            val r = Consistency.reliability(ref, mov, field, gx, gy, lut, pair)
             val one = One(field, lut, if (retainReliability) r else null, Consistency.unsafeFraction(r, ref),
-                if (subpixel) Align.refineField(ref, movN, field, global, gx, gy) else null)
+                if (subpixel) Align.refineField(ref, movN, field, global, gx, gy) else null, pair)
             progress(doneFrames.incrementAndGet().toFloat() / frames.size)
             one
         }
         for (o in each) {
-            fields += o.field; luts += o.lut; rel += o.rel; unsafe += o.unsafe
+            fields += o.field; luts += o.lut; rel += o.rel; unsafe += o.unsafe; pairs += o.pair
             o.fieldF?.let { fieldsF += it }
         }
-        return Alignment(fields, gx, gy, factor.toFloat(), ref.w, ref.h, luts, rel, unsafe, noise, if (subpixel) fieldsF else null)
+        return Alignment(fields, gx, gy, factor.toFloat(), ref.w, ref.h, luts, rel, unsafe, noise, if (subpixel) fieldsF else null, pairs)
     }
 
     private fun shiftFor(a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int): Shift =
@@ -331,13 +335,16 @@ object Engine {
      * pixels confiáveis. Retorna a fração de pixels rejeitados.
      */
     fun mergeInto(frames: List<FrameSource>, out: Bitmap, a: Alignment, cancel: CancelToken, temporalNoise: Boolean = false,
-                  onNoise:((Float)->Unit)?=null, progress: (Float) -> Unit): Float {
+                  onNoise:((String)->Unit)?=null, progress: (Float) -> Unit): Float {
         val w = out.width; val h = out.height
         val sw = min(w, 1024); val sh = min(h, 1024)
-        val sample = IntArray(sw * sh).also { frames[0].read((w - sw) / 2, (h - sh) / 2, sw, sh, it) }
-        val sigma = Merge.estimateNoise(sample, sw, sh, correlated = temporalNoise)
-        onNoise?.invoke(sigma)
+        val sx = (w - sw) / 2; val sy = (h - sh) / 2
+        val sample = IntArray(sw * sh).also { frames[0].read(sx, sy, sw, sh, it) }
         val used = frames.indices.filter { it > 0 && a.usable[it] }
+        val spatial = Merge.estimateNoise(sample, sw, sh, correlated = temporalNoise)
+        val temporal = Merge.temporalNoise(sample, used.take(2).map { k -> readAligned(frames[k], a, k, sx, sy, sw, sh, sample) })
+        val sigma = max(spatial, temporal)
+        onNoise?.invoke("sigma rejeição=$sigma níveis0..255 (espacial=$spatial, entre quadros=$temporal)")
         var rejected = 0.0; var count = 0
         val total = tileCount(w, h)
         var done = 0
