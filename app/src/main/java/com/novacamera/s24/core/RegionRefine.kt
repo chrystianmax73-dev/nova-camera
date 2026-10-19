@@ -18,11 +18,13 @@ object RegionRefine {
     }
 
     /** Recorte (imagem já orientada, w×h) para a área visível em coordenadas normalizadas. */
-    fun crop(nl: Float, nt: Float, nr: Float, nb: Float, w: Int, h: Int): Box? {
-        if (w < MIN_SIDE || h < MIN_SIDE || nr <= nl || nb <= nt) return null
+    /** [half]: a foto grande passa pela rede em meia resolução; o recorte precisa de 2× o bloco. */
+    fun crop(nl: Float, nt: Float, nr: Float, nb: Float, w: Int, h: Int, half: Boolean = false): Box? {
+        val minSide = if (half) 2 * MIN_SIDE else MIN_SIDE
+        if (w < minSide || h < minSide || nr <= nl || nb <= nt) return null
         fun span(a: Float, b: Float, size: Int): Pair<Int, Int> {
             val lo = (a.coerceIn(0f, 1f) * size).roundToInt(); val hi = (b.coerceIn(0f, 1f) * size).roundToInt()
-            val len = (hi - lo).coerceIn(MIN_SIDE, MAX_SIDE)
+            val len = (hi - lo).coerceIn(minSide, maxOf(minSide, MAX_SIDE))
             val start = ((lo + hi) / 2 - len / 2).coerceIn(0, size - len)
             return start to start + len
         }

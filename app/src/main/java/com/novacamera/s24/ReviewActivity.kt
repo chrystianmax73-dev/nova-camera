@@ -189,7 +189,9 @@ class ReviewActivity : NovaScreen() {
                 val rotation = runCatching { androidx.exifinterface.media.ExifInterface(file).rotationDegrees }.getOrDefault(0)
                 val ow = if (rotation % 180 == 0) bounds.outWidth else bounds.outHeight
                 val oh = if (rotation % 180 == 0) bounds.outHeight else bounds.outWidth
-                val box = com.novacamera.s24.core.RegionRefine.crop(rect.left, rect.top, rect.right, rect.bottom, ow, oh)
+                // Mesmo caminho da foto inteira: Alta resolução passa pela rede em meia resolução.
+                val half = ow.toLong() * oh > com.novacamera.s24.processing.NcnnDenoiser.HALF_FROM
+                val box = com.novacamera.s24.core.RegionRefine.crop(rect.left, rect.top, rect.right, rect.bottom, ow, oh, half)
                     ?: error("região pequena demais")
                 val src = com.novacamera.s24.core.RegionRefine.unrotated(box, rotation, ow, oh)
                 @Suppress("DEPRECATION")
@@ -202,8 +204,8 @@ class ReviewActivity : NovaScreen() {
                 before = crop.copy(Bitmap.Config.ARGB_8888, true)
                 after = crop
                 if (token.cancelled) throw com.novacamera.s24.processing.CancelledException()
-                val ok = com.novacamera.s24.processing.NcnnDenoiser.denoiseInPlace(this, crop, 0.75f, token,
-                    com.novacamera.s24.core.DenoisePolicy.REGION, skipClean = true) {}
+                val ok = com.novacamera.s24.processing.NcnnDenoiser.denoiseAuto(this, crop, 0.75f, token,
+                    com.novacamera.s24.core.DenoisePolicy.REGION, half = half) {}
                 if (!ok) error(com.novacamera.s24.processing.NcnnDenoiser.report)
                 val region = com.novacamera.s24.processing.Engine.Region(box.left, box.top, ow, oh)
                 ProcessingQueue.render(session, before!!, t, bl, token, plans = recorded.at(region)) {}

@@ -624,7 +624,7 @@ object ProcessingQueue {
                 // Automático e pedido usam o mesmo teto: 12 MP leva ~1 min e 49 MP alguns minutos; temperatura,
                 // economia e bateria baixa continuam interrompendo, e uma foto nova cancela e reenfileira.
                 val budget = com.novacamera.s24.core.DenoisePolicy.MANUAL
-                val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, budget, skipClean = true) { refineFraction = 0.9f * it }
+                val ok = NcnnDenoiser.denoiseAuto(context, bmp, 0.75f, token, budget) { refineFraction = 0.9f * it }
                 if (!ok) {
                     session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
                     return

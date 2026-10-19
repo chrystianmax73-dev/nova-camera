@@ -66,6 +66,58 @@ object NcnnDenoiser {
         if (handle != 0L && nowMs - lastUsedMs >= DenoisePolicy.IDLE_MS) release()
     }
 
+    /** Acima disto (Alta resolução), a rede trabalha em meia resolução ([HalfResidual]). */
+    const val HALF_FROM = 16_500_000L
+
+    /**
+     * Foto grande: reduz 2× (média 2×2, em faixas), limpa a reduzida e devolve à foto cheia só o ruído
+     * retirado, ampliado. ¼ dos blocos (49 MP ≈ custo de 12 MP). Mesmo contrato de [denoiseInPlace].
+     */
+    fun denoiseHalf(
+        context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken,
+        budget: DenoisePolicy.Budget, skipClean: Boolean, progress: (Float) -> Unit,
+    ): Boolean {
+        val w = bmp.width - bmp.width % 2; val h = bmp.height - bmp.height % 2
+        val sw = w / 2; val sh = h / 2
+        val orig = IntArray(sw * sh)
+        val rows = 256
+        val buf = IntArray(bmp.width * rows)
+        var y = 0
+        while (y < h) {
+            if (cancel.cancelled) throw CancelledException()
+            val n = minOf(rows, h - y)
+            bmp.getPixels(buf, 0, bmp.width, 0, y, bmp.width, n)
+            if (bmp.width != w) for (r in 0 until n) System.arraycopy(buf, r * bmp.width, buf, r * w, w)
+            com.novacamera.s24.core.imaging.HalfResidual.box2(buf, w, n, orig, y / 2)
+            y += n
+        }
+        val small = Bitmap.createBitmap(orig, sw, sh, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888, true)
+        try {
+            if (!denoiseInPlace(context, small, strength, cancel, budget, skipClean) { progress(0.9f * it) }) return false
+            report = "meia resolução ${sw}×${sh} para ${bmp.width}×${bmp.height} · " + report
+            val den = IntArray(sw * sh).also { small.getPixels(it, 0, sw, 0, 0, sw, sh) }
+            y = 0
+            while (y < bmp.height) {
+                if (cancel.cancelled) throw CancelledException()
+                val n = minOf(rows, bmp.height - y)
+                bmp.getPixels(buf, 0, bmp.width, 0, y, bmp.width, n)
+                com.novacamera.s24.core.imaging.HalfResidual.addResidual(buf, bmp.width, n, y, orig, den, sw, sh)
+                bmp.setPixels(buf, 0, bmp.width, 0, y, bmp.width, n)
+                y += n
+            }
+            progress(1f)
+            return true
+        } finally { small.recycle() }
+    }
+
+    /** Escolhe resolução cheia ou meia ([HALF_FROM]). */
+    fun denoiseAuto(
+        context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken,
+        budget: DenoisePolicy.Budget, skipClean: Boolean = true, half: Boolean = bmp.width.toLong() * bmp.height > HALF_FROM,
+        progress: (Float) -> Unit,
+    ): Boolean = if (half) denoiseHalf(context, bmp, strength, cancel, budget, skipClean, progress)
+        else denoiseInPlace(context, bmp, strength, cancel, budget, skipClean, progress)
+
     @Synchronized
     fun denoiseInPlace(
         context: Context, bmp: Bitmap, strength: Float, cancel: CancelToken,
