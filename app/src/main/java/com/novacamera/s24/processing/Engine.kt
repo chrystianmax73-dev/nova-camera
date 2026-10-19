@@ -219,21 +219,38 @@ object Engine {
      * é medida aqui, em resolução cheia e por bloco: erro quadrático contra a referência em ±1 px,
      * mínimo da parábola, e interpolação bilinear. Sem ele, lê o deslocamento inteiro.
      */
-    internal fun readAligned(frame: FrameSource, a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int, ref: IntArray?): IntArray {
-        val n = tw * th
+    internal fun readAligned(frame: FrameSource, a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int, ref: IntArray?): IntArray =
+        finishAligned(fetchAligned(frame, a, k, x0, y0, tw, th, ref != null), frame.width, frame.height, a, k, tw, th, ref)
+
+    /** Pixels lidos do quadro para um bloco ([margin] px em volta quando há fração de pixel a medir). */
+    internal class AlignedWindow(val src: IntArray, val ox: Int, val oy: Int, val margin: Int, val subpixel: Boolean)
+
+    /** Só a leitura (o JPEG decodifica por faixas, em série); o cálculo fica em [finishAligned]. */
+    internal fun fetchAligned(frame: FrameSource, a: Alignment, k: Int, x0: Int, y0: Int, tw: Int, th: Int, measure: Boolean): AlignedWindow {
         val ff = a.fieldsF
-        if (k == 0 || ff == null || ref == null) {
+        if (k == 0 || ff == null || !measure) {
             val s = if (k == 0) Shift(0, 0) else shiftFor(a, k, x0, y0, tw, th)
-            val out = IntArray(n).also { readClamped(frame, x0 + s.dx, y0 + s.dy, tw, th, it) }
-            if (ref != null) keepReferenceOutside(out, ref, tw, th, x0 + s.dx, y0 + s.dy, 0, 0, 0, 0, frame.width, frame.height)
-            return out
+            return AlignedWindow(IntArray(tw * th).also { readClamped(frame, x0 + s.dx, y0 + s.dy, tw, th, it) }, x0 + s.dx, y0 + s.dy, 0, false)
         }
         val f = Align.shiftAtF(ff[k], a.gx, a.gy, a.lw, a.lh, (x0 + tw / 2f) / a.scale, (y0 + th / 2f) / a.scale, a.scale)
         val ix = kotlin.math.round(f.x).toInt(); val iy = kotlin.math.round(f.y).toInt()
         // Janela com 2 px de margem em cada lado (medir ±1 e interpolar com 4×4 vizinhos).
         val m = 2
+        val src = IntArray((tw + 2 * m) * (th + 2 * m)).also { readClamped(frame, x0 + ix - m, y0 + iy - m, tw + 2 * m, th + 2 * m, it) }
+        return AlignedWindow(src, x0 + ix, y0 + iy, m, true)
+    }
+
+    /** Cálculo puro sobre a janela lida (pode rodar em paralelo entre blocos). */
+    internal fun finishAligned(win: AlignedWindow, fw: Int, fh: Int, a: Alignment, k: Int, tw: Int, th: Int, ref: IntArray?): IntArray {
+        val n = tw * th
+        if (!win.subpixel) {
+            if (ref != null) keepReferenceOutside(win.src, ref, tw, th, win.ox, win.oy, 0, 0, 0, 0, fw, fh)
+            return win.src
+        }
+        requireNotNull(ref)
+        val m = win.margin
         val rw = tw + 2 * m; val rh = th + 2 * m
-        val src = IntArray(rw * rh).also { readClamped(frame, x0 + ix - m, y0 + iy - m, rw, rh, it) }
+        val src = win.src
         val lumaSrc = FloatArray(src.size) { a.luts[k].map(Px.luma(src[it])) }
         val lumaRef = FloatArray(n) { Px.luma(ref[it]) }
         fun ssd(ox: Int, oy: Int): Double {
@@ -254,7 +271,7 @@ object Engine {
         val tx = frac(ssd(-1, 0), c0, ssd(1, 0)); val ty = frac(ssd(0, -1), c0, ssd(0, 1))
         if (kotlin.math.abs(tx) < 0.03f && kotlin.math.abs(ty) < 0.03f) {
             return IntArray(n) { i -> src[(i / tw + m) * rw + i % tw + m] }
-                .also { keepReferenceOutside(it, ref, tw, th, x0 + ix, y0 + iy, 0, 0, 0, 0, frame.width, frame.height) }
+                .also { keepReferenceOutside(it, ref, tw, th, win.ox, win.oy, 0, 0, 0, 0, fw, fh) }
         }
         // Interpolação cúbica (Catmull-Rom, separável): mantém as bordas nítidas — a bilinear
         // equivale a um filtro de média de meio pixel e borraria cada quadro deslocado.
@@ -278,7 +295,7 @@ object Engine {
                 r += wj * tmp[o]; g += wj * tmp[o + 1]; b2 += wj * tmp[o + 2]
             }
             Px.argb((r + 0.5f).toInt(), (g + 0.5f).toInt(), (b2 + 0.5f).toInt())
-        }.also { keepReferenceOutside(it, ref, tw, th, x0 + ix, y0 + iy, bx - 1, bx + 2, by - 1, by + 2, frame.width, frame.height) }
+        }.also { keepReferenceOutside(it, ref, tw, th, win.ox, win.oy, bx - 1, bx + 2, by - 1, by + 2, fw, fh) }
     }
 
     /**
@@ -348,19 +365,34 @@ object Engine {
         var rejected = 0.0; var count = 0
         val total = tileCount(w, h)
         var done = 0
-        tiles(w, h) { x0, y0, tw, th ->
+        // Leitura em série (JPEG por faixas), cálculo dos blocos em paralelo ([Parallel], respeita calor e
+        // economia), gravação em série na mesma ordem: a foto sai idêntica à de um núcleo só. Diagnóstico
+        // 0.29.5: a fusão em série levava 6,5–8,0 s dos ~14 s do Noturno 5×.
+        class TileJob(val x0: Int, val tw: Int, val ref: IntArray, val wins: List<AlignedWindow>)
+        val xs = (0 until w step TILE).toList()
+        val batch = 2 * max(1, Parallel.workers)
+        for (y0 in 0 until h step TILE) for (chunk in xs.chunked(batch)) {
             if (cancel.cancelled) throw CancelledException()
-            val n = tw * th
-            val ref = IntArray(n).also { frames[0].read(x0, y0, tw, th, it) }
-            if (used.isEmpty()) {
-                out.setPixels(ref, 0, tw, x0, y0, tw, th)
-            } else {
-                val others = used.map { k -> readAligned(frames[k], a, k, x0, y0, tw, th, ref) }
-                val r = Merge.mergeTile(ref, others, sigma, frameWeights = used.map { reliabilityTile(a, it, x0, y0, tw, th) }, width = tw)
-                out.setPixels(r.pixels, 0, tw, x0, y0, tw, th)
-                rejected += r.rejectedFraction; count++
+            val th = min(TILE, h - y0)
+            val jobs = chunk.map { x0 ->
+                val tw = min(TILE, w - x0)
+                val ref = IntArray(tw * th).also { frames[0].read(x0, y0, tw, th, it) }
+                TileJob(x0, tw, ref, used.map { k -> fetchAligned(frames[k], a, k, x0, y0, tw, th, true) })
             }
-            done++; progress(done.toFloat() / total)
+            val results = Parallel.map(jobs.size) { i ->
+                if (cancel.cancelled) throw CancelledException()
+                val j = jobs[i]
+                if (used.isEmpty()) null else {
+                    val others = used.mapIndexed { n, k -> finishAligned(j.wins[n], frames[k].width, frames[k].height, a, k, j.tw, th, j.ref) }
+                    Merge.mergeTile(j.ref, others, sigma, frameWeights = used.map { reliabilityTile(a, it, j.x0, y0, j.tw, th) }, width = j.tw)
+                }
+            }
+            for ((i, j) in jobs.withIndex()) {
+                val r = results[i]
+                if (r == null) out.setPixels(j.ref, 0, j.tw, j.x0, y0, j.tw, th)
+                else { out.setPixels(r.pixels, 0, j.tw, j.x0, y0, j.tw, th); rejected += r.rejectedFraction; count++ }
+                done++; progress(done.toFloat() / total)
+            }
         }
         return if (count == 0) 1f else (rejected / count).toFloat()
     }

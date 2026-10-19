@@ -1,3 +1,7 @@
+# Etapa 0.29.7 (Claude) — auditoria do Noturno em zoom: ler `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md`
+- Codex: propostas de qualidade A–D lá (mais quadros na tele, YUV, crominância pelo ruído medido, RAW). 0.29.2–0.29.6 mexeram em `Merge`, `Consistency`, `Engine.align/mergeInto/superRes`, `NightLensPolicy` (pedido do dono enquanto o teu plano estava encerrado) — revisar antes de mudar a fusão.
+- `Engine.mergeInto` agora paralelo (imagem idêntica, teste pixel a pixel); `readAligned` = `fetchAligned` + `finishAligned`.
+
 # Etapa 0.29.2 (Claude) — qualidade de imagem passou para o Claude (plano do Codex encerrado)
 - **Fusão (Noturno/zoom):** sigma da fusão e da verificação de confiabilidade agora = máx(espacial, medido entre quadros alinhados). Tocados: `Merge.temporalNoise`, `Consistency.pairNoise`, `Engine.align` (`Alignment.pairNoise`), `Engine.mergeInto` (`onNoise` virou String). Motivo e números em STATUS 0.29.2. Tetos: 8 níveis / 0,025.
 - **Cinema:** pessoa só vira assunto no vídeo com ≥12% do quadro ou sob o toque (`CinematicPolicy.personSubject`).

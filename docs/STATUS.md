@@ -1,3 +1,12 @@
+# 0.29.7 — Auditoria do Noturno em zoom + fusão em paralelo (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Auditoria completa:** `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md` (caminho real da captura com números do diagnóstico, causas confirmadas × hipóteses, perdas de informação, propostas A–D para o Codex, conjunto de validação).
+- **Medido no diagnóstico 0.29.5 (5×, lente 7 confirmada):** rajada 250 ms/quadro (era ~1.000 ms); rejeição da fusão 4,9% e 0,7% (era 58% na 0.29.1); 5/5 quadros; total 13,5–15,8 s, dos quais a **fusão 6,5–8,0 s em um núcleo**; heap até 391/512 MiB no alinhamento.
+- **Otimização (escopo Claude, imagem idêntica):** `Engine.mergeInto` lê em série (JPEG por faixas), calcula os blocos em paralelo (`Parallel`, respeita calor/economia) e grava em série; `readAligned` = `fetchAligned` + `finishAligned`. `EngineAndroidTest.fusaoEmParaleloIgualAUmNucleo` compara pixel a pixel 1 × 4 núcleos (idênticos). JVM 653 → 428 ms (não é medida do S24; o próximo diagnóstico mede).
+- **Crashes do Cinema (tombstone, 0.29.2):** `abort()` dentro de `ImageSegmenter.segment` (MediaPipe, 09:20) e `DepthEstimator.nativeRun` (ncnn/OpenMP, 09:36), ~2 s após abrir a sessão. Causa interna não identificada.
+- **Nota de responsabilidade:** 0.29.2–0.29.6 mudaram qualidade (fusão, lente, SR) por pedido do dono com o plano do Codex encerrado; a partir do prompt de 19/10 o Claude volta a só auditar/propor qualidade e implementar desempenho.
+
+---
+
 # 0.29.6 — Noturno 10×: super-resolução multiquadro (Claude; branch `claude/nova-interface`; APK de teste build99 entregue)
 - **[Baixar ZIP com app-release.apk — build99 (1099)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39261441950/artifacts/12190863062)**. Artefato 12190863062, 138680238 bytes; sha256:98cb2b79647863f108db158ddee8ab9e621b234e2d0d59b77582ff8cb8ad69ec; expira 2026-11-18T13:43:50Z; sem release. Gatilho restaurado em 420d6a1.
 - Retorno do dono (0.29.5 ou 0.29.6, não informado): bandejas 5× agora com 115 mm f/3.4 (lente 5× confirmada). Mais grão e cor mais apagada que a 0.29.2 na mesma cena, com exposição idêntica (1/24 s ISO 2056, teto do Noturno 5×) e cena visivelmente mais escura. Sem diagnóstico; pedido.
