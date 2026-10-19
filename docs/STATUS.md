@@ -1,3 +1,11 @@
+# 0.30.3 — Toque no objeto: exposição volta à região normal (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Retorno do dono (19/10, 3×, Alta resolução 49 MP, 0.30.2):** foto "mais clara, esbranquiçada". Medido: os mesmos frascos saíram ~40% mais claros que na foto 5× da 0.30.1 (lado do frasco 83→117), com exposição 1,55× maior na captura (ISO 2056→3196, 1/24 s) — a diferença veio da exposição do sensor, não do tom (pipeline de tom inalterado desde 0.30.0).
+- **Causa provável (minha, 0.30.2):** o refino do toque no objeto movia AF **e AE** para dentro do objeto; tocar a caixa na sombra fazia a exposição medir só a sombra e clarear a foto inteira.
+- **Correção:** só o AF vai para o objeto; a AE fica na região normal do toque (15% em volta do dedo, como até a 0.30.1), também no refoco antes da rajada e no retorno ao automático (`NovaCamera.meterAction`).
+- **IA na revisão "não aparece":** sem print/diagnóstico não dá para saber se a linha da IA nem aparece (modelo/biblioteca não carregados) ou se a prévia falhou. Pedido ao dono. Limite reafirmado: NAFNet tira ruído, não recupera foco/detalhe (caixa 3× no escuro, 574×344 px reais).
+
+---
+
 # 0.30.2 — Foco no objeto tocado e foco sem toque no assunto da câmera (Foto e Retrato) (Claude; branch `claude/nova-interface`; APK de teste build103 entregue)
 - **[Baixar ZIP com app-release.apk — build103 (1103)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39335098544/artifacts/12225573802)**. Artefato 12225573802, 138712103 bytes; sha256:a2bc5b6deb5a35c641d49f11010a9f09353e3b570454aca46247b38061145b27; expira 2026-11-18T22:36:21Z; sem release. Gatilho restaurado em db27c00.
 - **Retorno do dono (19/10, 5× à noite, Foto, Alta resolução 49 MP, ISO 2056 1/24 s × 8):** caixa com a criança na prateleira de baixo borrada na Nova e nítida na Samsung (mesma lente 115 mm f/3.4, ISO 2000 1/15 s). Frascos nítidos (até mais limpos) na Nova. O borrão é uniforme, sem contorno duplo: **profundidade de campo/foco**, não fusão nem IA — e não se recupera com IA de ruído (só uma IA generativa "inventaria" o desenho). Queixa junto: "toco e não acontece nada, só marca".

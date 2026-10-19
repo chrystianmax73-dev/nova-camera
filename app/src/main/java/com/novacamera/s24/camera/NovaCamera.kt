@@ -161,6 +161,8 @@ class NovaCamera(
     private var focusToken = 0
     /** Ponto tocado (para focar de novo nele antes de uma rajada) e o zoom no momento do toque. */
     private var userPoint: MeteringPoint? = null
+    /** Exposição do toque: a região normal em volta do dedo, mesmo quando o AF mede só o objeto. */
+    private var userAePoint: MeteringPoint? = null
     private var userPointFlags = 0
     private var zoomAtTap = 0f
     /** O AF ainda está parado no ponto tocado (falso depois que volta ao contínuo). */
@@ -1526,7 +1528,7 @@ class NovaCamera(
         userPointActive = false
         aeLocked = false
         nativeMeterPoint = null
-        userPoint = null
+        userPoint = null; userAePoint = null
         afAtPoint = false
     }
 
@@ -1567,10 +1569,20 @@ class NovaCamera(
         val w = previewView.width.toFloat(); val h = previewView.height.toFloat()
         if (w <= 0f || h <= 0f || box.size < 4) return
         val size = maxOf(box[2] - box[0], box[3] - box[1]).coerceIn(com.novacamera.s24.core.ContourMask.FOCUS_MIN, com.novacamera.s24.core.ContourMask.FOCUS_MAX)
-        focusAt((box[0] + box[2]) / 2f * w, (box[1] + box[3]) / 2f * h, lock = false, size = size)
+        // Só o AF vai para o objeto. A exposição continua na região do toque: medir só o objeto (caixa na
+        // sombra) clareava a foto inteira (0.30.2, foto real 19/10).
+        focusAt((box[0] + box[2]) / 2f * w, (box[1] + box[3]) / 2f * h, lock = false, size = size, aePoint = userAePoint ?: userPoint)
     }
 
-    fun focusAt(x: Float, y: Float, lock: Boolean, size: Float? = null) {
+    /** AF e AE no mesmo ponto, ou AF em [af] e AE em [ae] quando diferentes. */
+    private fun meterAction(af: MeteringPoint, ae: MeteringPoint, flags: Int): FocusMeteringAction {
+        val wantsAf = flags and FocusMeteringAction.FLAG_AF != 0
+        val wantsAe = flags and FocusMeteringAction.FLAG_AE != 0
+        if (af === ae || !wantsAf || !wantsAe) return FocusMeteringAction.Builder(if (wantsAf) af else ae, flags).disableAutoCancel().build()
+        return FocusMeteringAction.Builder(af, FocusMeteringAction.FLAG_AF).addPoint(ae, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
+    }
+
+    fun focusAt(x: Float, y: Float, lock: Boolean, size: Float? = null, aePoint: MeteringPoint? = null) {
         endSubjectTracking()
         selectCinematicSubject(x,y)
         val cam = camera ?: return
@@ -1596,9 +1608,10 @@ class NovaCamera(
         val manualFocus = mode.isPro && manual.focusDiopters != null
         val flags = if (manualFocus) FocusMeteringAction.FLAG_AE
                     else FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-        val action = FocusMeteringAction.Builder(point, flags).disableAutoCancel().build()
+        val ae = aePoint ?: point
+        val action = meterAction(point, ae, flags)
         val chosen = if (cam.cameraInfo.isFocusMeteringSupported(action)) action else {
-            val exposureOnly = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
+            val exposureOnly = FocusMeteringAction.Builder(ae, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
             if (!cam.cameraInfo.isFocusMeteringSupported(exposureOnly)) {
                 userPointActive = false
                 applyInterop()
@@ -1608,6 +1621,7 @@ class NovaCamera(
             exposureOnly
         }
         userPoint = point
+        userAePoint = ae
         userPointFlags = if (chosen === action) flags else FocusMeteringAction.FLAG_AE
         zoomAtTap = zoomTarget
         afAtPoint = false
@@ -1627,7 +1641,7 @@ class NovaCamera(
                 aeLocked = true
                 applyInterop()
                 if (activeExtension != ExtensionMode.NONE) listener.onMessage("Bloqueio de exposição indisponível neste modo do fabricante; foco travado")
-            } else scheduleFocusRelease(token, point)
+            } else scheduleFocusRelease(token, ae)
             listener.onFocusResult(ok, lock)
         }, main)
     }
@@ -2486,7 +2500,7 @@ class NovaCamera(
                 return
             }
             com.novacamera.s24.core.FocusPolicy.Target.POINT -> userPoint?.let {
-                FocusMeteringAction.Builder(it, userPointFlags or FocusMeteringAction.FLAG_AF).disableAutoCancel().build() }
+                meterAction(it, userAePoint ?: it, userPointFlags or FocusMeteringAction.FLAG_AF) }
             com.novacamera.s24.core.FocusPolicy.Target.CENTER -> FocusMeteringAction.Builder(
                 previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
                 FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
@@ -2510,7 +2524,7 @@ class NovaCamera(
             if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
                 afAtPoint = result == true
                 // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
-                if(afAtPoint) userPoint?.let { scheduleFocusRelease(token, it) }
+                if(afAtPoint) (userAePoint ?: userPoint)?.let { scheduleFocusRelease(token, it) }
             }
             go("AF callback: sucesso=$result")
         }, main)
