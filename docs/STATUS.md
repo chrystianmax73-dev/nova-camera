@@ -1,3 +1,13 @@
+# 0.30.0 — 4K60/8K: resposta definitiva no diagnóstico + tela poupando energia na gravação (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono:** 4K/60 e 8K/30 como na câmera Samsung; filmar até uma hora sem esquentar.
+- **8K:** o diagnóstico já mostrava saída máxima 4080×3060 (12,5 MP) para apps de terceiros em JPEG, YUV e RAW, e "ultra-alta resolução: false"; 8K (7680×4320, 33 MP) não é possível sem a Samsung liberar. Nova linha no diagnóstico: "Maior gravação anunciada a apps (Camera2)" (tamanhos do `MediaRecorder`).
+- **4K/60:** a sessão UHD só listava fps até 30. Nova linha "Combinações de vídeo (consulta oficial do CameraX)": `CameraInfo.isSessionConfigSupported` com feature groups (CameraX 1.5+) para 4K/60, 4K/60 HLG, 4K/30 HLG e FHD/60 — só consulta, nada é vinculado.
+- **Gravação longa (`core/RecordingPowerPolicy.kt`):** gravando, a janela pede 60 Hz (vídeo tem 30/60 quadros; a tela chega a 120 Hz); sem toque por 20 s (5 s com térmico ≥ moderado) a tela escurece para 15% e o primeiro toque devolve o brilho. Vídeo gravado inalterado. Medir no diagnóstico: "VÍDEO (gravando)" (corrente, temperatura, térmico) antes × depois.
+- **Não medido ainda:** quanto isso economiza no S24 (o ganho real depende de quanto a tela pesa frente ao codificador e ao sensor).
+- Testes: `RecordingPowerPolicyTest`.
+
+---
+
 # 0.29.7 — Auditoria do Noturno em zoom + fusão em paralelo (Claude; branch `claude/nova-interface`; APK de teste build100 entregue)
 - **[Baixar ZIP com app-release.apk — build100 (1100)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39263835515/artifacts/12193100411)**. Artefato 12193100411, 138682920 bytes; sha256:b1d0d29bbec35f1e3c3f0a4132970edb8f2dda7958beff9a0276e25fd0edda88; expira 2026-11-18T13:57:52Z; sem release. Gatilho restaurado em 97c5ed5.
 - **Auditoria completa:** `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md` (caminho real da captura com números do diagnóstico, causas confirmadas × hipóteses, perdas de informação, propostas A–D para o Codex, conjunto de validação).

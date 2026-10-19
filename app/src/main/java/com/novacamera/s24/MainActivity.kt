@@ -154,6 +154,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var countdown = 0
     private var evDragStart = 0
     private var lastInteraction = SystemClock.elapsedRealtime()
+    private var recordingPowerActive = false
+    private var recordingDimmed = false
     private var idlePaused = false
     private var announcedMode: CaptureMode? = null
     private var settingsSignature = ""
@@ -1533,6 +1535,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             RecordingPhase.IDLE -> Icon.FLIP
         }
         if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (active != recordingPowerActive) setRecordingPower(active)
     }
 
     override fun onRecordingFinished(uri: Uri?, error: String?) {
@@ -1652,13 +1655,34 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         lastInteraction = SystemClock.elapsedRealtime()
+        if (recordingDimmed) setRecordingDim(false)
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** Gravando: tela a 60 Hz (o vídeo tem 30/60 quadros); fora da gravação, volta ao padrão do sistema. */
+    private fun setRecordingPower(recording: Boolean) {
+        recordingPowerActive = recording
+        window.attributes = window.attributes.also {
+            it.preferredRefreshRate = if (recording) com.novacamera.s24.core.RecordingPowerPolicy.REFRESH_HZ else 0f
+            if (!recording) it.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        if (!recording) recordingDimmed = false
+    }
+
+    private fun setRecordingDim(dim: Boolean) {
+        recordingDimmed = dim
+        window.attributes = window.attributes.also {
+            it.screenBrightness = if (dim) com.novacamera.s24.core.RecordingPowerPolicy.DIM_BRIGHTNESS else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        if (dim) hint.show("Tela escurecida para poupar bateria · toque para clarear", 2500)
     }
 
     private val idleCheck = object : Runnable {
         override fun run() {
             val timeout = settings.idleTimeoutSeconds
             val idleFor = SystemClock.elapsedRealtime() - lastInteraction
+            if (com.novacamera.s24.core.RecordingPowerPolicy.shouldDim(camera.isRecording, recordingDimmed, idleFor,
+                    ProcessingQueue.heat?.thermalStatus ?: 0)) setRecordingDim(true)
             if (timeout > 0 && !idlePaused && !camera.isRecording && countdown == 0 && idleFor > timeout * 1000L) {
                 idlePaused = true
                 camera.pause()

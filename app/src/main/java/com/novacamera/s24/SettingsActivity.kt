@@ -380,11 +380,37 @@ class DiagnosticsActivity : NovaScreen() {
             appendLine("  Vídeo SDR: ${qualities.joinToString().ifEmpty { "?" }} · estabilização de vídeo: ${video?.isStabilizationSupported}" +
                 " · de pré-visualização: ${runCatching { Preview.getPreviewCapabilities(info).isStabilizationSupported }.getOrNull()}")
             appendLine("  Faixas de fps (CameraX): ${info.supportedFrameRateRanges.joinToString()}")
+            appendLine("  Combinações de vídeo (consulta oficial do CameraX): ${videoCombos(info)}")
+            appendLine("  Maior gravação anunciada a apps (Camera2): ${maxRecorderSize(info)}")
             appendLine("  Zoom: ${info.zoomState.value?.let { "${it.minZoomRatio}–${it.maxZoomRatio}" } ?: "(lido ao abrir a câmera)"}")
         }
         val all = provider.availableCameraInfos
         appendLine("Câmeras acessíveis ao CameraX: ${all.size}")
     }
+
+    /**
+     * O aparelho responde se a combinação é garantida (CameraX 1.5+, feature groups). Só consulta; nada é
+     * vinculado. "não" aqui é a resposta definitiva para 4K60 neste app.
+     */
+    private fun videoCombos(info: androidx.camera.core.CameraInfo): String = runCatching {
+        val preview = Preview.Builder().build()
+        val video = androidx.camera.video.VideoCapture.withOutput(Recorder.Builder().build())
+        fun ask(vararg f: androidx.camera.core.featuregroup.GroupableFeature) = runCatching {
+            info.isSessionConfigSupported(androidx.camera.core.SessionConfig.Builder(preview, video).setRequiredFeatureGroup(*f).build())
+        }.fold({ if (it) "sim" else "não" }, { "erro ${it.javaClass.simpleName}" })
+        val g = androidx.camera.video.GroupableFeatures
+        val f = androidx.camera.core.featuregroup.GroupableFeature
+        "4K/60=${ask(g.UHD_RECORDING, f.FPS_60)} · 4K/60 HLG=${ask(g.UHD_RECORDING, f.FPS_60, f.HDR_HLG10)} · " +
+            "4K/30 HLG=${ask(g.UHD_RECORDING, f.HDR_HLG10)} · FHD/60=${ask(g.FHD_RECORDING, f.FPS_60)}"
+    }.getOrElse { "consulta indisponível (${it.javaClass.simpleName})" }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun maxRecorderSize(info: androidx.camera.core.CameraInfo): String = runCatching {
+        val map = androidx.camera.camera2.interop.Camera2CameraInfo.from(info)
+            .getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val s = map?.getOutputSizes(android.media.MediaRecorder::class.java)?.maxByOrNull { it.width.toLong() * it.height } ?: return@runCatching "?"
+        "${s.width}×${s.height} · 8K (7680×4320): " + if (s.width.toLong() * s.height >= 7680L * 4320) "anunciado" else "não anunciado para apps de terceiros"
+    }.getOrElse { "?" }
 
     private fun shareReport() {
         if (report.isEmpty()) return
