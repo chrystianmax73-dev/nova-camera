@@ -2201,9 +2201,13 @@ class NovaCamera(
         // lente sem recorte e a foto final é montada com as amostras de todos os quadros.
         val lensNow = currentLens
         val srFactor = if (settings.superRes && !isFront && activeExtension == ExtensionMode.NONE &&
-            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM) &&
+            (kind == JobKind.PHOTO || kind == JobKind.HDR || kind == JobKind.ZOOM || kind == JobKind.NIGHT) &&
             lensNow?.physicalCameraId != null && lensNow.intrinsic >= 2.5f && zoomOnLens >= SR_MIN_DIGITAL) zoomOnLens else 1f
-        if (srFactor > 1f) {
+        if (srFactor > 1f && kind == JobKind.NIGHT) {
+            // Noturno com recorte digital (10× na tele 5×): mesma rajada/exposição e tom do Noturno; só a
+            // montagem final usa as amostras de todos os quadros na posição exata, em vez de ampliar um.
+            captureNote = "${captureNote ?: "Noturno"} · super-resolução ${steps.size} quadros"
+        } else if (srFactor > 1f) {
             kind = JobKind.ZOOM
             steps = List(SR_FRAMES) { 0 }
             captureNote = "Super-resolução: $SR_FRAMES quadros na lente sem recorte"

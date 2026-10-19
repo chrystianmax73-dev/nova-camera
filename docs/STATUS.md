@@ -1,3 +1,11 @@
+# 0.29.6 — Noturno 10×: super-resolução multiquadro (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **O que muda:** no Noturno com recorte digital sobre uma tele física fixada (10× = tele 5× × 1,96; também 5× quando o recuo de foco cai na lente 3×), a montagem final usa `Engine.superRes` (amostras de todos os quadros na posição subpixel, tremor da mão) em vez de fundir e ampliar um quadro. Rajada, plano de exposição do Noturno, AF e tom do Noturno inalterados (o job continua NIGHT; a lente sai do recorte antes da rajada, como na SR da Foto). 3× e 5× na própria tele não têm recorte: seguem a fusão normal.
+- **Hipótese descartada com teste:** alimentar a SR com o ruído medido entre quadros não melhora (ruído em manchas: 19,93 dB com o piso × 19,98 dB medido); a robustez pela faixa 3×3 da referência já tolera manchas. Mudança revertida para não ampliar a tolerância a fantasma.
+- **Prova (sintética):** Noturno com manchas, 5 quadros: SR 19,9 dB × ampliar um quadro 17,8 dB (`SuperResTest.noturnoComRuidoEmManchasPrecisaDoRuidoEntreQuadros`).
+- **Custo/risco:** processamento do 10× noturno mais longo; não testado no aparelho.
+
+---
+
 # 0.29.5 — Noturno fixa a lente da tele (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Evidência (dono, 0.29.4):** pedindo 5× no Noturno, a foto saiu com 69 mm f/2.4 — a lente 3× ampliada ~1,6×. Causa: com ISO ≥ 800 (sempre no Noturno) `zoomTo` não preferia a lente nativa e o firmware, na câmera lógica, troca a 5× pela 3× no escuro. Perde ~40% da resolução linear e nem ganha luz: para o mesmo enquadramento a pupila da 5× (≈5,5 mm) é maior que a da 3× (≈3,3 mm).
 - **Correção (`core/NightLensPolicy.kt`):** no Noturno, traseira, zoom ≥ 2,5×: a lente física nativa fica fixa (3× → lente 3×; 5× e 10× → lente 5×, 10× = 5× com recorte 1,96×), também ao entrar no Noturno já com zoom. Ao sair do Noturno volta à câmera lógica (a Foto continua fixando só com luz boa). 1× e selfie inalterados.
