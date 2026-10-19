@@ -56,6 +56,19 @@ class CinematicPolicyTest {
         assertTrue(g.moved(FloatArray(20){.1f},.8f to .5f))
         assertFalse(g.selectionOnly)
     }
+    @Test fun tremorNaTeleNaoDescartaProfundidadeMasTrocaDeCenaSim() {
+        val g=CinematicSceneGuard()
+        g.moved(FloatArray(20){.30f},null)
+        assertTrue("tremor ainda conta como movimento",g.moved(FloatArray(20){.38f},null))
+        assertFalse("tremor (0,08) não é outra cena",g.sceneCut)
+        assertTrue(g.moved(FloatArray(20){.70f},null))
+        assertTrue("troca de cena (0,32) descarta a profundidade",g.sceneCut)
+    }
+    @Test fun pistasDoTombstoneNativo() {
+        val bytes="\u0000\u0008SIGSEGV\u0012\u0003abc\u001anova-cine-depth\u0000libncnn.so\u0001ncnn::VkCompute::submit_and_wait\u0002hello world".toByteArray(Charsets.ISO_8859_1)
+        val hints=NativeCrashHints.extract(bytes)
+        assertEquals(listOf("SIGSEGV","nova-cine-depth","libncnn.so","ncnn::VkCompute::submit_and_wait"),hints)
+    }
     @Test fun figuraPequenaNaoViraAssuntoDoVideo() {
         assertFalse("pôster/TV a 4% do quadro não desfoca o objeto real",CinematicPolicy.personSubject(.04f,false))
         assertTrue("pessoa em plano médio",CinematicPolicy.personSubject(.2f,false))

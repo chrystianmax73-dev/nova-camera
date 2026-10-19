@@ -36,13 +36,21 @@ class CinematicSceneGuard {
     private var tap:Pair<Float,Float>?=null
     /** Último [moved] foi só troca de assunto (cena parada): a profundidade continua valendo. */
     var selectionOnly=false;private set
+    /** Último [moved] foi troca de cena (não tremor da mão): a profundidade anterior não serve mais. */
+    var sceneCut=false;private set
     fun moved(luma:FloatArray,target:Pair<Float,Float>?):Boolean {
         val old=previous
-        val movement=old!=null && (old.size!=luma.size || old.indices.sumOf { abs(old[it]-luma[it]).toDouble() }/luma.size>0.045)
+        val diff=if(old==null) 0.0 else if(old.size!=luma.size) 1.0 else old.indices.sumOf { abs(old[it]-luma[it]).toDouble() }/luma.size
+        val movement=diff>0.045
+        sceneCut=diff>SCENE_CUT
         val previousTap=tap
         val selection=(previousTap==null)!=(target==null) || (previousTap!=null && target!=null && hypot(previousTap.first-target.first,previousTap.second-target.second)>.04f)
         previous=luma.copyOf(); if(selection || tap==null) tap=target
         selectionOnly=selection && !movement
         return movement || selection
+    }
+    companion object {
+        /** Diferença média (0..1) acima da qual é outra cena. Tremor na tele (3×) passava de 0,045 a cada análise. */
+        const val SCENE_CUT=0.15
     }
 }

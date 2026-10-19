@@ -140,10 +140,13 @@ class PortraitMaskAnalyzer(
                         // suavização [RACK_KEEP] levar o foco até o novo assunto em ~1 s ("rack focus",
                         // como o Cinematográfico do iPhone), em vez de apagar o desfoque e recalcular.
                         rackFocusFrames = RACK_FRAMES
-                    } else {
+                    } else if (sceneGuard.sceneCut) {
                         depthGeneration.incrementAndGet(); depthDone=null
                         depthN=null; prevSubject=null; prevAmount=null; effect.clearMask()
                     }
+                    // Tremor/pan leve: a profundidade anterior continua valendo até a próxima (já no ritmo
+                    // de cena em movimento). Antes cada tremor descartava a inferência em voo e apagava a
+                    // máscara: na tele ela quase nunca ficava pronta e o vídeo caía em "indisponível".
                 }
             }
             // Prévia da foto: modelo leve (só mostra o desfoque; a foto usa o multiclasse). O vídeo

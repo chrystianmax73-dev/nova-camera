@@ -1,3 +1,12 @@
+# 0.29.3 — Cinema na tele: máscara não fica pronta + pista do crash nativo (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Evidência (dono, 0.29.2 build95):** Cinema a 3× (lente 6), carregando, térmico 2. Ao gravar: "Cinematográfico indisponível — a máscara ainda não está pronta". Diagnóstico: 137 quadros analisados, só 27 máscaras enviadas; 6 profundidades (~1,56 s cada). Novo crash nativo 09:20:45, 2 s depois de abrir a sessão cinematográfica.
+- **Raiz da máscara:** `CinematicSceneGuard` tratava qualquer diferença média > 0,045 entre análises como "cena mudou". Na tele, o tremor da mão passa disso a cada análise: a máscara era apagada e a profundidade em voo descartada (geração nova) antes de chegar. Com profundidade de ~1,5 s, ela quase nunca era usada.
+- **Correção:** só troca de cena (diferença > 0,15, `SCENE_CUT`) descarta a profundidade e apaga a máscara. Tremor/pan leve mantém a profundidade anterior até a próxima, que já roda no ritmo de cena em movimento. Custo aceito: objeto que se mexe dentro do quadro pode ficar até ~1–2 s com a máscara atrasada, em vez de ficar sem desfoque.
+- **Crash nativo:** não tenho a causa. Profundidade (lock + marca de fechada) e segmentador (fechado na mesma thread da análise) foram revisados e não têm corrida visível. O diagnóstico agora extrai do tombstone (API 31+) o sinal, a thread, as .so e as funções da pilha (`core/NativeCrashHints.kt`). O próximo diagnóstico com crash diz onde foi.
+- Testes: `CinematicPolicyTest` (tremor ≠ troca de cena; pistas do tombstone).
+
+---
+
 # 0.29.2 — Noturno na tele (raiz do ruído) + assunto errado no Cinema (Claude; branch `claude/nova-interface`; APK de teste build95 entregue)
 - **[Baixar ZIP com app-release.apk — build95 (1095)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39185802925/artifacts/12158251043)**. Artefato 12158251043, 138679672 bytes; sha256:aa55dcf34f911d0d941770ed2fba744fb6106d3942c348937654be814faf4fa0; expira 2026-11-18T01:38:30Z; sem release. Gatilho restaurado em f7a4bc1.
 - **Contexto:** o plano do Codex acabou; o dono passou qualidade de imagem para o Claude. Evidência: diagnóstico 0.29.1 (build94), duas fotos Noturno 5× (115 mm, f/3.4, 1/24 s, ISO 2056) com ruído em manchas e um MP4 do Cinema (bandeja, pouca luz).
