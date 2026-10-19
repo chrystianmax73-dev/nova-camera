@@ -32,8 +32,44 @@ class SubjectTrackerTest {
         val blank = ByteArray(w*h) { 90 }
         assertEquals(SubjectTracker.Phase.UNCERTAIN,t.update(blank,w,h,1200).phase)
         assertEquals(SubjectTracker.Phase.UNCERTAIN,t.update(blank,w,h,1600).phase)
-        assertEquals(SubjectTracker.Phase.LOST,t.update(blank,w,h,1800).phase)
-        assertEquals(SubjectTracker.Phase.LOST,t.update(frame(),w,h,2000).phase)
+        assertEquals(SubjectTracker.Phase.UNCERTAIN,t.update(blank,w,h,2100).phase)
+        assertEquals(SubjectTracker.Phase.LOST,t.update(blank,w,h,2200).phase)
+        assertEquals(SubjectTracker.Phase.LOST,t.update(frame(),w,h,2400).phase)
+    }
+    /** Mesma região, textura que vira outra aos poucos (pessoa girando o rosto, objeto girando). */
+    private fun morph(t: Double, dx: Int): ByteArray = ByteArray(w*h) { i ->
+        val x = i % w - dx; val y = i / w
+        val v = if (x in 78..142 && y in 55..125) {
+            val a = 31*sin(x*.31+y*.13) + 28*cos(y*.27-x*.11) + 17*sin(x*.17-y*.37)
+            val b = 31*cos(x*.23-y*.29) + 28*sin(y*.19+x*.41) + 17*cos(x*.07+y*.33)
+            122 + (1-t)*a + t*b
+        } else 90.0
+        v.roundToInt().coerceIn(0,255).toByte()
+    }
+    @Test fun adaptaAAparenciaQueMudaDevagarSemPerderOAssunto() {
+        val t = SubjectTracker()
+        assertEquals(SubjectTracker.Phase.TRACKING, t.select(morph(0.0,0),w,h,110f/(w-1),90f/(h-1),1000).phase)
+        for (k in 1..30) {
+            val r = t.update(morph(k*.02,k),w,h,1000L+k*200)
+            assertEquals("quadro $k",SubjectTracker.Phase.TRACKING,r.phase)
+            assertEquals((110+k).toDouble(),r.x*(w-1.0),4.0)
+        }
+    }
+    @Test fun incertoProcuraNumaAreaMaiorEReencontraOSalto() {
+        val t = SubjectTracker(); selected(t)
+        val jump = frame(54)
+        val first = t.update(jump,w,h,1200) // fora do raio normal: incerto, não pula para outro lugar.
+        assertEquals(SubjectTracker.Phase.UNCERTAIN,first.phase)
+        assertEquals(110.0,first.x*(w-1.0),4.0)
+        val r = t.update(jump,w,h,1400)
+        assertEquals(SubjectTracker.Phase.TRACKING,r.phase)
+        assertEquals(164.0,t.update(jump,w,h,1600).x*(w-1.0),5.0)
+    }
+    @Test fun tamanhoConhecidoDoRostoDefineOModelo() {
+        val t = SubjectTracker()
+        val r = t.select(frame(),w,h,110f/(w-1),90f/(h-1),1000, sideHint = .3f)
+        assertEquals(SubjectTracker.Phase.TRACKING,r.phase)
+        assertEquals(.3,r.side.toDouble(),.01)
     }
     @Test fun rejeitaRegiaoLisaEBorda() {
         val t=SubjectTracker()

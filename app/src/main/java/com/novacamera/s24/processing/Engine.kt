@@ -611,7 +611,11 @@ object Engine {
      * Aplica o plano (+ visual Food, se pedido) no lugar. [userStrength] (revisão) multiplica a
      * intensidade decidida pelo plano; 1 = a decisão automática.
      */
-    fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken, progress: (Float) -> Unit) {
+    /** Recorte de uma foto maior: os planos tonais da foto inteira valem no recorte nas coordenadas dele. */
+    data class Region(val x: Int, val y: Int, val fullW: Int, val fullH: Int)
+
+    fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken,
+                    region: Region? = null, progress: (Float) -> Unit) {
         val s = (plan.strength * userStrength).coerceIn(0f, 1f)
         // ToneMap já dispensava esses planos por bloco, mas ainda copiávamos a foto inteira.
         // Food tem acabamento próprio mesmo quando o plano tonal é neutro.
@@ -620,7 +624,8 @@ object Engine {
             progress(1f)
             return
         }
-        val map = ToneMap(plan.base, plan.params, bmp.width, bmp.height, plan.mid)
+        val map = ToneMap(plan.base, plan.params, region?.fullW ?: bmp.width, region?.fullH ?: bmp.height, plan.mid)
+        val ox = region?.x ?: 0; val oy = region?.y ?: 0
         if(!food) {
             // Faixa curta reutilizável: menos buffers e preparação geométrica repetida.
             // Mesmas coordenadas/pixels; cancelamento a cada64 linhas, sem JNI tonal.
@@ -631,7 +636,7 @@ object Engine {
                 val h=min(rows,bmp.height-y0)
                 val band=if(buffer.size==bmp.width*h)buffer else IntArray(bmp.width*h)
                 bmp.getPixels(band,0,bmp.width,0,y0,bmp.width,h)
-                map.applyTile(band,bmp.width,h,0,y0,s,plan.imaging?.protection ?: 0f)
+                map.applyTile(band,bmp.width,h,ox,oy+y0,s,plan.imaging?.protection ?: 0f)
                 bmp.setPixels(band,0,bmp.width,0,y0,bmp.width,h)
                 progress((y0+h).toFloat()/bmp.height)
             }
@@ -642,7 +647,7 @@ object Engine {
         tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
-            map.applyTile(buf, tw, th, x0, y0, s, plan.imaging?.protection ?: 0f)
+            map.applyTile(buf, tw, th, ox + x0, oy + y0, s, plan.imaging?.protection ?: 0f)
             if (food) FoodLook.applyTile(buf, userStrength)
             bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
             done++; progress(done.toFloat() / total)
@@ -651,12 +656,17 @@ object Engine {
 
     /** Pouca luz na foto comum: clareia meios-tons (ver [ToneParams.lowLightLift]). Devolve o EV aplicado. */
     fun lowLightInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken): Float {
+        val plan = lowLightPlan(bmp, iso) ?: return 0f
+        toneInPlace(bmp, plan, 1f, false, cancel) {}
+        return plan.params.midLiftEv
+    }
+
+    fun lowLightPlan(bmp: Bitmap, iso: Int?): Adaptive.Plan? {
         val (px, w, h) = preview(bmp)
         val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
         val params = ToneParams.lowLightLift(iso, com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f),
-            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.95f)) ?: return 0f
-        toneInPlace(bmp, com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), null, "pouca luz"), 1f, false, cancel) {}
-        return params.midLiftEv
+            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.95f)) ?: return null
+        return com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), null, "pouca luz")
     }
 
     /** Sombras sem cor falsa de ruído (ver [com.novacamera.s24.core.imaging.ShadowChroma]). */
@@ -672,13 +682,14 @@ object Engine {
     }
 
     /** Perfil "Contraste": preto firme e contraste local sobre a foto já com o tom automático. */
-    fun profileInPlace(bmp: Bitmap, cancel: CancelToken) {
+    fun profileInPlace(bmp: Bitmap, cancel: CancelToken) = toneInPlace(bmp, profilePlan(bmp), 1f, false, cancel) {}
+
+    fun profilePlan(bmp: Bitmap): Adaptive.Plan {
         val (px, w, h) = preview(bmp)
         val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
         val params = ToneParams.contrastProfile(com.novacamera.s24.core.imaging.Adaptive.darkChannel(px),
             com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f))
-        val plan = com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), ToneMap.midFrom(luma), "perfil contraste")
-        toneInPlace(bmp, plan, 1f, false, cancel) {}
+        return com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), ToneMap.midFrom(luma), "perfil contraste")
     }
 
     /** Resolução da máscara refinada do retrato para uma foto w×h. */

@@ -1,3 +1,8 @@
+# Etapa 0.30.1 (Claude) — vídeo travado no rosto/assunto + IA por região e foto inteira (pedido do dono)
+- Detalhes e limites em `docs/STATUS.md` (0.30.1). Para o Codex: `TileNoise.CLEAN_SIGMA` (1,2) é um palpite sem medição — calibrar com o "limpos pulados" do diagnóstico em fotos reais de Noturno e Retrato. A força da rede (0,75) e o acabamento não mudaram.
+- Pontos de integração: `ProcessingQueue.render(..., plans)` registra/reaplica os planos tonais (`RenderPlans`); `Engine.toneInPlace(..., region)`; `Engine.lowLightPlan`/`profilePlan` separados de `lowLightInPlace`/`profileInPlace` (saída idêntica). Mudou o tom? Mantenha o registro/reaplicação em todo passo com estatística global, senão a prévia por região diverge (`RegionRenderTest` pega).
+- Rastreio: `SubjectTracker` com adaptação presa ao modelo do toque e busca ampla quando incerto; `SubjectTrackingSession` aceita `faces` (rostos do sensor em coordenadas da prévia, `NovaCamera.facesInView`).
+
 # Etapa 0.29.7 (Claude) — auditoria do Noturno em zoom: ler `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md`
 - Codex: propostas de qualidade A–D lá (mais quadros na tele, YUV, crominância pelo ruído medido, RAW). 0.29.2–0.29.6 mexeram em `Merge`, `Consistency`, `Engine.align/mergeInto/superRes`, `NightLensPolicy` (pedido do dono enquanto o teu plano estava encerrado) — revisar antes de mudar a fusão.
 - `Engine.mergeInto` agora paralelo (imagem idêntica, teste pixel a pixel); `readAligned` = `fetchAligned` + `finishAligned`.

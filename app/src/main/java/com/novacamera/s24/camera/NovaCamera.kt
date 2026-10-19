@@ -1754,7 +1754,9 @@ class NovaCamera(
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !normalVideoMode &&
             !mode.isPro && !m.manualExposure && night == null
         // Rostos do próprio sensor (modo simples, sem custo de CPU do app): só para desenhar onde estão.
-        if ((settings.showFaces || cinematicRequested) && facesSupported && !mode.isPro && night == null)
+        // Também no vídeo com acompanhamento: o toque num rosto trava o foco nele (FaceLock).
+        val faceLockMode = settings.videoSubjectTracking && (mode == CaptureMode.VIDEO || mode == CaptureMode.RETRATO)
+        if ((settings.showFaces || cinematicRequested || faceLockMode) && facesSupported && !mode.isPro && night == null)
             b.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
@@ -1862,12 +1864,24 @@ class NovaCamera(
     @Volatile private var cinemaFaceAt = 0L
     private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 600L }
 
+    @Volatile private var trackFaces: List<android.graphics.Rect> = emptyList()
+    @Volatile private var trackFacesAt = 0L
+
+    /** Rostos recentes do sensor nas coordenadas da prévia (thread principal), para travar o foco no vídeo. */
+    fun facesInView(maxAgeMs: Long = 400L): List<com.novacamera.s24.core.FaceLock.Box> {
+        if (SystemClock.uptimeMillis() - trackFacesAt > maxAgeMs) return emptyList()
+        val t = previewView.sensorToViewTransform ?: return emptyList()
+        return trackFaces.map { r -> android.graphics.RectF(r).also { t.mapRect(it) }.let { com.novacamera.s24.core.FaceLock.Box(it.left, it.top, it.right, it.bottom) } }
+    }
+
     private fun publishFaces(result: TotalCaptureResult) {
         val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
         if (cinematicRequested) faces.filter { it.score >= 75 && it.bounds.width() >= 80 && it.bounds.height() >= 80 }
             .maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
             cinemaFace = it.bounds.exactCenterX() to it.bounds.exactCenterY(); cinemaFaceAt = SystemClock.uptimeMillis()
         }
+        trackFaces = if (faces.isEmpty()) emptyList() else faces.filter { it.score >= 50 }.take(6).map { android.graphics.Rect(it.bounds) }
+        trackFacesAt = SystemClock.uptimeMillis()
         if (!settings.showFaces) return
         val now = SystemClock.uptimeMillis()
         if (faces.isEmpty() && !hadFaces) return

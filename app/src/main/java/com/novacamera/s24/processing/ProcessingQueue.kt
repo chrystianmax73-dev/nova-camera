@@ -197,7 +197,13 @@ object ProcessingQueue {
     private val listeners = mutableListOf<(JobProgress) -> Unit>()
     private val queued = ArrayList<Job>()
     @Volatile private var current: Job? = null
+    /** Esfriou/voltou a carregar: o refino que esperava pela temperatura ou bateria recomeça sozinho. */
     @Volatile var heat: DeviceHeat? = null
+        set(v) {
+            field = v
+            val c = refineContext ?: return
+            if (refineCancel == null && pendingRefines > 0 && com.novacamera.s24.core.DenoisePolicy.allowed(v)) scheduleRefine(c)
+        }
     @Volatile var keepOriginals = false
     /** Redução de ruído por IA (NAFNet/ncnn), experimental. */
     @Volatile var aiDenoise = false
@@ -549,6 +555,39 @@ object ProcessingQueue {
 
     /** Refino pendente (para diagnóstico e testes). */
     val pendingRefines: Int get() = synchronized(refines) { refines.size }
+    /** Pedidos feitos na revisão: rodam mesmo com a IA automática desligada, com orçamento de minutos. */
+    private val manualRefines = HashSet<String>()
+    @Volatile private var refineContext: Context? = null
+    @Volatile private var refineRunning: String? = null
+    @Volatile private var refineFraction = 0f
+
+    enum class RefineState { NONE, WAITING, RUNNING, DONE, FAILED }
+    data class RefineStatus(val state: RefineState, val fraction: Float = 0f, val detail: String = "")
+
+    /** Estado do refino por IA de uma sessão (relê do disco: o refino grava numa cópia própria). */
+    fun refineStatus(context: Context, id: String): RefineStatus {
+        if (refineRunning == id) return RefineStatus(RefineState.RUNNING, refineFraction)
+        if (synchronized(refines) { id in refines }) return RefineStatus(RefineState.WAITING)
+        val meta = session(context, id)?.meta ?: return RefineStatus(RefineState.NONE)
+        return when (meta.getProperty(AI_KEY)) {
+            AI_DONE -> RefineStatus(RefineState.DONE, 1f, meta.getProperty("aiReport", ""))
+            AI_SKIPPED, AI_BASE -> RefineStatus(RefineState.FAILED, 0f, meta.getProperty("aiReport", ""))
+            else -> RefineStatus(RefineState.NONE)
+        }
+    }
+
+    /** "Refinar foto inteira" da revisão. Devolve o motivo quando não dá para pedir. */
+    fun requestRefine(context: Context, session: Session): String? {
+        val app = context.applicationContext
+        if (!NcnnDenoiser.available(app)) return "Modelo de IA ausente nesta versão"
+        if (session.meta.getProperty("banded") == "true") return "Foto de alta resolução: a IA não roda nela"
+        if (session.enhancedUri == null || !session.base.exists()) return "Foto sem versão Nova para substituir"
+        if (session.meta.getProperty(AI_KEY) == AI_DONE) return "Esta foto já foi refinada por IA"
+        refineContext = app
+        synchronized(refines) { manualRefines += session.id; refines.remove(session.id); refines.addFirst(session.id) }
+        scheduleRefine(app)
+        return null
+    }
 
     private fun scheduleRefine(context: Context) {
         if (synchronized(refines) { refines.isNotEmpty() }) executor.execute { runNextRefine(context.applicationContext) }
@@ -562,14 +601,18 @@ object ProcessingQueue {
      */
     private fun runNextRefine(context: Context) {
         if (pending > 0) return // a foto seguinte agenda de novo quando terminar
-        if (!aiDenoise) { synchronized(refines) { refines.clear() }; return }
-        if (!com.novacamera.s24.core.DenoisePolicy.allowed(heat)) return // tenta de novo depois da próxima foto
+        refineContext = context
+        if (!aiDenoise) synchronized(refines) { refines.retainAll(manualRefines) }
+        // Espera a próxima foto ou a mudança de temperatura/bateria ([heat]).
+        if (!com.novacamera.s24.core.DenoisePolicy.allowed(heat)) return
         val id = synchronized(refines) { refines.removeFirstOrNull() } ?: return
+        val manual = synchronized(refines) { manualRefines.remove(id) }
         val session = session(context, id)
         val uri = session?.enhancedUri
         if (session == null || uri == null || !session.base.exists()) return scheduleRefine(context) // sessão já descartada
         val token = CancelToken()
         refineCancel = token
+        refineRunning = id; refineFraction = 0f
         var bmp: Bitmap? = null
         try {
             bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply {
@@ -577,7 +620,8 @@ object ProcessingQueue {
             }) ?: error("base ilegível")
             if (session.meta.getProperty(AI_KEY) != AI_BASE) {
                 val t0 = android.os.SystemClock.elapsedRealtime()
-                val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, com.novacamera.s24.core.DenoisePolicy.BACKGROUND) {}
+                val budget = if (manual) com.novacamera.s24.core.DenoisePolicy.MANUAL else com.novacamera.s24.core.DenoisePolicy.BACKGROUND
+                val ok = NcnnDenoiser.denoiseInPlace(context, bmp, 0.75f, token, budget, skipClean = true) { refineFraction = 0.9f * it }
                 if (!ok) {
                     session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
                     return
@@ -596,7 +640,7 @@ object ProcessingQueue {
             session.meta.setProperty(AI_KEY, AI_DONE); session.save()
             Log.i(TAG, "IA em segundo plano concluída: $id")
         } catch (e: CancelledException) {
-            synchronized(refines) { if (id !in refines) refines.addFirst(id) }
+            synchronized(refines) { if (id !in refines) refines.addFirst(id); if (manual) manualRefines += id }
         } catch (e: OutOfMemoryError) {
             Log.w(TAG, "IA em segundo plano sem memória: $id", e)
         } catch (e: Exception) {
@@ -604,6 +648,7 @@ object ProcessingQueue {
         } finally {
             bmp?.recycle()
             refineCancel = null
+            refineRunning = null
             releaseModelLater()
             scheduleRefine(context)
         }
@@ -731,28 +776,51 @@ object ProcessingQueue {
     }
     private class SelectedResolutionUnavailable : RuntimeException()
 
-    fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, trace: com.novacamera.s24.core.PhotoTrace? = null, progress: (Float) -> Unit) {
+    /**
+     * Planos tonais de um acabamento da foto inteira. Sem [region], [render] os registra; com [region],
+     * [render] aplica os registrados num recorte em resolução cheia (prévia da IA na região ampliada),
+     * para o recorte sair com o mesmo tom da foto inteira e não com o tom calculado só dele.
+     */
+    class RenderPlans {
+        var tone: com.novacamera.s24.core.imaging.Adaptive.Plan? = null
+        var lowLight: com.novacamera.s24.core.imaging.Adaptive.Plan? = null
+        var profile: com.novacamera.s24.core.imaging.Adaptive.Plan? = null
+        var region: Engine.Region? = null
+        val recorded get() = tone != null
+        fun at(region: Engine.Region) = RenderPlans().also { it.tone = tone; it.lowLight = lowLight; it.profile = profile; it.region = region }
+    }
+
+    fun render(session: Session, bmp: Bitmap, tone: Float, blur: Float, cancel: CancelToken, trace: com.novacamera.s24.core.PhotoTrace? = null,
+               plans: RenderPlans? = null, progress: (Float) -> Unit) {
         fun <T> step(name:String, block:()->T):T = if(trace==null)block() else trace.measure(name,block)
         val kind = session.kind
-        val plan = step("acabamento/plano tonal") { if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
+        val region = plans?.region
+        val replay = plans != null && region != null && plans.recorded
+        val plan = if (replay) requireNotNull(plans?.tone) else step("acabamento/plano tonal") { if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || (kind == JobKind.AUTO && session.meta.getProperty("nai.enabled") == "true"))
             Engine.planAdaptive(bmp, session.zoom, com.novacamera.s24.core.imaging.ImagingFacts.fromMeta(
                 session.meta.stringPropertyNames().associateWith { session.meta.getProperty(it) }))
-        else Engine.planTone(bmp, kind.tone, session.zoom) }
+        else Engine.planTone(bmp, kind.tone, session.zoom) }.also { plans?.tone = it }
         // Tele (3×/5×/10×): detalhe fino antes do tom (o tom não realça o que foi recuperado). Também no
         // HDR e no Retrato (foto real: cacto 5× pelo HDR saía sem o realce). Noturno não (ruído).
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
             step("acabamento/detalhes") { Engine.detailInPlace(bmp, session.zoom, cancel) }
-        step("acabamento/tons") { Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel) { progress(0.5f * it) } }
+        step("acabamento/tons") { Engine.toneInPlace(bmp, plan, tone, kind == JobKind.FOOD, cancel, if (replay) region else null) { progress(0.5f * it) } }
         // Pouca luz na foto comum (o Noturno tem o próprio clareamento; Food fica como está).
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.PORTRAIT)
-            step("acabamento/pouca luz") { Engine.lowLightInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
+            step("acabamento/pouca luz") {
+                val lift = if (replay) plans?.lowLight else Engine.lowLightPlan(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull()).also { plans?.lowLight = it }
+                if (lift != null) Engine.toneInPlace(bmp, lift, 1f, false, cancel, if (replay) region else null) {}
+            }
         // ISO alto: sombras sem manchas roxas/azuis de ruído de cor — antes do desfoque do retrato,
         // que transformaria essas manchas em "aquarela". Food fica com a cor que tem.
         if (kind != JobKind.FOOD) step("acabamento/crominância") { Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
         // Perfil "Contraste": não no Noturno (tom do Noturno mantido por decisão do usuário) nem no Food.
         if (session.meta.getProperty("profile") == "contrast" && kind != JobKind.NIGHT && kind != JobKind.FOOD)
-            step("acabamento/perfil") { Engine.profileInPlace(bmp, cancel) }
-        if (kind == JobKind.PORTRAIT && session.hasPerson) {
+            step("acabamento/perfil") {
+                val profile = (if (replay) plans?.profile else null) ?: Engine.profilePlan(bmp).also { plans?.profile = it }
+                Engine.toneInPlace(bmp, profile, 1f, false, cancel, if (replay) region else null) {}
+            }
+        if (kind == JobKind.PORTRAIT && session.hasPerson && !replay) {
             val matte = session.loadMatte()
             if (matte != null) step("acabamento/desfoque") { Engine.portraitInPlace(bmp, matte, blur, cancel, session.loadBlurMap()) { progress(0.5f + 0.5f * it) } }
             if (matte != null && session.meta.getProperty("portrait.light") == "dark")

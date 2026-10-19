@@ -210,11 +210,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera = NovaCamera(this, preview, settings, this)
         tracking = com.novacamera.s24.camera.SubjectTrackingSession(preview,
             valid = { camera.ready && camera.subjectTracking && selectedTrackingEpoch == camera.trackingEpoch },
+            faces = { camera.facesInView() },
             onResult = { target ->
                 if (overlay.trackedSubject == null) overlay.hideFocusRing()
                 overlay.trackedSubject = target
                 val uncertain = target.phase == com.novacamera.s24.core.SubjectTracker.Phase.UNCERTAIN
-                trackingChip.text = if (uncertain) "ASSUNTO INCERTO  ✕" else "RASTREANDO · ${camera.trackingControls}  ✕"
+                trackingChip.text = if (uncertain) "ASSUNTO INCERTO  ✕" else if (target.reason == com.novacamera.s24.camera.SubjectTrackingSession.FACE)
+                    "ROSTO TRAVADO · ${camera.trackingControls}  ✕" else "RASTREANDO · ${camera.trackingControls}  ✕"
                 trackingChip.contentDescription = trackingChip.text.toString() + ". Toque para voltar ao automático"
                 trackingChip.visibility = View.VISIBLE
                 if (!uncertain && !camera.meterTrackedSubject(target.x, target.y, target.side))

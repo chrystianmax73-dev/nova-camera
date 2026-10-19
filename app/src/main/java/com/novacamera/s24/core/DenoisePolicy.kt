@@ -17,6 +17,14 @@ object DenoisePolicy {
      */
     val BACKGROUND = Budget(60_000L, 50_000L)
 
+    /** Prévia da IA só na região ampliada (até 16 blocos), com a revisão aberta esperando. */
+    val REGION = Budget(20_000L, 18_000L)
+    /**
+     * Foto inteira pedida na revisão: o usuário escolheu esperar (~190 blocos em 12 MP, minutos).
+     * Térmica, economia de bateria e bateria baixa continuam interrompendo.
+     */
+    val MANUAL = Budget(300_000L, 280_000L)
+
     /** Bateria baixa fora do carregador: a IA opcional espera (a foto já está pronta na galeria). */
     const val LOW_BATTERY = 15
 
