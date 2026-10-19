@@ -138,6 +138,10 @@ class NovaCamera(
     private var currentLensId: String? = null
     private var currentLens: LensOption? = null
     private val failedPhysicalRoutes = mutableSetOf<String>()
+    /** Lente física fixada pelo Noturno (não pela Foto com luz boa); a tele que não focou nesta visita ao Noturno. */
+    private var nightPinned = false
+    private val nightFocusFailed = mutableSetOf<String>()
+    private val nightFocus = com.novacamera.s24.core.NightLensPolicy.FocusWatch()
     private var nativeRun: NativePhotoCapture? = null
     private var released = false
     private var nativePhotoSelected = false
@@ -611,6 +615,29 @@ class NovaCamera(
             val parent=lenses.firstOrNull { it.cameraId==child.cameraId && it.physicalCameraId==null }
             pendingZoomOnLens=child.intrinsic*zoomOnLens/(parent?.intrinsic ?: 1f)
             currentLensId=child.cameraId
+        }
+
+        // Noturno na tele: lente nativa fixa (ver NightLensPolicy). Ao sair do Noturno, volta à lógica
+        // para não mudar a Foto (que só fixa com luz boa).
+        val routeLens = lenses.firstOrNull { it.routeKey == currentLensId }
+        if (mode == CaptureMode.NOITE && routeLens != null && routeLens.physicalCameraId == null) {
+            val eq = routeLens.intrinsic * (pendingZoomOnLens ?: zoomOnLens)
+            if (com.novacamera.s24.core.NightLensPolicy.pinNative(true, isFront, eq))
+                LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes && it.routeKey !in nightFocusFailed },
+                    currentLensId, defaultLensId, eq, preferNative = true)
+                    ?.takeIf { c -> c.cameraId != currentLensId && lenses.any { it.routeKey == c.cameraId && it.physicalCameraId != null &&
+                        it.intrinsic >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM } }
+                    ?.let { c -> currentLensId = c.cameraId; pendingZoomOnLens = c.zoomOnLens; nightPinned = true; nightFocus.reset() }
+        } else if (mode != CaptureMode.NOITE) {
+            nightFocusFailed.clear()
+            if (nightPinned) {
+                nightPinned = false
+                routeLens?.takeIf { it.physicalCameraId != null }?.let { child ->
+                    val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null }
+                    pendingZoomOnLens = child.intrinsic * (pendingZoomOnLens ?: zoomOnLens) / (parent?.intrinsic ?: 1f)
+                    currentLensId = child.cameraId
+                }
+            }
         }
 
         // Extensões do fabricante só existem na câmera padrão de cada lado.
@@ -1249,9 +1276,13 @@ class NovaCamera(
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val st = latestStats
             val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
+            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(mode == CaptureMode.NOITE, isFront, equivalentZoom)
+            if (mode == CaptureMode.NOITE) nightFocusFailed.clear()
             val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes &&
                     ((!mode.isVideo && mode != CaptureMode.RETRATO) || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
-                preferNative = !mode.isVideo && !isFront && enoughLight)
+                preferNative = !mode.isVideo && !isFront && (enoughLight || nightTele))
+            if (choice != null && choice.cameraId != currentLensId && nightTele &&
+                lenses.any { it.routeKey == choice.cameraId && it.physicalCameraId != null }) { nightPinned = true; nightFocus.reset() }
             if (choice != null && choice.cameraId != currentLensId) {
                 currentLensId = choice.cameraId
                 pendingZoomOnLens = choice.zoomOnLens
@@ -1343,6 +1374,18 @@ class NovaCamera(
             listener.onMessage("Esta lente não respondeu; a câmera escolhe a lente automaticamente")
             bind()
         }, PINNED_STALL_MS)
+    }
+
+    /** Tele fixada pelo Noturno sem foco: volta à lógica (o firmware pode usar outra lente com recorte). */
+    private fun nightFocusFallback(route: String) {
+        if (released || paused || !nightPinned || mode != CaptureMode.NOITE || isRecording || capturing) return
+        val child = currentLens?.takeIf { it.routeKey == route && it.physicalCameraId != null } ?: return
+        val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null } ?: return
+        nightFocusFailed.add(route); nightPinned = false; nightFocus.reset()
+        pendingZoomOnLens = child.intrinsic * zoomOnLens / parent.intrinsic
+        currentLensId = parent.routeKey
+        listener.onMessage("A tele não focou (perto ou escuro demais); o Noturno usa a lente automática")
+        bind()
     }
 
     private fun clampZoom(onLens: Float): Float? {
@@ -1853,6 +1896,11 @@ class NovaCamera(
             val focus = opticalResult.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
+            if (nightPinned && mode == CaptureMode.NOITE && !capturing) {
+                val route = currentLens?.routeKey
+                if (route != null && nightFocus.failed(SystemClock.uptimeMillis(), result.get(CaptureResult.CONTROL_AF_STATE)))
+                    handler.post { nightFocusFallback(route) }
+            }
             previewOptics = (currentLens?.physicalCameraId ?: physical) to opticalResult.get(CaptureResult.LENS_FOCAL_LENGTH)
             if(!isFront && !referenceMeasured && currentLensId==defaultLensId && currentLens?.physicalCameraId==null && zoom!=null && kotlin.math.abs(zoom-1f)<0.02f) {
                 val realSize=runCatching { activity.getSystemService(android.hardware.camera2.CameraManager::class.java)

@@ -1,3 +1,12 @@
+# 0.29.5 — Noturno fixa a lente da tele (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Evidência (dono, 0.29.4):** pedindo 5× no Noturno, a foto saiu com 69 mm f/2.4 — a lente 3× ampliada ~1,6×. Causa: com ISO ≥ 800 (sempre no Noturno) `zoomTo` não preferia a lente nativa e o firmware, na câmera lógica, troca a 5× pela 3× no escuro. Perde ~40% da resolução linear e nem ganha luz: para o mesmo enquadramento a pupila da 5× (≈5,5 mm) é maior que a da 3× (≈3,3 mm).
+- **Correção (`core/NightLensPolicy.kt`):** no Noturno, traseira, zoom ≥ 2,5×: a lente física nativa fica fixa (3× → lente 3×; 5× e 10× → lente 5×, 10× = 5× com recorte 1,96×), também ao entrar no Noturno já com zoom. Ao sair do Noturno volta à câmera lógica (a Foto continua fixando só com luz boa). 1× e selfie inalterados.
+- **Recuo:** a tele não foca perto. Se o AF da prévia ficar 2,5 s sem focar (estados 1/3/5/6, fora da captura), volta à lente automática e avisa "A tele não focou…"; a rota fica bloqueada até sair do Noturno ou tocar outra parada. Recuo antigo (lente sem quadros / sessão recusada) continua.
+- **Não testado no aparelho.** Risco: prévia mais escura/ruidosa na tele (f/3.4) que na 3× ampliada; o resultado final deve ter mais detalhe. Próximo passo combinado: super-resolução multiquadro no Noturno com recorte digital (10×).
+- Testes: `NightLensPolicyTest` (escolha 3×/5×/10×, fora do Noturno/selfie não muda, vigia de foco).
+
+---
+
 # 0.29.4 — Noturno: "pontos" da referência (Claude; branch `claude/nova-interface`; APK de teste build97 entregue)
 - **[Baixar ZIP com app-release.apk — build97 (1097)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39254955381/artifacts/12187343548)**. Artefato 12187343548, 138678175 bytes; sha256:c6cf01d1760c7a42d45e0e1fe0972efcce310e7777a85f0c3cf2688a018af0de; expira 2026-11-18T12:56:49Z; sem release. Gatilho restaurado em 03e67a6.
 - **RAW no Noturno (só proposta):** dono perguntou; resposta: ganha textura fina/sem halos/mais faixa dinâmica, custa cor/tom próprios (o tom aprovado muda), memória/tempo, e RAW da tele pela câmera lógica não confirmado. Próximo passo, se aprovado: sonda de RAW na tele, depois Noturno RAW opcional em 5× para A/B.
