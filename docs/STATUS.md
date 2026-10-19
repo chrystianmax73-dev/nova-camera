@@ -6,7 +6,8 @@
 
 ---
 
-# 0.29.5 — Noturno fixa a lente da tele (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.29.5 — Noturno fixa a lente da tele (Claude; branch `claude/nova-interface`; APK de teste build98 entregue)
+- **[Baixar ZIP com app-release.apk — build98 (1098)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39260143326/artifacts/12191181501)**. Artefato 12191181501, 138680105 bytes; sha256:b274f8ae444c606653802cbe0072439e4b5412846ef708fd5a128e369727355b; expira 2026-11-18T13:34:35Z; sem release. Gatilho restaurado em d5f5624.
 - **Evidência (dono, 0.29.4):** pedindo 5× no Noturno, a foto saiu com 69 mm f/2.4 — a lente 3× ampliada ~1,6×. Causa: com ISO ≥ 800 (sempre no Noturno) `zoomTo` não preferia a lente nativa e o firmware, na câmera lógica, troca a 5× pela 3× no escuro. Perde ~40% da resolução linear e nem ganha luz: para o mesmo enquadramento a pupila da 5× (≈5,5 mm) é maior que a da 3× (≈3,3 mm).
 - **Correção (`core/NightLensPolicy.kt`):** no Noturno, traseira, zoom ≥ 2,5×: a lente física nativa fica fixa (3× → lente 3×; 5× e 10× → lente 5×, 10× = 5× com recorte 1,96×), também ao entrar no Noturno já com zoom. Ao sair do Noturno volta à câmera lógica (a Foto continua fixando só com luz boa). 1× e selfie inalterados.
 - **Recuo:** a tele não foca perto. Se o AF da prévia ficar 2,5 s sem focar (estados 1/3/5/6, fora da captura), volta à lente automática e avisa "A tele não focou…"; a rota fica bloqueada até sair do Noturno ou tocar outra parada. Recuo antigo (lente sem quadros / sessão recusada) continua.
