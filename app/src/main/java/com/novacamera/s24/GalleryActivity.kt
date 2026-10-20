@@ -249,8 +249,10 @@ class GalleryActivity : androidx.activity.ComponentActivity() {
                 try {
                     contentResolver.delete(item.uri, null, null); load()
                 } catch (e: SecurityException) {
-                    // Arquivo de outra instalação: o Android pede a confirmação dele.
-                    runCatching {
+                    // Arquivo de outra instalação: o Android pede a confirmação dele (Android 11+).
+                    if (android.os.Build.VERSION.SDK_INT < 30) {
+                        android.widget.Toast.makeText(this, "Apague pela galeria do aparelho", android.widget.Toast.LENGTH_SHORT).show()
+                    } else runCatching {
                         val pending = MediaStore.createDeleteRequest(contentResolver, listOf(item.uri))
                         deleteRequest.launch(IntentSenderRequest.Builder(pending.intentSender).build())
                     }

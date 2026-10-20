@@ -1,3 +1,30 @@
+# 0.32.0 — Galeria no app, disparo com a palma e IA de detalhe no zoom (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10):** fazer os extras que faltavam; DNG fundido fica de fora (a fusão é em JPEG, então não seria RAW de verdade).
+- **Galeria no app (`GalleryActivity`, `core/GalleryBadge.kt`):** o toque na miniatura agora abre uma grade com as fotos e vídeos da Nova (sem originais e sem rajadas de diagnóstico). Cada foto tem um selo:
+  - **IA:** ruído reduzido ou detalhe aplicado. Vem da descrição EXIF, então vale para qualquer foto.
+  - **IA…** ou **IA na fila:** a IA está trabalhando; o selo é relido a cada 3 s.
+  - **IA recusada** ou **sem ruído:** só nas últimas 4 sessões de revisão.
+  - **NOVA:** ajustada sem IA.
+
+  Tocar numa foto abre a comparação quando ela ainda tem sessão de revisão; senão abre o visualizador do aparelho. Toque e segure: abrir fora, compartilhar, apagar. Não precisa de permissão de leitura, porque o Android mostra ao app só os arquivos que ele criou. Depois de reinstalar, as fotos antigas somem da grade, mas continuam na galeria do aparelho. A comparação, que antes ficava no toque e segure da miniatura, continua lá.
+- **Disparo com a palma (`camera/PalmShutter.kt`, `core/PalmPose.kt`), desligado por padrão:** na Foto e no Retrato, a palma aberta por ~0,7 s inicia o contador de 3 s (ou o temporizador, se for maior). Depois do disparo, espera 5 s antes de aceitar outra palma.
+  - **Modelo:** detector de mão do MediaPipe (Apache-2.0 pelo model card; 7,8 MB baixados no build com sha256 fixo). O classificador de gestos pronto da Google não entra porque não tem licença publicada.
+  - **Regra da palma, feita pelo app:** quatro dedos esticados (ponta ≥ 1,15× mais longe do pulso que a junta), polegar afastado, mão com pelo menos 6% da imagem.
+  - **Validação:** com o modelo real no servidor, nas imagens de teste do próprio MediaPipe, acertou 9 de 9 (2 mãos abertas sim; punho, polegar para cima e para baixo, indicador e "V" não). O conjunto é pequeno, então falta ver no aparelho como se comporta a mão de lado ou com pouca luz.
+  - **Custo:** lê a prévia em 480 px ~4×/s (~1,5×/s com calor ou economia) e pula a leitura se outra IA nativa estiver ocupada. O custo por leitura não foi medido no S24.
+- **IA de detalhe (`processing/DetailRestorer.kt`, `core/imaging/DetailGate.kt`, `core/DetailPolicy.kt`):** Real-ESRGAN compacto (`realesr-general-x4v3` misturado com o `wdn` a 0,3) no ncnn que já existe, convertido no CI (`tools/realesr/export_ncnn.py`, ncnn × PyTorch 68 dB no servidor).
+  - **Quando:** só na foto ampliada digitalmente sobre a tele (super-resolução ≥ 1,8×, ou zoom ÷ lente ≥ 1,8 com lente ≥ 2,5×; por exemplo 10× na lente 5×). Fica fora na principal, onde o 2× é recorte real do sensor de 200 MP, e também no Noturno, Retrato, Food e em fotos acima de 16,5 MP.
+  - **Como:** a foto vai à metade (a escala que o sensor viu), a rede devolve o dobro e cada bloco de 32 px passa pela checagem de volta: a saída reduzida precisa bater com a entrada (erro ≤ 0,010 aceita, ≥ 0,016 recusa). Blocos recusados crescem um bloco para os lados; a transição é suavizada. Se menos de 15% da foto for aceita, a foto fica como está.
+  - **Calibração nas fotos de 10× do dono (15/10, fora do Git):** a checagem acendeu exatamente nas letras pequenas deformadas ("ÁGUA E PÓ") e na parede de reboco "pintada". Cimento aceito em 75% (desenho e grade bem mais nítidos), aspirador em 91% (mangueira mais nítida, letras mantidas do original), parede em 12% (foto mantida). Sem costura entre blocos.
+  - **Limite visto:** o chão liso de cimento perde um pouco de grão fino.
+  - **Ordem:** roda no mesmo refino em segundo plano do NAFNet, depois dele. Se o NAFNet recusar ou dispensar, o detalhe ainda pode entrar sozinho. O tom é reaplicado depois, então não muda.
+  - **Custo:** ~9 TFLOP numa foto de 12 MP; não medido no S24 (o diagnóstico mostra "IA de detalhe … N blocos em X ms").
+  - **Licença:** repositório BSD-3, com a ressalva de que os pesos não têm declaração separada (`docs/THIRD_PARTY.md`).
+- **Mudou × não mexi:** mudaram o toque na miniatura (agora abre a galeria do app), uma opção nova (palma) e a IA de detalhe só no zoom digital da tele. Não mexi em Noturno, tom, Retrato, vídeo, foto na principal nem na IA de ruído (o NAFNet não mudou; só o fluxo deixou de parar quando ele é dispensado).
+- Testes: `GalleryBadgeTest`, `PalmPoseTest` (pontos reais do detector), `DetailGateTest` (checagem, recusa com margem, mistura, política).
+
+---
+
 # 0.31.6 — Etapas F (documento), G (foco no escuro), aviso de lente suja e local opcional (Claude; branch `claude/nova-interface`; APK de teste build112 entregue)
 - **[Baixar ZIP com app-release.apk — build112 (1112)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39350868586/artifacts/12233283362)**. Artefato 12233283362, 147922395 bytes; sha256:13e5e23d208a297141d17c57788ef4d0adc22b4545dd15cb15bb38550cf87185; expira 2026-11-19T01:07:44Z; sem release. Fonte 527ead4; gatilho restaurado em 0e381d5.
 - **F — Documento (Ferramentas › "DOC"):** prévia na maior resolução disponível (sem nova captura) → `core/DocQuad.kt` acha a folha (maior região clara pelo limiar de Otsu, sem as que encostam em 3+ bordas; cantos pelos extremos de x+y e x−y; recusa se a área do quadrilátero não bate com a da região ou < 15% da cena) → perspectiva endireitada (`Matrix.setPolyToPoly`, até 3000 px) → `Pictures/Nova Camera/Documentos`. "Compartilhar PDF": uma página A4 pelo `PdfDocument` do Android em `Documents/Nova Camera`. Limites: folha clara sobre fundo mais escuro, inteira na tela; resolução da prévia (não da foto).

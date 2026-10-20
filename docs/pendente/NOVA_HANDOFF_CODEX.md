@@ -1,3 +1,8 @@
+# Etapa 0.32.0 (Claude) — galeria no app, palma, IA de detalhe (pedido do dono)
+- Detalhes em `docs/STATUS.md` (0.32.0).
+- `runNextRefine` foi reorganizado: o NAFNet dispensado ou recusado não encerra mais o refino, porque a IA de detalhe pode entrar depois. Estado na sessão: `detail`=done/skipped e `detailReport`. `Session.meta` agora guarda `srFactor`, e o caminho AUTO guarda `zoom`.
+- Os limiares da IA de detalhe (`DetailGate.LO/HI`) foram calibrados em 3 fotos de 10×. Precisam de mais fotos reais (texto, rosto de longe, folhagem) antes de ampliar o uso.
+
 # Etapas 0.30.2–0.31.6 (Claude) — IA automática, estabilidade, ferramentas da câmera (pedido do dono)
 - Detalhes, limites e tabela "mudou × não mexi" em `docs/STATUS.md` (0.30.2 a 0.31.6). Noturno, tom, vídeo e Retrato não foram tocados nessas etapas, salvo onde o STATUS diz.
 - **IA automática:** `core/AiAutoPolicy.kt` (zoom ≥ 1,3×, ISO ≥ 800, Noturno, Retrato, até 52 MP). `core/imaging/AiQuality.kt` mede antes, escolhe a força e valida depois: recusa se o ruído não cair ≥ 10% ou se a borda perder > 8%. `HalfResidual` cobre fotos acima de 16,5 MP. `DenoiseBands` processa em faixas.

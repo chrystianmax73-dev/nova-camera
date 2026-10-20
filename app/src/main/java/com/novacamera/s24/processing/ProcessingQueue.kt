@@ -295,7 +295,7 @@ object ProcessingQueue {
     }
 
     /** Descarta só o cache do modelo, fora da UI e depois da tarefa atual. */
-    fun trimModelMemory() { executor.execute { NcnnDenoiser.release() } }
+    fun trimModelMemory() { executor.execute { NcnnDenoiser.release(); DetailRestorer.release() } }
 
     /** Pressão de memória real: libera também o modelo de profundidade mantido entre Retratos. */
     fun releaseDepthModel() { executor.execute { DepthEstimator.release() } }
@@ -319,6 +319,17 @@ object ProcessingQueue {
 
     fun session(context: Context, id: String): Session? =
         File(sessionsDir(context), id).takeIf { it.isDirectory }?.let(::Session)
+
+    /** IA de detalhe vale para esta sessão? ([com.novacamera.s24.core.DetailPolicy]) */
+    private fun detailWanted(context: Context, session: Session, bmp: Bitmap): Boolean {
+        if (!DetailRestorer.available(context)) return false
+        val m = session.meta
+        val lens = com.novacamera.s24.core.DetailPolicy.lensZoom(m.getProperty("nai.focal")?.toFloatOrNull(),
+            m.getProperty("nai.sensorW")?.toFloatOrNull(), m.getProperty("nai.sensorH")?.toFloatOrNull())
+        val kindOk = session.kind == JobKind.AUTO || session.kind == JobKind.PHOTO || session.kind == JobKind.ZOOM || session.kind == JobKind.HDR
+        return com.novacamera.s24.core.DetailPolicy.eligible(kindOk, session.zoom, m.getProperty("srFactor", "1").toFloatOrNull() ?: 1f,
+            lens, bmp.width.toLong() * bmp.height)
+    }
 
     /** Galeria do app: sessão de revisão de cada foto final (uri → id), só as que ainda existem. */
     fun sessionsByUri(context: Context): Map<String, String> =
@@ -401,6 +412,8 @@ object ProcessingQueue {
         val facts=frame0.optics?.let{audit->job.imagingFacts.copy(iso=audit.iso,exposureNs=audit.exposureNs)} ?: job.imagingFacts
         facts.toMeta().forEach { (k,v)->session.meta.setProperty(k,v) }
         session.zoom = job.zoom
+        // IA de detalhe precisa saber o zoom digital e a lente ([DetailPolicy]).
+        session.meta.setProperty("srFactor", job.srFactor.toString())
         session.signature = job.signature
         runCatching { session.save() } // data/EXIF já gravados, para uma eventual recuperação
         try {
@@ -579,9 +592,9 @@ object ProcessingQueue {
 
     /** Reutilização curta entre fotos; descarte fora da UI e sem liberar durante inferência. */
     private fun releaseModelLater() {
-        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) NcnnDenoiser.release()
+        if ((heat?.thermalStatus ?: 0) >= ThermalPolicy.MODERATE || !aiDenoise) { NcnnDenoiser.release(); DetailRestorer.release() }
         else main.postDelayed({ executor.execute {
-            if (pending == 0 && refineCancel == null) NcnnDenoiser.releaseIfIdle(android.os.SystemClock.elapsedRealtime())
+            if (pending == 0 && refineCancel == null) android.os.SystemClock.elapsedRealtime().let { NcnnDenoiser.releaseIfIdle(it); DetailRestorer.releaseIfIdle(it) }
         } }, com.novacamera.s24.core.DenoisePolicy.IDLE_MS)
     }
 
@@ -661,40 +674,72 @@ object ProcessingQueue {
             bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply {
                 inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
             }) ?: error("base ilegível")
-            if (session.meta.getProperty(AI_KEY) != AI_BASE) {
+            // Base já trocada antes (IA aceita, falta regravar a foto): só refaz o acabamento.
+            var changed = session.meta.getProperty(AI_KEY) == AI_BASE
+            var skipReason = ""
+            // A rede pode deixar o bitmap meio processado ao desistir: relê a base antes de seguir.
+            var dirty = false
+            fun reloadBase() {
+                bmp?.recycle()
+                bmp = BitmapFactory.decodeFile(session.base.path, BitmapFactory.Options().apply {
+                    inMutable = true; inPreferredConfig = Bitmap.Config.ARGB_8888
+                }) ?: error("base ilegível")
+                dirty = false
+            }
+            if (!changed) {
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 // Automático e pedido usam o mesmo teto: 12 MP leva ~1 min e 49 MP alguns minutos; temperatura,
                 // economia e bateria baixa continuam interrompendo, e uma foto nova cancela e reenfileira.
                 val budget = com.novacamera.s24.core.DenoisePolicy.MANUAL
                 // Mede antes, age na medida, prova depois ([AiQuality]); recusada, a galeria fica como está.
-                val before = aiStats(bmp)
+                val before = aiStats(bmp!!)
                 val strength = com.novacamera.s24.core.imaging.AiQuality.strengthFor(before.noise)
-                fun skip(reason: String) {
-                    session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", reason); session.save()
-                    NcnnDenoiser.noteDecision(reason)
+                if (strength <= 0f) skipReason = "IA dispensada: foto já limpa (ruído σ=${"%.1f".format(Locale.US, before.noise)})"
+                else if (!NcnnDenoiser.denoiseAuto(context, bmp!!, strength, token, budget) { refineFraction = 0.9f * it }) {
+                    skipReason = NcnnDenoiser.report; dirty = true
+                } else {
+                    val after = aiStats(bmp!!)
+                    val measured = "ruído σ ${"%.1f".format(Locale.US, before.noise)}→${"%.1f".format(Locale.US, after.noise)}, " +
+                        "bordas ${"%.0f".format(Locale.US, before.edges)}→${"%.0f".format(Locale.US, after.edges)}, força ${(strength * 100).toInt()}%"
+                    if (!com.novacamera.s24.core.imaging.AiQuality.accept(before, after)) {
+                        skipReason = "IA recusada pela validação ($measured); foto mantida · ${NcnnDenoiser.report}"; dirty = true
+                    } else {
+                        NcnnDenoiser.noteDecision("IA aceita ($measured) · ${NcnnDenoiser.report}")
+                        MediaWriter.writeFile(session.base, bmp!!, 98)
+                        val secs = (android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0
+                        session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") + "ruído reduzido por IA em $secs s"
+                        session.meta.setProperty(AI_KEY, AI_BASE); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+                        changed = true
+                    }
                 }
-                if (strength <= 0f) return skip("IA dispensada: foto já limpa (ruído σ=${"%.1f".format(Locale.US, before.noise)})")
-                val ok = NcnnDenoiser.denoiseAuto(context, bmp, strength, token, budget) { refineFraction = 0.9f * it }
-                if (!ok) {
-                    session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
-                    return
-                }
-                val after = aiStats(bmp)
-                val measured = "ruído σ ${"%.1f".format(Locale.US, before.noise)}→${"%.1f".format(Locale.US, after.noise)}, " +
-                    "bordas ${"%.0f".format(Locale.US, before.edges)}→${"%.0f".format(Locale.US, after.edges)}, força ${(strength * 100).toInt()}%"
-                if (!com.novacamera.s24.core.imaging.AiQuality.accept(before, after))
-                    return skip("IA recusada pela validação ($measured); foto mantida · ${NcnnDenoiser.report}")
-                NcnnDenoiser.noteDecision("IA aceita ($measured) · ${NcnnDenoiser.report}")
-                MediaWriter.writeFile(session.base, bmp, 98)
-                val secs = (android.os.SystemClock.elapsedRealtime() - t0) / 100 / 10.0
-                session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") + "ruído reduzido por IA em $secs s"
-                session.meta.setProperty(AI_KEY, AI_BASE); session.meta.setProperty("aiReport", NcnnDenoiser.report); session.save()
+                if (skipReason.isNotEmpty()) NcnnDenoiser.noteDecision(skipReason)
             }
-            render(session, bmp, session.tone, session.blur, token) {}
+            // IA de detalhe (Real-ESRGAN com checagem por bloco): só no zoom digital sobre a tele ([DetailPolicy]).
+            if (session.meta.getProperty("detail") == null && detailWanted(context, session, bmp!!)) {
+                if (dirty) reloadBase()
+                val r = DetailRestorer.restore(context, bmp!!, token, com.novacamera.s24.core.DenoisePolicy.MANUAL) { refineFraction = 0.9f * it }
+                session.meta.setProperty("detail", if (r.applied) "done" else "skipped")
+                session.meta.setProperty("detailReport", r.text)
+                if (r.applied) {
+                    MediaWriter.writeFile(session.base, bmp!!, 98)
+                    session.note = (if (session.note.isEmpty()) "" else "${session.note} · ") +
+                        "detalhe por IA em ${(r.accepted * 100).toInt()}% da foto"
+                    session.meta.setProperty(AI_KEY, AI_BASE)
+                    changed = true
+                }
+                session.save()
+            }
+            if (!changed) {
+                session.meta.setProperty(AI_KEY, AI_SKIPPED); session.meta.setProperty("aiReport", skipReason); session.save()
+                return
+            }
+            if (dirty) reloadBase()
+            val finalBmp = bmp!!
+            render(session, finalBmp, session.tone, session.blur, token) {}
             if (token.cancelled) throw CancelledException()
-            session.signature?.let { Signature.draw(bmp, it.withExif(session.exif)) }
-            UltraHdr.attach(session, bmp)
-            MediaWriter.write(context.contentResolver, uri, bmp, session.exif,
+            session.signature?.let { Signature.draw(finalBmp, it.withExif(session.exif)) }
+            UltraHdr.attach(session, finalBmp)
+            MediaWriter.write(context.contentResolver, uri, finalBmp,  session.exif,
                 "Nova ${session.kind.label}" + if (session.note.isNotEmpty()) " · ${session.note}" else "")
             session.meta.setProperty(AI_KEY, AI_DONE); session.save()
             Log.i(TAG, "IA em segundo plano concluída: $id")
@@ -737,6 +782,7 @@ object ProcessingQueue {
                 .takeIf { it.isFinite() && it > 0 && it < 60 }?.let { (it * 1_000_000_000).toLong() } ?: job.imagingFacts.exposureNs)
         facts.toMeta().forEach { (k, v) -> session.meta.setProperty(k, v) }
         session.meta.setProperty("nai.enabled", "true")
+        session.zoom = job.zoom // IA de detalhe ([DetailPolicy]) decide pelo zoom digital
         val plan = Engine.planAdaptive(bmp, job.zoom, facts)
         val tone = job.autoTone && !plan.skip
         val aiLater = com.novacamera.s24.core.AiAutoPolicy.wanted(aiDenoise, false, false, job.zoom, facts.iso,
