@@ -198,9 +198,9 @@ jobs:
           python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy onnx onnxruntime pillow
           curl -sSfL --retry 3 -o "$RUNNER_TEMP/picodet.onnx" https://paddledet.bj.bcebos.com/deploy/third_engine/picodet_s_416_coco_lcnet.onnx
           curl -sSfL --retry 3 -o "$RUNNER_TEMP/coco.jpg" https://raw.githubusercontent.com/PaddlePaddle/PaddleDetection/release/2.8/demo/000000014439.jpg
-          echo "sha256 do modelo: $(sha256sum "$RUNNER_TEMP/picodet.onnx" | cut -d' ' -f1)"
+          echo "d080f8d9931bf9164934a7863e989605c7b3aa7751e35be406e20aa6b68256a7  $RUNNER_TEMP/picodet.onnx" | sha256sum -c -
           mkdir -p app/src/main/assets/detect
-          python3 tools/picodet/export_ncnn.py --onnx "$RUNNER_TEMP/picodet.onnx" --image "$RUNNER_TEMP/coco.jpg" --out app/src/main/assets/detect
+          python3 -u tools/picodet/export_ncnn.py --onnx "$RUNNER_TEMP/picodet.onnx" --image "$RUNNER_TEMP/coco.jpg" --out app/src/main/assets/detect
           ls -la app/src/main/assets/detect
       - name: Compilar APK assinado
         env:
