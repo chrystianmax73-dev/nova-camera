@@ -470,7 +470,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
         contourGeneration++
-        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release() }
+        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release(); com.novacamera.s24.processing.TextReader.release() }
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -610,6 +610,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("Iluminação", lightChip)
             add("Nova Live", liveChip)
             add("RAW", rawChip)
+            add("Ler texto", TextChip(this@MainActivity).apply { text = "TEXTO"; contentDescription = "Ler o texto da imagem"
+                setOnClickListener { hideTools(); readText() } })
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
         }
@@ -820,6 +822,51 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun stopQr() { qrScanner?.stop() }
+
+    // ------------------------------------------------------------------ texto (PP-OCRv5, offline)
+
+    private var readingText = false
+
+    /** Congela a prévia (snapshot de 1600 px, sem nova captura) e lê o texto em segundo plano. */
+    private fun readText() {
+        if (readingText) return
+        if (!com.novacamera.s24.processing.TextReader.available(this)) { hint.show("Leitura de texto indisponível nesta versão", 2000); return }
+        val reader = com.novacamera.s24.camera.PreviewFrameReader(preview, 1600f)
+        readingText = true
+        hint.show("Lendo texto…", 4000)
+        val accepted = reader.read { bmp, _ ->
+            reader.close()
+            if (bmp == null) { readingText = false; hint.show("Não foi possível ler a prévia", 1600); return@read }
+            contourExecutor.execute {
+                val lines = runCatching { com.novacamera.s24.processing.TextReader.read(this, bmp) }
+                    .onFailure { com.novacamera.s24.core.CrashLog.record(this, "leitura de texto (não fatal)", it) }.getOrDefault(emptyList())
+                bmp.recycle()
+                runOnUiThread { readingText = false; if (!isDestroyed) showText(lines) }
+            }
+        }
+        if (!accepted) { readingText = false; reader.close() }
+    }
+
+    /** Texto selecionável (copiar um trecho com o gesto normal do Android); links/telefones/e-mails viram toque. */
+    private fun showText(lines: List<com.novacamera.s24.processing.TextReader.Line>) {
+        if (lines.isEmpty()) { hint.show("Nenhum texto encontrado. Aproxime ou ilumine melhor.", 2200); return }
+        val all = lines.joinToString("\n") { it.text }
+        val view = TextView(this).apply {
+            text = all; textSize = 16f; setTextIsSelectable(true); setTextColor(Nova.TEXT)
+            setPadding(dpi(20), dpi(12), dpi(20), dpi(12))
+            android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS or android.text.util.Linkify.EMAIL_ADDRESSES or android.text.util.Linkify.PHONE_NUMBERS)
+        }
+        android.app.AlertDialog.Builder(this).setTitle("Texto lido (${lines.size} ${if (lines.size == 1) "linha" else "linhas"})")
+            .setView(android.widget.ScrollView(this).apply { addView(view) })
+            .setPositiveButton("Copiar tudo") { _, _ ->
+                getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Texto", all))
+                hint.show("Texto copiado", 1400)
+            }
+            .setNeutralButton("Compartilhar") { _, _ ->
+                runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, all), null)) }
+            }
+            .setNegativeButton("Fechar", null).show()
+    }
 
     /** Mostra o conteúdo inteiro antes de qualquer ação (link com o domínio em destaque). */
     private fun showQr(c: com.novacamera.s24.core.QrContent) {

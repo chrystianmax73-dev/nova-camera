@@ -113,6 +113,13 @@ jobs:
             exit 1
           fi
           echo 'Keystore, senha e alias conferidos.'
+      - name: Cache do modelo de IA convertido (NAFNet)
+        # O Google Drive dos pesos oficiais às vezes recusa o download ("acessos demais"; build 110 de
+        # 20/10). Com o modelo já convertido guardado, o APK não fica sem a IA por causa disso.
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/nafnet
+          key: nafnet-sidd-width32-pnnx20260526-v1
       - name: Modelo de IA opcional (NAFNet → ncnn)
         # Baixa os pesos oficiais (MIT) do NAFNet-SIDD-width32, converte para ncnn e confere a
         # conversão contra o PyTorch. Se qualquer passo falhar, o APK sai sem o modelo e a opção
@@ -121,9 +128,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -s app/src/main/assets/nafnet/nafnet.param ] && [ -s app/src/main/assets/nafnet/nafnet.bin ]; then
+            echo 'Modelo NAFNet convertido restaurado do cache.'; ls -la app/src/main/assets/nafnet; exit 0
+          fi
           python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
           python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy gdown
-          gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth"
+          for attempt in 1 2 3; do
+            gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth" && break
+            echo "Download dos pesos falhou (tentativa $attempt)"; sleep $((attempt * 30))
+          done
+          test -s "$RUNNER_TEMP/nafnet.pth"
           echo "sha256 dos pesos: $(sha256sum "$RUNNER_TEMP/nafnet.pth" | cut -d' ' -f1)"
           mkdir -p app/src/main/assets/nafnet
           python3 tools/nafnet/export_ncnn.py --weights "$RUNNER_TEMP/nafnet.pth" --out app/src/main/assets/nafnet

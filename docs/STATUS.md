@@ -1,3 +1,14 @@
+# 0.31.5 — Etapa E: ler texto (offline) + build resistente à falha do Google Drive (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Ler texto:** Ferramentas › "TEXTO" congela a prévia (snapshot de 1600 px, sem nova captura) e lê com PP-OCRv5 mobile (detector DB + reconhecedor CTC, 18.383 caracteres, inclui acentos do português) no ncnn que o app já tem (Vulkan quando disponível; uma IA nativa por vez). Resultado: texto selecionável (copiar um trecho com o gesto normal), "Copiar tudo", "Compartilhar"; links, e-mails e telefones viram toque (o Android pergunta o app). Sem internet.
+- **Pós-processamento sem OpenCV (`core/OcrPost.kt`):** componentes conectados do mapa do detector (limiar 0,3; caixa ≥ 0,6), expansão pela altura da linha (×1,95, como o exemplo oficial do ncnn), CTC (vazio, repetição, espaço), ordem de leitura por linha. Texto inclinado/vertical fica fora nesta versão. Linhas com confiança média < 0,5 descartadas.
+- **Validação real (no servidor, mesmo modelo e mesmo pós-processamento, ncnn Python):** imagem limpa com "Máscara descartável INFANTIL / Cuidando com carinho / das crianças do Brasil / Contém 50 unidades · R$ 19,90" → 4/4 linhas corretas (confiança 0,96–0,99). Recorte escuro da caixa na foto Samsung de 19/10 → "INFANTIL", "Contem", "50" e parte das linhas (cena no limite do sensor).
+- **Licença:** pesos PaddleOCR Apache-2.0; conversão ncnn do autor do ncnn (nihui/ncnn-assets), baixada no build com sha256 fixo; dicionário e pré/pós-processamento adaptados do exemplo oficial do ncnn (BSD-3). `docs/THIRD_PARTY.md`. APK +~10,7 MB.
+- **CI:** o build 110 (0.31.3) caiu porque o Google Drive dos pesos oficiais do NAFNet recusou o download ("acessos demais") e o APK saiu sem a IA (a verificação final barrou, como deve). Agora o modelo convertido fica em cache do Actions e o download tenta 3 vezes.
+- **Mudou × não mexi:** novo botão e leitor sob demanda; nada roda sozinho. Captura, processamento, QR, vídeo intocados.
+- Testes: `OcrPostTest`.
+
+---
+
 # 0.31.4 — Etapa D: QR e códigos de barras sempre ligados na FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Pedido do dono (20/10):** leitura de QR como a câmera nativa, sempre ligada na FOTO.
 - **Como:** zxing-cpp 3.0.2 (Apache-2.0, conferido no POM oficial; `docs/THIRD_PARTY.md`) lendo a própria prévia (snapshot de 960 px pelo `PreviewFrameReader`, sem stream novo da câmera) ~2,5×/s; com calor ≥ moderado ou economia, 1×/s; pausa durante a captura; só no modo FOTO (`camera/QrScanner.kt`).
