@@ -120,6 +120,9 @@ class SettingsActivity : NovaScreen() {
         switch("Alta resolução na tele", "No 3× e 5× (Foto e Retrato), junta 8 quadros numa foto 2× maior (~48 MP): mais " +
             "detalhe real no zoom de pinça. Arquivos de 15–20 MB e alguns segundos a mais; segure firme durante a rajada.",
             { settings.teleHighRes }, { settings.teleHighRes = it })
+        switch("Ler QR e códigos de barras na Foto", "Lê a própria prévia, sem internet (zxing-cpp). Mostra o conteúdo " +
+            "num aviso; nada abre sem você tocar, e o link aparece inteiro antes. Com calor ou economia, lê mais devagar.",
+            { settings.qrScan }, { settings.qrScan = it })
         switch("Noturno automático na Foto", "Desligado por padrão. No escuro de verdade (tempo longo e ISO alto: na principal a partir de ISO 2400, na tele a partir de 800), " +
             "a Foto usa o motor do Noturno: exposição mais longa por quadro, menos ruído e o tom do Noturno. Segure firme " +
             "por 1–3 s. Nesses casos a Alta resolução não é usada (com ISO alto ela só amplia o ruído).",

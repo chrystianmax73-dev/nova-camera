@@ -178,6 +178,8 @@ class NovaCamera(
     private fun appliedEv() = evIndex + backlightBoost
     /** Captura em andamento (rajada/bracketing): a contraluz automática não mexe no EV no meio. */
     @Volatile private var capturing = false
+    /** Captura de foto em andamento (o leitor de QR pausa). */
+    val capturingPhoto get() = capturing
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
     /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */

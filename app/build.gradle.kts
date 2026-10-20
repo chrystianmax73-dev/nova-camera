@@ -38,7 +38,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.31.3"
+        versionName = "0.31.4"
         // Alvo: Galaxy S24/S25 Ultra (arm64). Evita levar as bibliotecas nativas (MediaPipe) de 4 arquiteturas.
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
@@ -116,6 +116,8 @@ dependencies {
     // Segmentação do Retrato (pessoa, cabelo, pele, roupa, acessórios): MediaPipe Tasks (Apache-2.0),
     // modelo selfie_multiclass_256x256 (Apache-2.0) embutido em assets; roda offline no aparelho.
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    // Leitura de QR e códigos de barras na prévia (Apache-2.0, POM oficial).
+    implementation("io.github.zxing-cpp:android:3.0.2")
     testImplementation("junit:junit:4.13.2")
     // Renderiza a interface real em JVM (sem aparelho) para teste de fumaça e capturas de layout.
     testImplementation("org.robolectric:robolectric:4.17")

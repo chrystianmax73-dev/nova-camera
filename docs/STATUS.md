@@ -1,3 +1,14 @@
+# 0.31.4 — Etapa D: QR e códigos de barras sempre ligados na FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10):** leitura de QR como a câmera nativa, sempre ligada na FOTO.
+- **Como:** zxing-cpp 3.0.2 (Apache-2.0, conferido no POM oficial; `docs/THIRD_PARTY.md`) lendo a própria prévia (snapshot de 960 px pelo `PreviewFrameReader`, sem stream novo da câmera) ~2,5×/s; com calor ≥ moderado ou economia, 1×/s; pausa durante a captura; só no modo FOTO (`camera/QrScanner.kt`).
+- **Na tela:** chip "QR · domínio ›" (vibração curta); some 4 s depois de o código sair da imagem. Toque mostra o conteúdo inteiro antes de qualquer ação: link (domínio no título; sem https leva aviso) → Abrir/Copiar; Wi-Fi → Conectar (painel do próprio Android, API 30+) / Copiar senha; telefone → Ligar (abre o discador); e-mail → Escrever; texto/código de produto → Copiar/Compartilhar. **Nada abre sozinho.** Sem permissão nova (o app continua sem internet).
+- **Classificação testável (`core/QrContent.kt`):** link (https/http/www), WIFI: com escapes, tel:, mailto:, MATMSG:, texto; repetição do mesmo código suprimida (`QrDedupe`).
+- **Opção:** "Ler QR e códigos de barras na Foto" (ligada).
+- **Mudou × não mexi:** só a leitura da prévia na FOTO e o chip. Captura, processamento, foco, vídeo intocados.
+- **Não medido no aparelho:** custo por leitura (o diagnóstico ainda não mostra; `QrScanner.lastReadMs` disponível para a próxima versão).
+
+---
+
 # 0.31.3 — Etapa C: atenção ao assunto na FOTO no escuro (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Pedido do dono (19–20/10):** sem toque, achar sozinho onde há informação na sombra (a caixa com a criança e as letras embaixo do frasco) e dar prioridade a ela; com toque, o objeto tocado; o resto não muda. Nada de deixar a foto inteira clara como no Noturno.
 - **Detector de objetos adiado por licença:** o EfficientDet-Lite0 do MediaPipe não tem licença publicada pela Google (nem no arquivo nem em model card; só um pacote de terceiros diz Apache-2.0). A regra do projeto exige licença confirmada. Alternativa com licença clara para depois, se precisar: NanoDet (Apache-2.0, roda no ncnn que já temos).

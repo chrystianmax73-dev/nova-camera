@@ -126,6 +126,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var tracking: com.novacamera.s24.camera.SubjectTrackingSession
     private var selectedTrackingEpoch = -1L
     private lateinit var lockChip: TextView
+    private lateinit var qrChip: TextView
+    private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
+    private var qrFound: com.novacamera.s24.core.QrContent? = null
+    @Volatile private var lastHeat: DeviceHeat? = null
     private lateinit var evChip: TextView
     private lateinit var heatChip: TextView
     private lateinit var procChip: TextView
@@ -448,6 +452,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.keepOriginals = settings.keepOriginals
         ProcessingQueue.aiDenoise = settings.aiDenoise
         ProcessingQueue.contrastProfile = settings.contrastProfile
+        startQr()
         val sig = signature()
         val settingsChanged = sig != settingsSignature
         settingsSignature = sig
@@ -461,6 +466,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
+        stopQr()
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
         contourGeneration++
@@ -511,6 +517,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.removeListener(onProcessing)
         com.novacamera.s24.processing.VideoFinishJob.removeListener(onVideoFinish)
         tracking.close()
+        qrScanner?.close(); qrScanner = null
         camera.release()
         sound.release()
         io.shutdown()
@@ -628,6 +635,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             setOnClickListener { unlockAll() }
         }
         evChip = statusChip(Nova.TEXT).apply { setOnClickListener { unlockAll() } }
+        qrChip = statusChip(Nova.ACCENT_SOFT).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { qrFound?.let { showQr(it) } }
+        }
         heatChip = statusChip(Nova.WARN).apply { isClickable = false }
         procChip = statusChip(Nova.ACCENT_SOFT).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -643,7 +654,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 else showVideoComparison()
             }
         }
-        listOf(trackingChip, lockChip, evChip, heatChip, procChip, videoFinishChip).forEach {
+        listOf(qrChip, trackingChip, lockChip, evChip, heatChip, procChip, videoFinishChip).forEach {
             it.visibility = View.GONE
             statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
         }
@@ -787,6 +798,74 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun icon(i: Icon, onTap: () -> Unit) = NovaIconView(this, i).apply {
         setOnClickListener { Haptics.tap(this); onTap() }
+    }
+
+    // ------------------------------------------------------------------ QR e códigos de barras
+
+    private fun startQr() {
+        if (!settings.qrScan) { stopQr(); return }
+        val scanner = qrScanner ?: com.novacamera.s24.camera.QrScanner(preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto && !isFinishing },
+            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            onFound = { content ->
+                qrFound = content
+                qrChip.text = "QR · ${content.summary()}  ›"
+                qrChip.contentDescription = "Código lido: ${content.summary()}. Toque para ver e escolher o que fazer"
+                qrChip.visibility = View.VISIBLE
+                Haptics.tick(qrChip)
+            },
+            onGone = { qrFound = null; if (::qrChip.isInitialized) qrChip.visibility = View.GONE },
+        ).also { qrScanner = it }
+        scanner.start()
+    }
+
+    private fun stopQr() { qrScanner?.stop() }
+
+    /** Mostra o conteúdo inteiro antes de qualquer ação (link com o domínio em destaque). */
+    private fun showQr(c: com.novacamera.s24.core.QrContent) {
+        val clip = { text: String, label: String ->
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+            hint.show("$label copiado", 1400)
+        }
+        val open = { intent: Intent -> runCatching { startActivity(intent) }.onFailure { hint.show("Nenhum app para abrir isto", 1600) } }
+        val b = android.app.AlertDialog.Builder(this)
+        when (c) {
+            is com.novacamera.s24.core.QrContent.Link -> {
+                b.setTitle(c.host).setMessage((if (c.secure) "" else "⚠ Link sem https: confira o endereço antes de abrir.\n\n") + c.url)
+                b.setPositiveButton("Abrir") { _, _ -> open(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(c.url))) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.url, "Link") }
+            }
+            is com.novacamera.s24.core.QrContent.Wifi -> {
+                b.setTitle("Wi-Fi: ${c.ssid}").setMessage("Segurança: ${c.security}" + (c.password?.let { "\nSenha: $it" } ?: "\nSem senha"))
+                if (android.os.Build.VERSION.SDK_INT >= 30) b.setPositiveButton("Conectar") { _, _ ->
+                    val s = android.net.wifi.WifiNetworkSuggestion.Builder().setSsid(c.ssid).apply {
+                        val p = c.password
+                        if (p != null && c.security.startsWith("WPA")) setWpa2Passphrase(p)
+                        if (c.hidden) setIsHiddenSsid(true)
+                    }.build()
+                    open(Intent(android.provider.Settings.ACTION_WIFI_ADD_NETWORKS)
+                        .putParcelableArrayListExtra(android.provider.Settings.EXTRA_WIFI_NETWORK_LIST, arrayListOf(s)))
+                }
+                c.password?.let { p -> b.setNeutralButton("Copiar senha") { _, _ -> clip(p, "Senha") } }
+            }
+            is com.novacamera.s24.core.QrContent.Phone -> {
+                b.setTitle("Telefone").setMessage(c.number)
+                b.setPositiveButton("Ligar") { _, _ -> open(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:${c.number}"))) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.number, "Número") }
+            }
+            is com.novacamera.s24.core.QrContent.Email -> {
+                b.setTitle("E-mail").setMessage(listOfNotNull(c.address, c.subject, c.body).joinToString("\n"))
+                b.setPositiveButton("Escrever") { _, _ -> open(Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${c.address}"))
+                    .putExtra(Intent.EXTRA_SUBJECT, c.subject).putExtra(Intent.EXTRA_TEXT, c.body)) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.address, "Endereço") }
+            }
+            is com.novacamera.s24.core.QrContent.Text -> {
+                b.setTitle("Código lido").setMessage(c.raw)
+                b.setPositiveButton("Copiar") { _, _ -> clip(c.raw, "Texto") }
+                b.setNeutralButton("Compartilhar") { _, _ -> open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, c.raw), null)) }
+            }
+        }
+        b.setNegativeButton("Fechar", null).show()
     }
 
     private fun statusChip(color: Int) = TextView(this).apply {
@@ -1650,6 +1729,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     // ------------------------------------------------------------------ energia e temperatura
 
     private fun onHeat(h: DeviceHeat) {
+        lastHeat = h
         camera.onHeat(h)
         if (::tracking.isInitialized) {
             tracking.thermal = h.thermalStatus; tracking.powerSave = h.powerSave
