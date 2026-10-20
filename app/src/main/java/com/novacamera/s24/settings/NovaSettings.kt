@@ -38,6 +38,8 @@ class NovaSettings(context: Context) {
     var qrScan get() = bool("qr_scan", true); set(v) = put("qr_scan", v)
     /** Local da foto no EXIF; desligado por padrão (pede permissão de localização ao ligar). */
     var geoTag get() = bool("geo_tag", false); set(v) = put("geo_tag", v)
+    /** Palma aberta para a câmera inicia o contador; desligado por padrão (lê a prévia ~4×/s). */
+    var palmShutter get() = bool("palm_shutter", false); set(v) = put("palm_shutter", v)
     var autoNightPhoto get() = bool("auto_night_photo", false); set(v) = put("auto_night_photo", v)
     var levelIndicator get() = bool("level_indicator", false); set(v) = put("level_indicator", v)
     var proHistogram get() = bool("pro_histogram", true); set(v) = put("pro_histogram", v)

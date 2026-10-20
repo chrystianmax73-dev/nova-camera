@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var lockChip: TextView
     private lateinit var qrChip: TextView
     private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
+    private var palmShutter: com.novacamera.s24.camera.PalmShutter? = null
     private var qrFound: com.novacamera.s24.core.QrContent? = null
     @Volatile private var lastHeat: DeviceHeat? = null
     private lateinit var evChip: TextView
@@ -496,6 +497,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.aiDenoise = settings.aiDenoise
         ProcessingQueue.contrastProfile = settings.contrastProfile
         startQr()
+        startPalm()
         startGeo()
         val sig = signature()
         val settingsChanged = sig != settingsSignature
@@ -511,6 +513,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         stopQr()
+        palmShutter?.stop()
         stopGeo()
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
@@ -563,6 +566,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         com.novacamera.s24.processing.VideoFinishJob.removeListener(onVideoFinish)
         tracking.close()
         qrScanner?.close(); qrScanner = null
+        palmShutter?.close(); palmShutter = null
         camera.release()
         sound.release()
         io.shutdown()
@@ -871,6 +875,24 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     }
 
     private fun stopQr() { qrScanner?.stop() }
+
+    /** Disparo com a palma: palma aberta por ~0,7 s inicia o contador (3 s, ou o temporizador escolhido, se maior). */
+    private fun startPalm() {
+        if (!settings.palmShutter) { palmShutter?.close(); palmShutter = null; return }
+        val palm = palmShutter ?: com.novacamera.s24.camera.PalmShutter(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && (camera.mode == CaptureMode.FOTO || camera.mode == CaptureMode.RETRATO) &&
+                !camera.capturingPhoto && countdown == 0 && !isFinishing && ::shutter.isInitialized && !shutter.busy },
+            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            onPalm = {
+                if (countdown == 0 && ::camera.isInitialized && camera.ready && cameraState?.support?.canCapture == true) {
+                    Haptics.confirm(shutter)
+                    hint.show("Palma vista: foto em ${maxOf(3, settings.timerSeconds)} s", 1500)
+                    startCountdown(maxOf(3, settings.timerSeconds))
+                }
+            },
+        ).also { palmShutter = it }
+        palm.start()
+    }
 
     private val lensSmudge = com.novacamera.s24.core.LensSmudge()
 

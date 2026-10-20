@@ -28,6 +28,8 @@ val fetchNcnn by tasks.registering {
 // Leitura de texto: PP-OCRv5 mobile (pesos PaddleOCR, Apache-2.0) já convertido para ncnn pelo autor do
 // ncnn (repositório nihui/ncnn-assets, mesmo pré-processamento do exemplo oficial). Arquivos fixos por sha256.
 val ocrAssets = layout.buildDirectory.dir("generated/ocrAssets").get().asFile
+val handUrl = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+val handSha256 = "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
 val ocrModels = mapOf(
     "PP_OCRv5_mobile_det.ncnn.param" to "358f459680ae0e7a73e477469e529ce116f68c629019ec7a0b6457d2d9117934",
     "PP_OCRv5_mobile_det.ncnn.bin" to "857a96bc963725105b78a178dfcc3c0c3db1a7b9eef32244367b2cb105ccf60b",
@@ -35,7 +37,7 @@ val ocrModels = mapOf(
     "PP_OCRv5_mobile_rec.ncnn.bin" to "49d9907a55ba20fa6637f9f788f66ab00793bc8ce57a733a09dbe86b9a2e3db0",
 )
 val fetchOcrModels by tasks.registering {
-    description = "Baixa os modelos de leitura de texto (uma vez) e confere o sha256."
+    description = "Baixa os modelos de leitura de texto e o detector de mão (uma vez) e confere o sha256."
     outputs.dir(ocrAssets)
     doLast {
         val dir = File(ocrAssets, "ocr").apply { mkdirs() }
@@ -46,6 +48,15 @@ val fetchOcrModels by tasks.registering {
             f.delete()
             URI("https://raw.githubusercontent.com/nihui/ncnn-assets/master/models/$name").toURL().openStream().use { input -> f.outputStream().use { input.copyTo(it) } }
             check(digest() == sha) { "sha256 de $name não confere: ${digest()}" }
+        }
+        // Disparo com a palma: detector de mão do MediaPipe (model card: Apache-2.0). Só os 21 pontos da mão;
+        // a regra de "palma aberta" é do app (o classificador de gestos da Google não tem licença publicada).
+        val hand = File(File(ocrAssets, "hand").apply { mkdirs() }, "hand_landmarker.task")
+        fun handDigest() = MessageDigest.getInstance("SHA-256").digest(hand.readBytes()).joinToString("") { "%02x".format(it) }
+        if (!hand.exists() || handDigest() != handSha256) {
+            hand.delete()
+            URI(handUrl).toURL().openStream().use { input -> hand.outputStream().use { input.copyTo(it) } }
+            check(handDigest() == handSha256) { "sha256 do hand_landmarker não confere: ${handDigest()}" }
         }
     }
 }
