@@ -1,4 +1,5 @@
-# 0.32.0 — Galeria no app, disparo com a palma e IA de detalhe no zoom (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.32.0 — Galeria no app, disparo com a palma e IA de detalhe no zoom (Claude; branch `claude/nova-interface`; APK de teste build113 entregue)
+- **[Baixar ZIP com app-release.apk — build113 (1113)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39356816098/artifacts/12235058659)**. Artefato 12235058659, 156086536 bytes; sha256:369405794c2a92918134248749e2c261755644c7981f3fa2e989cc43b72f8987; expira 2026-11-19T02:12:26Z; sem release. A verificação do CI confirmou no APK os modelos de detalhe, de mão e de profundidade (NAFNet obrigatório). Fonte 25b1fae; gatilho restaurado em 96bc27a.
 - **Pedido do dono (20/10):** fazer os extras que faltavam; DNG fundido fica de fora (a fusão é em JPEG, então não seria RAW de verdade).
 - **Galeria no app (`GalleryActivity`, `core/GalleryBadge.kt`):** o toque na miniatura agora abre uma grade com as fotos e vídeos da Nova (sem originais e sem rajadas de diagnóstico). Cada foto tem um selo:
   - **IA:** ruído reduzido ou detalhe aplicado. Vem da descrição EXIF, então vale para qualquer foto.
