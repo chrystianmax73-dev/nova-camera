@@ -74,6 +74,8 @@ class Job(
     /** Alta resolução na tele: saída [outScale]× maior que o quadro (2 = ~48 MP), por super-resolução. */
     val outScale: Float = 1f,
     val trace: com.novacamera.s24.core.PhotoTrace? = null,
+    /** Local no disparo (opção "Salvar local"; vazio quando desligada). */
+    val geo: Map<String, String> = com.novacamera.s24.core.GeoTag.tagsNow(),
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -368,7 +370,7 @@ object ProcessingQueue {
             }
         }.getOrDefault(job.frames) else job.frames
         val frame0 = orderedFrames[0]
-        session.exif = MediaWriter.exifOf(frame0.jpeg)
+        session.exif = MediaWriter.exifOf(frame0.jpeg) + job.geo
         frame0.optics?.let{session.meta.setProperty("capture.optics",it.report())}
         job.frames.mapIndexedNotNull { i,f->f.optics?.let{"quadro${i+1}: ${it.report()}"} }.takeIf{it.isNotEmpty()}
             ?.let{session.meta.setProperty("capture.optics.frames",it.joinToString(" | "))}

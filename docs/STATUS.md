@@ -1,13 +1,15 @@
-# 0.31.6 — Etapas F (documento) e G (foco no escuro) (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.6 — Etapas F (documento), G (foco no escuro), aviso de lente suja e local opcional (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **F — Documento (Ferramentas › "DOC"):** prévia na maior resolução disponível (sem nova captura) → `core/DocQuad.kt` acha a folha (maior região clara pelo limiar de Otsu, sem as que encostam em 3+ bordas; cantos pelos extremos de x+y e x−y; recusa se a área do quadrilátero não bate com a da região ou < 15% da cena) → perspectiva endireitada (`Matrix.setPolyToPoly`, até 3000 px) → `Pictures/Nova Camera/Documentos`. "Compartilhar PDF": uma página A4 pelo `PdfDocument` do Android em `Documents/Nova Camera`. Limites: folha clara sobre fundo mais escuro, inteira na tela; resolução da prévia (não da foto).
 - **G — Foco no escuro (`FocusPolicy.DARK_WAIT_MS`):** fora do Noturno, com ISO ≥ 1600 ou ≥ 33 ms, o refoco antes da rajada (ponto tocado ou centro) espera até 1,5 s em vez de 0,7 s. Noturno inalterado (1,2 s).
 - **Extra 1 — Aviso de lente suja (`core/LensSmudge.kt`):** reaproveita o quadro que o leitor de QR já lê, então o custo é quase zero. Só roda com luz boa (ISO ≤ 400 e ≤ 20 ms). O aviso "A lente parece suja" aparece quando o ponto preto fica ≥ 12% e o contraste ≤ 45% em ≥ 80% das amostras de 30 s, em ≥ 3 cenas diferentes. No máximo uma vez a cada 30 min. Os limiares vêm da teoria e não foram calibrados no S24 Ultra; se avisar sem motivo, subir `VEIL_BLACK`.
-- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro; aviso de lente (só texto na tela). Processamento, tom, QR, texto, vídeo intocados.
-- Testes: `LensSmudgeTest`, `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
+- **Extra 4 — Salvar local (`core/GeoTag.kt`), desligado por padrão:** ao ligar, a câmera pede localização (precisa ou aproximada, a pessoa escolhe). Com a câmera aberta, usa a última posição do Android (provedor fused no Android 12+, senão GPS/rede; a cada 30 s ou 25 m). O app continua sem internet. A posição é copiada **no disparo** (`Job.geo`), não ao fim do processamento, e vai para o EXIF GPS da foto final, do original, da selfie espelhada e da gravação direta do CameraX. Posição com mais de 10 min ou imprecisão acima de 500 m não entra. Negar a permissão desliga a opção. Vídeo não leva local.
+- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro; aviso de lente (só texto na tela). Local só com a opção ligada. Processamento, tom, QR, texto, vídeo intocados.
+- Testes: `GeoTagTest` (graus/min/seg e hemisfério; desligado, velho ou impreciso fica fora), `LensSmudgeTest`, `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
 
 ---
 
-# 0.31.5 — Etapa E: ler texto (offline) + build resistente à falha do Google Drive (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.5 — Etapa E: ler texto (offline) + build resistente à falha do Google Drive (Claude; branch `claude/nova-interface`; APK de teste build111 entregue)
+- **[Baixar ZIP com app-release.apk — build111 (1111)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39349567047/artifacts/12233500190)**. Artefato 12233500190, 147905968 bytes; sha256:d86b38acd3d523add65253718830f9a2fcc868a1896a5b43fb495b00fa5bec4b; expira 2026-11-19T00:53:26Z; sem release. Inclui 0.31.1–0.31.4 (B, B2, C, D). Gatilho restaurado em d7dfb0e.
 - **Ler texto:** Ferramentas › "TEXTO" congela a prévia (snapshot de 1600 px, sem nova captura) e lê com PP-OCRv5 mobile (detector DB + reconhecedor CTC, 18.383 caracteres, inclui acentos do português) no ncnn que o app já tem (Vulkan quando disponível; uma IA nativa por vez). Resultado: texto selecionável (copiar um trecho com o gesto normal), "Copiar tudo", "Compartilhar"; links, e-mails e telefones viram toque (o Android pergunta o app). Sem internet.
 - **Pós-processamento sem OpenCV (`core/OcrPost.kt`):** componentes conectados do mapa do detector (limiar 0,3; caixa ≥ 0,6), expansão pela altura da linha (×1,95, como o exemplo oficial do ncnn), CTC (vazio, repetição, espaço), ordem de leitura por linha. Texto inclinado/vertical fica fora nesta versão. Linhas com confiança média < 0,5 descartadas.
 - **Validação real (no servidor, mesmo modelo e mesmo pós-processamento, ncnn Python):** imagem limpa com "Máscara descartável INFANTIL / Cuidando com carinho / das crianças do Brasil / Contém 50 unidades · R$ 19,90" → 4/4 linhas corretas (confiança 0,96–0,99). Recorte escuro da caixa na foto Samsung de 19/10 → "INFANTIL", "Contem", "50" e parte das linhas (cena no limite do sensor).
@@ -18,7 +20,7 @@
 
 ---
 
-# 0.31.4 — Etapa D: QR e códigos de barras sempre ligados na FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.4 — Etapa D: QR e códigos de barras sempre ligados na FOTO (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
 - **Pedido do dono (20/10):** leitura de QR como a câmera nativa, sempre ligada na FOTO.
 - **Como:** zxing-cpp 3.0.2 (Apache-2.0, conferido no POM oficial; `docs/THIRD_PARTY.md`) lendo a própria prévia (snapshot de 960 px pelo `PreviewFrameReader`, sem stream novo da câmera) ~2,5×/s; com calor ≥ moderado ou economia, 1×/s; pausa durante a captura; só no modo FOTO (`camera/QrScanner.kt`).
 - **Na tela:** chip "QR · domínio ›" (vibração curta); some 4 s depois de o código sair da imagem. Toque mostra o conteúdo inteiro antes de qualquer ação: link (domínio no título; sem https leva aviso) → Abrir/Copiar; Wi-Fi → Conectar (painel do próprio Android, API 30+) / Copiar senha; telefone → Ligar (abre o discador); e-mail → Escrever; texto/código de produto → Copiar/Compartilhar. **Nada abre sozinho.** Sem permissão nova (o app continua sem internet).
@@ -29,7 +31,7 @@
 
 ---
 
-# 0.31.3 — Etapa C: atenção ao assunto na FOTO no escuro (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.3 — Etapa C: atenção ao assunto na FOTO no escuro (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
 - **Pedido do dono (19–20/10):** sem toque, achar sozinho onde há informação na sombra (a caixa com a criança e as letras embaixo do frasco) e dar prioridade a ela; com toque, o objeto tocado; o resto não muda. Nada de deixar a foto inteira clara como no Noturno.
 - **Detector de objetos adiado por licença:** o EfficientDet-Lite0 do MediaPipe não tem licença publicada pela Google (nem no arquivo nem em model card; só um pacote de terceiros diz Apache-2.0). A regra do projeto exige licença confirmada. Alternativa com licença clara para depois, se precisar: NanoDet (Apache-2.0, roda no ncnn que já temos).
 - **Como acha o assunto (`core/imaging/SubjectAttention.kt`):** na foto reduzida (~512 px) e suavizada (o ruído some, contorno real fica): densidade de contornos acima do piso de ruído da própria cena × escuridão local (média abaixo de ~30%); mais o ponto tocado (círculo de 12% do menor lado). Bordas suavizadas para não haver recorte visível.
@@ -40,7 +42,7 @@
 
 ---
 
-# 0.31.2 — Etapa B2: rajada rápida na tele da FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.2 — Etapa B2: rajada rápida na tele da FOTO (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
 - **Medido (diagnóstico 19/10, FOTO 3×/5× no escuro):** 960–1040 ms entre quadros da rajada (solicitação ~260 ms + entrega ~700 ms por JPEG); 8 quadros da Alta resolução = 8 s na mão. No Noturno, desde a 0.29.5, a tele fica fixada na lente física e a rajada caiu para ~250 ms/quadro.
 - **Causa:** a FOTO só fixava a tele nativa com luz boa (ISO < 800 e < 20 ms); no escuro ficava na câmera lógica, onde o firmware processa cada JPEG por ~1 s (e pode trocar a 5× pela 3× recortada).
 - **Mudança:** FOTO fixa a tele nativa a partir de 2,5× também no escuro, igual ao Noturno, com o mesmo resgate: foco que não fecha por 2,5 s (perto demais/escuro) devolve à lente automática com aviso. Fora de FOTO/Noturno, nada muda.
@@ -50,7 +52,7 @@
 
 ---
 
-# 0.31.1 — Etapa B: acabamento em vários núcleos, foto idêntica (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.1 — Etapa B: acabamento em vários núcleos, foto idêntica (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
 - **Medido (diagnóstico 19/10, 49 MP):** tom 3,5–4,1 s, pouca luz 3,5–4,0 s, perfil 3,8–4,3 s — três passadas de `Engine.toneInPlace` em um núcleo, 12–14 s do acabamento.
 - **Mudança:** `toneInPlace` lê e grava faixas de 64 linhas em série (o Bitmap nunca é tocado por duas threads) e faz a conta tonal das faixas em paralelo (`Parallel`, que já respeita calor e economia). Cada pixel depende só dele e da coordenada: resultado idêntico. Esperado ~3× mais rápido com 4 núcleos (não medido no S24).
 - **Prova:** `EngineAndroidTest.tomEmParaleloIgualAUmNucleo` (tom + pouca luz + perfil, 1 × 4 núcleos, pixel a pixel) e o teste de regressão de faixas existente. JVM: 547 → 391 ms.

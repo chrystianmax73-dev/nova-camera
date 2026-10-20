@@ -1,3 +1,16 @@
+# Etapas 0.30.2–0.31.6 (Claude) — IA automática, estabilidade, ferramentas da câmera (pedido do dono)
+- Detalhes, limites e tabela "mudou × não mexi" em `docs/STATUS.md` (0.30.2 a 0.31.6). Noturno, tom, vídeo e Retrato não foram tocados nessas etapas, salvo onde o STATUS diz.
+- **IA automática:** `core/AiAutoPolicy.kt` (zoom ≥ 1,3×, ISO ≥ 800, Noturno, Retrato, até 52 MP). `core/imaging/AiQuality.kt` mede antes, escolhe a força e valida depois: recusa se o ruído não cair ≥ 10% ou se a borda perder > 8%. `HalfResidual` cobre fotos acima de 16,5 MP. `DenoiseBands` processa em faixas.
+- **Estabilidade:** `NativeGate` (uma IA nativa por vez; a prévia ao vivo pula o quadro em vez de esperar), `OutputMemory` (RAM do sistema, não heap), `NativeTombstone`.
+- **Atenção ao assunto:** `core/imaging/SubjectAttention.kt` (sombra com contorno, ou o ponto tocado, até +0,8 EV com validação). Vale só na FOTO com ISO ≥ 800 e é reaplicada pela revisão.
+- **Ferramentas:**
+  - QR: `camera/QrScanner.kt` com zxing-cpp.
+  - Texto: `processing/TextReader.kt` + `cpp/ocr.cpp` com PP-OCRv5; modelos baixados no build com sha256 fixo.
+  - Documento: `core/DocQuad.kt`.
+  - Lente suja: `core/LensSmudge.kt`.
+  - Local: `core/GeoTag.kt`, desligado por padrão; `Job.geo` copia a posição no disparo.
+- **CI:** cache do NAFNet convertido (o Google Drive pode recusar o download). Não remover a verificação final que barra APK sem modelo.
+
 # Etapa 0.30.1 (Claude) — vídeo travado no rosto/assunto + IA por região e foto inteira (pedido do dono)
 - Detalhes e limites em `docs/STATUS.md` (0.30.1). Para o Codex: `TileNoise.CLEAN_SIGMA` (1,2) é um palpite sem medição — calibrar com o "limpos pulados" do diagnóstico em fotos reais de Noturno e Retrato. A força da rede (0,75) e o acabamento não mudaram.
 - Pontos de integração: `ProcessingQueue.render(..., plans)` registra/reaplica os planos tonais (`RenderPlans`); `Engine.toneInPlace(..., region)`; `Engine.lowLightPlan`/`profilePlan` separados de `lowLightInPlace`/`profileInPlace` (saída idêntica). Mudou o tom? Mantenha o registro/reaplicação em todo passo com estatística global, senão a prévia por região diverge (`RegionRenderTest` pega).

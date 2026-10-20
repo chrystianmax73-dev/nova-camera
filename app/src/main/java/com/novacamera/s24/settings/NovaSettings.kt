@@ -36,6 +36,8 @@ class NovaSettings(context: Context) {
     var teleHighRes get() = bool("tele_high_res", true); set(v) = put("tele_high_res", v)
     var superRes get() = bool("super_res", true); set(v) = put("super_res", v)
     var qrScan get() = bool("qr_scan", true); set(v) = put("qr_scan", v)
+    /** Local da foto no EXIF; desligado por padrão (pede permissão de localização ao ligar). */
+    var geoTag get() = bool("geo_tag", false); set(v) = put("geo_tag", v)
     var autoNightPhoto get() = bool("auto_night_photo", false); set(v) = put("auto_night_photo", v)
     var levelIndicator get() = bool("level_indicator", false); set(v) = put("level_indicator", v)
     var proHistogram get() = bool("pro_histogram", true); set(v) = put("pro_histogram", v)

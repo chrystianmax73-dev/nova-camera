@@ -2030,6 +2030,11 @@ class NovaCamera(
             return if (settings.collectBursts) captureRawBurst(ic, RAW_BURST_FRAMES) else captureRawPlusJpeg(ic, values)
         }
         val metadata = ImageCapture.Metadata()
+        com.novacamera.s24.core.GeoTag.current(android.os.SystemClock.elapsedRealtime())?.let { f ->
+            metadata.location = android.location.Location("nova").apply {
+                latitude = f.lat; longitude = f.lon; time = f.utcMs; accuracy = f.accuracyM; f.altitude?.let { altitude = it }
+            }
+        }
         val output = ImageCapture.OutputFileOptions.Builder(
             activity.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
         ).setMetadata(metadata).build()
@@ -2184,7 +2189,7 @@ class NovaCamera(
                 val uri = try {
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
-                    MirroredPhotoSaver.save(activity.contentResolver, bytes, image.cropRect, image.imageInfo.rotationDegrees, values)
+                    MirroredPhotoSaver.save(activity.contentResolver, bytes, image.cropRect, image.imageInfo.rotationDegrees, values, geo = com.novacamera.s24.core.GeoTag.tagsNow())
                 } catch (e: Exception) {
                     Log.e(TAG, "Falha ao salvar selfie espelhada", e)
                     null

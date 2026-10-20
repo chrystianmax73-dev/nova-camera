@@ -189,6 +189,49 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             camera.startRecording()
     }
 
+    private val askLocation = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        if (r.values.any { it }) startGeo()
+        else { settings.geoTag = false; hint.show("Localização negada: as fotos ficam sem local (opção desligada)") }
+    }
+    private var geoAsked = false
+    private val geoListener = android.location.LocationListener { l -> onGeo(l) }
+
+    /** "Salvar local": última posição do próprio Android (fused/GPS/rede, sem internet do app) enquanto a câmera está aberta. */
+    private fun startGeo() {
+        com.novacamera.s24.core.GeoTag.enabled = settings.geoTag
+        if (!settings.geoTag) { stopGeo(); com.novacamera.s24.core.GeoTag.clear(); return }
+        val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) {
+            if (!geoAsked) { geoAsked = true; askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
+            return
+        }
+        val lm = getSystemService(android.location.LocationManager::class.java) ?: return
+        val providers = buildList {
+            if (android.os.Build.VERSION.SDK_INT >= 31 && lm.allProviders.contains(android.location.LocationManager.FUSED_PROVIDER))
+                add(android.location.LocationManager.FUSED_PROVIDER)
+            else {
+                if (fine) add(android.location.LocationManager.GPS_PROVIDER)
+                add(android.location.LocationManager.NETWORK_PROVIDER)
+            }
+        }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        if (providers.isEmpty()) { hint.show("Localização do aparelho desligada: fotos sem local"); return }
+        providers.forEach { p ->
+            runCatching { lm.getLastKnownLocation(p)?.let(::onGeo) }
+            runCatching { lm.requestLocationUpdates(p, 30_000L, 25f, geoListener, mainLooper) }
+        }
+    }
+
+    private fun stopGeo() {
+        runCatching { getSystemService(android.location.LocationManager::class.java)?.removeUpdates(geoListener) }
+    }
+
+    private fun onGeo(l: android.location.Location) {
+        val elapsed = l.elapsedRealtimeNanos / 1_000_000
+        com.novacamera.s24.core.GeoTag.update(com.novacamera.s24.core.GeoTag.Fix(l.latitude, l.longitude,
+            if (l.hasAltitude()) l.altitude else null, if (l.hasAccuracy()) l.accuracy else Float.MAX_VALUE, l.time, elapsed))
+    }
+
     private val orientationListener by lazy {
         object : OrientationEventListener(this) {
             override fun onOrientationChanged(degrees: Int) {
@@ -453,6 +496,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.aiDenoise = settings.aiDenoise
         ProcessingQueue.contrastProfile = settings.contrastProfile
         startQr()
+        startGeo()
         val sig = signature()
         val settingsChanged = sig != settingsSignature
         settingsSignature = sig
@@ -467,6 +511,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         stopQr()
+        stopGeo()
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
         contourGeneration++

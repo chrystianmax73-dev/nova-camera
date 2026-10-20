@@ -123,6 +123,10 @@ class SettingsActivity : NovaScreen() {
         switch("Ler QR e códigos de barras na Foto", "Lê a própria prévia, sem internet (zxing-cpp). Mostra o conteúdo " +
             "num aviso; nada abre sem você tocar, e o link aparece inteiro antes. Com calor ou economia, lê mais devagar.",
             { settings.qrScan }, { settings.qrScan = it })
+        switch("Salvar local nas fotos", "Desligado por padrão. Grava a posição do disparo no EXIF (GPS), como a câmera do " +
+            "aparelho. A permissão de localização é pedida ao voltar para a câmera; o app continua sem internet. Atenção: " +
+            "quem receber a foto vê onde ela foi tirada. Vídeo não leva local.",
+            { settings.geoTag }, { settings.geoTag = it })
         switch("Noturno automático na Foto", "Desligado por padrão. No escuro de verdade (tempo longo e ISO alto: na principal a partir de ISO 2400, na tele a partir de 800), " +
             "a Foto usa o motor do Noturno: exposição mais longa por quadro, menos ruído e o tom do Noturno. Segure firme " +
             "por 1–3 s. Nesses casos a Alta resolução não é usada (com ISO alto ela só amplia o ruído).",
