@@ -1,4 +1,7 @@
-# 0.35.0 — Bug dos controles ao vivo + zoom tátil, obturador, nível iPhone, AE/AF e volume (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.35.0 — Bug dos controles ao vivo + zoom tátil, obturador, nível iPhone, AE/AF e volume (Claude; branch `claude/nova-interface`; APK de teste build117 entregue)
+- **[Baixar ZIP com app-release.apk — build117 (1117)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39452275118/artifacts/12278424518)**. Artefato 12278424518, 158376911 bytes; fonte b38122f (gatilho 1c81fdb, restaurado em 2401d8b); sem release.
+  - **Detector no build117:** APROVADO, ncnn × ONNX com dif. 0,018 (era 0,91 no 116), classe mais forte = pessoa, sha256 do ONNX conferido.
+  - Isso confirma que a reprovação do 116 vinha do teste, não do modelo.
 - **Pedido do dono (20/10):** "pode fazer principalmente o bug" e as 10 sugestões da pesquisa. Este pacote traz o bug e os itens 1, 2, 3 e 6. Os itens 4, 5, 10 (0.36) e 7, 8, 9 (0.37) vêm depois, cada um validado.
 - **Bug dos controles ao vivo** (Desfoque, Tom, Temperatura sumiam até sair e entrar no app):
   - **Causa:** uma única falha do efeito da prévia, ou duas travadas, ligava `portraitPreviewFailed` para sempre na sessão.
@@ -40,7 +43,7 @@
 
 # 0.34.0 — Contraluz nas duas câmeras, toque inteligente e Retrato de objeto (Claude; branch `claude/nova-interface`; APK de teste build116 entregue)
 - **[Baixar ZIP com app-release.apk — build116 (1116)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39447653695/artifacts/12277308920)**. Artefato 12277308920, 158374155 bytes; sha256:a1ac2670bcc1ec02944650a7dbe2ebbe1fd21a83b81654098db09cb49bf71911; expira 2026-11-19T15:30:27Z; sem release.
-- **Ressalva do build116:** a checagem ncnn × ONNX do detector reprovou (dif. 0,91), mas o modelo entrou no APK (cópia antes da checagem). Os nomes ao tocar podem estar errados nesta versão. Corrigido na 0.35.0.
+- **Ressalva do build116:** a checagem do detector reprovou (dif. 0,91) e mesmo assim o modelo entrou no APK. O build117 mostrou que o erro era do teste (dif. 0,018 com o mesmo ONNX), então o detector da 0.34 provavelmente estava certo.
 - **Pedido do dono (20/10):** fazer as quatro sugestões da pesquisa, inclusive na traseira. O bug dos controles ao vivo fica registrado (handoff) para o próximo pacote, junto com as próximas sugestões.
 - **Contraluz A, medição na captura** (`core/BacklightMeter.kt`): com rosto na prévia, a compensação compara o rosto com o resto da cena. Rosto abaixo de 0,42 e pelo menos 0,16 mais escuro que o resto = contraluz, mesmo sem nada estourado. Antes exigia 2% estourado, e a selfie de 20/10 tinha 0,24%. A compensação leva o rosto a ~0,42, em luz linear (gama 2,2): ex. +0,77 EV para rosto 84/255. Com mais de 25% estourado, não sobe mais. Frontal e traseira.
 - **Contraluz B, HDR:** os quadros do HDR partem da exposição já corrigida pelo rosto; o quadro curto continua protegendo o céu.
