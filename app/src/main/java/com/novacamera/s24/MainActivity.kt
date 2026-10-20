@@ -129,6 +129,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var qrChip: TextView
     /** Aviso do código no visor, acima dos controles (entra com animação; toque mostra o conteúdo). */
     private lateinit var codePill: TextView
+    /** Botão T (texto na prévia) e a tela de leitura sobre a imagem congelada. */
+    private lateinit var textButton: TextView
+    private lateinit var textLens: com.novacamera.s24.ui.TextLensView
+    private lateinit var textBar: LinearLayout
+    private var textSpotter: com.novacamera.s24.camera.TextSpotter? = null
+    private val closeTextLens = object : androidx.activity.OnBackPressedCallback(false) { override fun handleOnBackPressed() { endTextLens() } }
     private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
     private var palmShutter: com.novacamera.s24.camera.PalmShutter? = null
     private var qrFound: com.novacamera.s24.core.QrContent? = null
@@ -499,6 +505,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.aiDenoise = settings.aiDenoise
         ProcessingQueue.contrastProfile = settings.contrastProfile
         startQr()
+        startTextSpot()
         startPalm()
         startGeo()
         val sig = signature()
@@ -515,6 +522,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
         stopQr()
+        textSpotter?.stop(); endTextLens()
         palmShutter?.stop()
         stopGeo()
         quickVideoWarmup.cancel()
@@ -569,6 +577,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         tracking.close()
         qrScanner?.close(); qrScanner = null
         palmShutter?.close(); palmShutter = null
+        textSpotter?.close(); textSpotter = null
         camera.release()
         sound.release()
         io.shutdown()
@@ -829,12 +838,34 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             setOnClickListener { qrFound?.let { showQr(it) } }
         }
         root.addView(codePill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        textButton = TextView(this).apply {
+            background = Nova.pill(0xE6101B2C.toInt(), dp(26f)); elevation = dp(6f)
+            gravity = Gravity.CENTER; visibility = View.GONE
+            setCompoundDrawablesRelativeWithIntrinsicBounds(com.novacamera.s24.ui.TextScanGlyph(dpi(26), Nova.TEXT), null, null, null)
+            setPadding(dpi(13), dpi(13), dpi(13), dpi(13))
+            contentDescription = "Texto na imagem. Toque para ler e selecionar"
+            setOnClickListener { Haptics.tick(this); readText() }
+        }
+        root.addView(textButton, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dpi(18) })
         bottom.addOnLayoutChangeListener { _, _, top, _, _, _, _, _, _ ->
-            (codePill.layoutParams as FrameLayout.LayoutParams).let { lp ->
+            for (v in listOf<View>(codePill, textButton)) (v.layoutParams as FrameLayout.LayoutParams).let { lp ->
                 val want = (root.height - top) + dpi(16)
-                if (lp.bottomMargin != want) { lp.bottomMargin = want; codePill.layoutParams = lp }
+                if (lp.bottomMargin != want) { lp.bottomMargin = want; v.layoutParams = lp }
             }
         }
+        // Leitura de texto: a prévia congelada ocupa o lugar do visor; ações embaixo, sobre os controles.
+        textLens = com.novacamera.s24.ui.TextLensView(this).apply {
+            visibility = View.GONE
+            onSelection = { n -> updateTextBar(n) }
+        }
+        previewFrame.addView(textLens, FrameLayout.LayoutParams(-1, -1))
+        textBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            background = Nova.pill(0xF2101B2C.toInt(), dp(28f)); elevation = dp(8f)
+            setPadding(dpi(6), dpi(6), dpi(6), dpi(6)); visibility = View.GONE
+        }
+        root.addView(textBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dpi(40) })
+        onBackPressedDispatcher.addCallback(this, closeTextLens)
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
@@ -956,18 +987,105 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (!com.novacamera.s24.processing.TextReader.available(this)) { hint.show("Leitura de texto indisponível nesta versão", 2000); return }
         val reader = com.novacamera.s24.camera.PreviewFrameReader(preview, 1600f)
         readingText = true
-        hint.show("Lendo texto…", 4000)
         val accepted = reader.read { bmp, _ ->
             reader.close()
             if (bmp == null) { readingText = false; hint.show("Não foi possível ler a prévia", 1600); return@read }
+            // A tela congela na hora (quadro da prévia) e a faixa de luz varre enquanto o leitor trabalha.
+            val frozen = runCatching { bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false) }.getOrNull()
+            if (frozen != null) {
+                textLens.begin(frozen); closeTextLens.isEnabled = true
+                hideTextButton(); setTextBar(listOf("Lendo…" to null, "✕" to { endTextLens() }))
+            } else hint.show("Lendo texto…", 4000)
             contourExecutor.execute {
                 val lines = runCatching { com.novacamera.s24.processing.TextReader.read(this, bmp) }
                     .onFailure { com.novacamera.s24.core.CrashLog.record(this, "leitura de texto (não fatal)", it) }.getOrDefault(emptyList())
+                val k = if (bmp.width > 0) textLens.width.toFloat().coerceAtLeast(1f) / bmp.width else 1f
                 bmp.recycle()
-                runOnUiThread { readingText = false; if (!isDestroyed) showText(lines) }
+                runOnUiThread {
+                    readingText = false
+                    if (isDestroyed) return@runOnUiThread
+                    if (frozen == null) { showText(lines); return@runOnUiThread }
+                    if (lines.isEmpty()) {
+                        endTextLens(); hint.show("Nenhum texto encontrado. Aproxime ou ilumine melhor.", 2200); return@runOnUiThread
+                    }
+                    textLens.showLines(lines.map { it.text to android.graphics.RectF(it.box.left * k, it.box.top * k, it.box.right * k, it.box.bottom * k) })
+                }
             }
         }
         if (!accepted) { readingText = false; reader.close() }
+    }
+
+    private fun clipText(text: String) {
+        getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Texto", text))
+        hint.show("Texto copiado", 1400)
+    }
+
+    /** Ações conforme a seleção: nada marcado = vale para tudo. Link/e-mail/telefone na seleção ganham "Abrir". */
+    private fun updateTextBar(selected: Int) {
+        val all = selected == 0
+        val text = textLens.text()
+        val actions = ArrayList<Pair<String, (() -> Unit)?>>()
+        actions += (if (all) "Tudo" else "Desmarcar") to { textLens.selectAll(all) }
+        actions += (if (all) "Copiar tudo" else "Copiar ($selected)") to { clipText(textLens.text()); endTextLens() }
+        android.util.Patterns.WEB_URL.matcher(text).takeIf { it.find() }?.group()?.let { url ->
+            actions += "Abrir link" to {
+                val u = if (url.startsWith("http", true)) url else "https://$url"
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u))) }; endTextLens()
+            }
+        }
+        actions += "Compartilhar" to {
+            runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, textLens.text()), null)) }
+        }
+        actions += "✕" to { endTextLens() }
+        setTextBar(actions)
+    }
+
+    private fun setTextBar(actions: List<Pair<String, (() -> Unit)?>>) {
+        textBar.removeAllViews()
+        actions.forEach { (label, act) ->
+            textBar.addView(TextView(this).apply {
+                text = label; textSize = 14f; typeface = Nova.MEDIUM
+                setTextColor(if (act == null) Nova.TEXT_MUTED else Nova.TEXT)
+                setPadding(dpi(14), dpi(10), dpi(14), dpi(10))
+                if (act != null) { background = Nova.pill(0x00000000, dp(20f)); setOnClickListener { Haptics.tick(this); act() } }
+            })
+        }
+        if (textBar.visibility != View.VISIBLE) {
+            textBar.visibility = View.VISIBLE; textBar.alpha = 0f; textBar.translationY = dp(16f)
+            textBar.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        }
+    }
+
+    private fun endTextLens() {
+        closeTextLens.isEnabled = false
+        if (::textLens.isInitialized) textLens.end()
+        if (::textBar.isInitialized && textBar.visibility == View.VISIBLE)
+            textBar.animate().alpha(0f).translationY(dp(12f)).setDuration(160).withEndAction { textBar.visibility = View.GONE }.start()
+    }
+
+    private fun startTextSpot() {
+        if (!settings.textSpot || !com.novacamera.s24.processing.TextReader.available(this)) { textSpotter?.stop(); return }
+        val spot = textSpotter ?: com.novacamera.s24.camera.TextSpotter(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto &&
+                !isFinishing && !readingText && textLens.visibility != View.VISIBLE && qrFound == null },
+            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            onChange = { has -> if (has) showTextButton() else hideTextButton() },
+        ).also { textSpotter = it }
+        spot.start()
+    }
+
+    private fun showTextButton() {
+        if (textButton.visibility == View.VISIBLE) return
+        textButton.animate().cancel()
+        textButton.visibility = View.VISIBLE; textButton.alpha = 0f; textButton.scaleX = 0.6f; textButton.scaleY = 0.6f
+        textButton.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(280)
+            .setInterpolator(android.view.animation.OvershootInterpolator(2f)).start()
+    }
+
+    private fun hideTextButton() {
+        if (!::textButton.isInitialized || textButton.visibility != View.VISIBLE) return
+        textButton.animate().cancel()
+        textButton.animate().alpha(0f).scaleX(0.7f).scaleY(0.7f).setDuration(160).withEndAction { textButton.visibility = View.GONE }.start()
     }
 
     // ------------------------------------------------------------------ documento

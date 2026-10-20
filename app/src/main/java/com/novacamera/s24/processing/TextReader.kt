@@ -99,6 +99,28 @@ object TextReader {
         } finally { det.recycle() }
     }
 
+    /**
+     * Só o detector, numa prévia pequena (lado [SPOT_SIDE]): há texto na cena? Para o botão de texto do visor.
+     * Pula (null) se outra IA nativa estiver rodando, em vez de esperar.
+     */
+    @Synchronized
+    fun spot(context: Context, photo: Bitmap): Boolean? {
+        if (!ensure(context)) return null
+        val scale = minOf(1f, SPOT_SIDE.toFloat() / maxOf(photo.width, photo.height))
+        val sw = (photo.width * scale).roundToInt().coerceAtLeast(1); val sh = (photo.height * scale).roundToInt().coerceAtLeast(1)
+        val pw = (sw + 31) / 32 * 32; val ph = (sh + 31) / 32 * 32
+        val det = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
+        try {
+            Canvas(det).apply { drawColor(0xFF727272.toInt()); drawBitmap(photo, null, Rect(0, 0, sw, sh), Paint(Paint.FILTER_BITMAP_FLAG)) }
+            val prob = FloatArray(pw * ph)
+            val ok = NativeGate.tryRun("texto: detecção ao vivo") { nativeDetect(handle, det, prob) } ?: return null
+            if (!ok) return null
+            lastUsed = SystemClock.elapsedRealtime()
+            return com.novacamera.s24.core.TextSpot.hasText(OcrPost.boxes(prob, pw, ph, 3f * scale), sw, sh)
+        } finally { det.recycle() }
+    }
+    private const val SPOT_SIDE = 480
+
     /** Linhas com confiança média abaixo disso são descartadas (ruído lido como letra). */
     private const val MIN_CONFIDENCE = 0.5f
 }

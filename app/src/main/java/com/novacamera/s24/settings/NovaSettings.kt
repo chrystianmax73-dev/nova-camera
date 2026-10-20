@@ -36,6 +36,8 @@ class NovaSettings(context: Context) {
     var teleHighRes get() = bool("tele_high_res", true); set(v) = put("tele_high_res", v)
     var superRes get() = bool("super_res", true); set(v) = put("super_res", v)
     var qrScan get() = bool("qr_scan", true); set(v) = put("qr_scan", v)
+    /** Botão de texto aparece sozinho quando há texto na prévia da Foto (só o detector, ~1,5 s). */
+    var textSpot get() = bool("text_spot", true); set(v) = put("text_spot", v)
     /** Local da foto no EXIF; desligado por padrão (pede permissão de localização ao ligar). */
     var geoTag get() = bool("geo_tag", false); set(v) = put("geo_tag", v)
     /** Palma aberta para a câmera inicia o contador; desligado por padrão (lê a prévia ~4×/s). */

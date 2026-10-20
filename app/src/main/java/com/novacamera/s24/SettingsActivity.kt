@@ -123,6 +123,9 @@ class SettingsActivity : NovaScreen() {
         switch("Ler QR e códigos de barras na Foto", "Lê a própria prévia, sem internet (zxing-cpp). Mostra o conteúdo " +
             "num aviso; nada abre sem você tocar, e o link aparece inteiro antes. Com calor ou economia, lê mais devagar.",
             { settings.qrScan }, { settings.qrScan = it })
+        switch("Detectar texto na Foto", "Quando há texto na prévia, aparece o botão T no canto: toque para ler, selecionar " +
+            "e copiar as linhas sobre a própria imagem. Sem internet; com calor ou economia, verifica mais devagar.",
+            { settings.textSpot }, { settings.textSpot = it })
         switch("Salvar local nas fotos", "Desligado por padrão. Grava a posição do disparo no EXIF (GPS), como a câmera do " +
             "aparelho. A permissão de localização é pedida ao voltar para a câmera; o app continua sem internet. Atenção: " +
             "quem receber a foto vê onde ela foi tirada. Vídeo não leva local.",

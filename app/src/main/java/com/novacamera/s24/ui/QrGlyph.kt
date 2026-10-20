@@ -34,3 +34,29 @@ class QrGlyph(private val sizePx: Int, color: Int) : Drawable() {
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
+
+/** Ícone de "ler texto": cantos de enquadramento e um T, como o botão da câmera da Samsung. */
+class TextScanGlyph(private val sizePx: Int, color: Int) : Drawable() {
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; this.color = color; strokeWidth = sizePx / 12f; strokeCap = Paint.Cap.ROUND
+    }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = color; textSize = sizePx * 0.58f; textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+    }
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds; val s = b.width().toFloat(); val a = s * 0.28f; val m = stroke.strokeWidth
+        val l = b.left + m; val t = b.top + m; val r = b.right - m; val bt = b.bottom - m
+        canvas.drawLines(floatArrayOf(l, t, l + a, t, l, t, l, t + a, r, t, r - a, t, r, t, r, t + a,
+            l, bt, l + a, bt, l, bt, l, bt - a, r, bt, r - a, bt, r, bt, r, bt - a), stroke)
+        canvas.drawText("T", b.exactCenterX(), b.exactCenterY() - (text.ascent() + text.descent()) / 2, text)
+    }
+
+    override fun getIntrinsicWidth() = sizePx
+    override fun getIntrinsicHeight() = sizePx
+    override fun setAlpha(alpha: Int) { stroke.alpha = alpha; text.alpha = alpha }
+    override fun setColorFilter(colorFilter: ColorFilter?) { stroke.colorFilter = colorFilter; text.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = PixelFormat.TRANSLUCENT
+}
