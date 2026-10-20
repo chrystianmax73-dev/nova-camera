@@ -1,3 +1,29 @@
+# 0.32.1 — Galeria atualizada, QR da garrafa, texto automático (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Retorno do dono (20/10, noite):**
+  - "Na revisão a foto sai perfeita e na galeria não."
+  - "QR da garrafa não lê."
+  - "Texto e QR precisam de animação, como na Samsung."
+  - O app fechou uma vez.
+- **Galeria × revisão, medido:** o arquivo que o dono mandou (6000×8000, "Nova Zoom", 0.31.6) tem as mesmas cores do lado "Nova" da revisão (até 0,3/255 de diferença em 4 regiões). Nesse par, a Nova foi para a galeria. Em relação ao original ela muda pouco (~5/255 na parede): o processamento já é gentil.
+  - **O defeito real:** na FOTO comum, na IA em segundo plano e no "Ajuste salvo", o app regrava o mesmo arquivo da galeria e não avisava o Android. A galeria da Samsung podia continuar mostrando a versão guardada antes.
+  - **Correção:** `MediaWriter.refresh` (notifyChange + MediaScanner) depois de toda regravação.
+  - **Diagnóstico:** a última etapa da foto agora diz "galeria conferida: versão Nova / SEM marca Nova", relendo o arquivo gravado.
+  - **Revisão:** toque e segure mostra o original inteiro no mesmo lugar e soltar volta à Nova. A linha compara partes diferentes da cena e enganava o olho.
+- **QR:**
+  - **Leitura:** além da prévia inteira a 960 px, o app lê o centro (metade da largura e da altura) na resolução da tela, e também códigos invertidos. Testado com a foto do dono: a garrafa não saía na inteira a 960 px e sai no centro (`cokeurl.com/q/BR-OOH-2000`). Custo: ~2 leituras de ~20 ms por passada; ler a prévia cheia custaria ~70 ms.
+  - **Visual:** moldura animada nos 4 cantos do código, que entra com um "encaixe" e segue o código entre as leituras (`core/CodeFrame.kt`, `ViewfinderOverlay.showCode`). O aviso arredondado com ícone de QR fica acima do disparador ("Link · instagram.com") e entra e sai com animação.
+- **Texto (`camera/TextSpotter.kt`, `core/TextSpot.kt`, `ui/TextLensView.kt`):**
+  - **Botão automático:** na FOTO, a cada ~1,5 s (3,5 s com calor ou economia) só o detector olha a prévia a 480 px. Com texto em 2 leituras seguidas, aparece o botão "T" no canto; sem texto em 2, ele some.
+  - **Validação no servidor com o mesmo modelo:** garrafa = sim (o texto "RECICLE-ME" é vertical, por isso linhas em pé contam); cama estampada, parede e as fotos de 10× = não.
+  - **Leitura:** o toque congela a imagem, uma faixa de luz varre enquanto o leitor trabalha, e as linhas acendem uma a uma (o resto escurece). Toque numa linha marca ou desmarca. Ações: Tudo, Copiar, Abrir link (se houver), Compartilhar, ✕; o botão voltar fecha.
+  - **Opção:** "Detectar texto na Foto" (ligada).
+- **Fechamento do app:** SIGABRT na `libnovadenoise.so`, thread do leitor de texto, 19/10 22:11 (horário local). O leitor de texto passou para a CPU (não disputa a GPU com NAFNet e profundidade) e a carga e liberação passam pelo `NativeGate`. O diagnóstico de fechamento agora mostra o deslocamento de cada quadro (`? +0x…`), para achar a função na próxima vez. Não posso afirmar que a causa era essa sem o deslocamento.
+- **IA de detalhe:** o aparelho não informa o sensor da tele (`sensor=null×null`). A lente agora vem da focal real do JPEG cruzada com as lentes do aparelho (`CaptureOptics`: ex. 7,9 mm → 2,74×). Na foto da cama: 3,0 ÷ 2,74 = 1,09×, então não entra, e está correto.
+- **Mudou × não mexi:** mudaram o aviso à galeria, a revisão (segurar), o QR (leitura e visual) e o texto (botão automático e tela de leitura); o leitor de texto foi para a CPU. Não mexi em processamento, tom, Noturno, Retrato nem vídeo.
+- Testes: `CodeFrameTest`, `TextSpotTest`, `QrContent.label`.
+
+---
+
 # 0.32.0 — Galeria no app, disparo com a palma e IA de detalhe no zoom (Claude; branch `claude/nova-interface`; APK de teste build113 entregue)
 - **[Baixar ZIP com app-release.apk — build113 (1113)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39356816098/artifacts/12235058659)**. Artefato 12235058659, 156086536 bytes; sha256:369405794c2a92918134248749e2c261755644c7981f3fa2e989cc43b72f8987; expira 2026-11-19T02:12:26Z; sem release. A verificação do CI confirmou no APK os modelos de detalhe, de mão e de profundidade (NAFNet obrigatório). Fonte 25b1fae; gatilho restaurado em 96bc27a.
 - **Pedido do dono (20/10):** fazer os extras que faltavam; DNG fundido fica de fora (a fusão é em JPEG, então não seria RAW de verdade).

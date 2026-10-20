@@ -1,22 +1,5 @@
-# Retorno do dono sobre a 0.31.6 (20/10, noite) — fila do próximo dia (Claude)
-1. **A galeria não fica igual à "Nova" da revisão** (print 4 = revisão, print 5 = arquivo da galeria; foto HDR 3× Alta resolução 48 MP, IA dispensada). O "Ajuste salvo" da revisão também não aparece na galeria.
-   - O arquivo da galeria tem a assinatura "NOVA CAMERA", que só vai na versão processada. Então ele passou pelo processamento, mas o resultado difere da prévia da revisão.
-   - Suspeitas, nesta ordem:
-     - (a) A galeria da Samsung mostra a versão antiga em cache: `reRender`/`MediaWriter.write` regravam a mesma URI no lugar ("wt") sem atualizar a MediaStore.
-     - (b) A prévia da revisão (base reduzida + `render`) e a final de 48 MP divergem no tom.
-   - Plano:
-     - Verificação pós-gravação: reler o arquivo da galeria, comparar com o que foi renderizado e registrar no diagnóstico.
-     - Forçar a atualização da MediaStore depois de regravar.
-     - Comparar `render` na prévia × resolução cheia na Alta resolução.
-   - Pedido ao dono: o arquivo da foto em si (zip), não o print.
-2. **QR na garrafa (curva, código pequeno, ISO 1073) não foi lido; na caixa de pizza foi.** A Samsung leu. Plano:
-   - Ler um recorte central em resolução maior além da imagem inteira de 960 px.
-   - Tentar a leitura invertida.
-   - Moldura animada nos cantos do código, usando a posição que o zxing devolve, e um chip mais caprichado.
-3. **Texto:** detectar sozinho e mostrar o ícone, e a seleção sobre a imagem como na Samsung ("extrair texto"), com animação.
-4. **Fechamento nativo** (SIGABRT em `libnovadenoise.so`, thread nova-contour, 19/10 22:11 no horário local = provavelmente 0.31.6). Mesmo executor do leitor de texto e do contorno; investigar o OCR.
-5. **A IA de detalhe pode quase nunca entrar pelo caminho do zoom ÷ lente.** O diagnóstico mostra `sensor disponível=null×null mm`. Usar `FocalLengthIn35mmFilm` do JPEG (ex.: 69 mm ÷ 23) para achar a lente.
-6. Outros ajustes visuais que o dono vai detalhar.
+# Retorno do dono sobre a 0.31.6 → tratado na 0.32.1 (ver `docs/STATUS.md`)
+- Pendente só o que depende do aparelho: confirmar a galeria atualizando, o custo do QR duplo e do botão de texto no S24, e o deslocamento do próximo fechamento nativo, se houver.
 
 # Etapa 0.32.0 (Claude) — galeria no app, palma, IA de detalhe (pedido do dono)
 - Detalhes em `docs/STATUS.md` (0.32.0).
