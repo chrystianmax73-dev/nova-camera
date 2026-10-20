@@ -35,6 +35,7 @@
         </activity>
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <activity android:name=".GalleryActivity" android:exported="false" />
         <service android:name=".processing.ProcessingService" android:exported="false"
             android:foregroundServiceType="shortService" />
         <activity android:name=".ReviewActivity" android:exported="false"

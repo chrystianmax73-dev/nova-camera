@@ -761,7 +761,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
         val controls = FrameLayout(this)
         thumbnail = ThumbnailView(this).apply {
-            setOnClickListener { openLastMedia() }
+            // Toque: galeria do próprio app (selo da IA em cada foto); de lá abre o visualizador do aparelho.
+            setOnClickListener { Haptics.tick(this); startActivity(Intent(this@MainActivity, GalleryActivity::class.java)) }
             // Comparação Original × Nova é opcional: toque e segure (o toque simples abre a galeria).
             setOnLongClickListener { openReview(); true }
         }
@@ -2060,15 +2061,6 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(if(which==0)original else result,"video/mp4")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }.onFailure { hint.show("Nenhum reprodutor disponível") }
             }.setNegativeButton("Fechar",null).show()
-    }
-
-    private fun openLastMedia() {
-        // A miniatura já mostra a foto nova, mas a galeria só a recebe ao fim do processamento.
-        if (processingPreview != null) return hint.show("Aprimorando a foto… ela abre na galeria assim que terminar", 2200)
-        val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        }.onFailure { Log.w(TAG, "Sem visualizador para $uri", it); hint.show("Nenhum app de galeria disponível") }
     }
 
     // ------------------------------------------------------------------ permissões

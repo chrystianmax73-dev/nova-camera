@@ -320,6 +320,25 @@ object ProcessingQueue {
     fun session(context: Context, id: String): Session? =
         File(sessionsDir(context), id).takeIf { it.isDirectory }?.let(::Session)
 
+    /** Galeria do app: sessão de revisão de cada foto final (uri → id), só as que ainda existem. */
+    fun sessionsByUri(context: Context): Map<String, String> =
+        sessionsDir(context).listFiles()?.filter { it.isDirectory }?.mapNotNull { d ->
+            Session(d).enhancedUri?.let { it.toString() to d.name }
+        }?.toMap().orEmpty()
+
+    /** Galeria do app: estado da IA ("running", "waiting", "done", "failed" ou null) e o motivo gravado. */
+    fun galleryAiState(context: Context, id: String): Pair<String?, String> {
+        val st = refineStatus(context, id)
+        return when (st.state) {
+            RefineState.RUNNING -> "running" to ""
+            RefineState.WAITING -> "waiting" to ""
+            RefineState.DONE -> "done" to st.detail
+            // AI_BASE = a IA foi aceita, falta só regravar a foto final (retomada depois): não é recusa.
+            RefineState.FAILED -> if (session(context, id)?.meta?.getProperty(AI_KEY) == AI_BASE) "waiting" to "" else "failed" to st.detail
+            RefineState.NONE -> if (session(context, id)?.meta?.getProperty(AI_KEY) == AI_PENDING) "waiting" to "" else null to ""
+        }
+    }
+
     private fun stamp() = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
 
     private inline fun <T> timed(job:Job,name:String,block:()->T):T {
