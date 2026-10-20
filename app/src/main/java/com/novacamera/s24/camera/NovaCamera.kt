@@ -624,10 +624,11 @@ class NovaCamera(
             currentLensId=child.cameraId
         }
 
-        // Noturno na tele: lente nativa fixa (ver NightLensPolicy). Ao sair do Noturno, volta à lógica
-        // para não mudar a Foto (que só fixa com luz boa).
+        // Noturno e FOTO na tele: lente nativa fixa (ver NightLensPolicy). Na câmera lógica cada JPEG da rajada
+        // levava ~1 s (diagnóstico 19/10: 960–1040 ms entre quadros, 8 quadros = 8 s na mão); fixada, ~250 ms
+        // (Noturno 0.29.5). Fora desses modos volta à lógica.
         val routeLens = lenses.firstOrNull { it.routeKey == currentLensId }
-        if (mode == CaptureMode.NOITE && routeLens != null && routeLens.physicalCameraId == null) {
+        if (telePinMode && routeLens != null && routeLens.physicalCameraId == null) {
             val eq = routeLens.intrinsic * (pendingZoomOnLens ?: zoomOnLens)
             if (com.novacamera.s24.core.NightLensPolicy.pinNative(true, isFront, eq))
                 LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes && it.routeKey !in nightFocusFailed },
@@ -635,7 +636,7 @@ class NovaCamera(
                     ?.takeIf { c -> c.cameraId != currentLensId && lenses.any { it.routeKey == c.cameraId && it.physicalCameraId != null &&
                         it.intrinsic >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM } }
                     ?.let { c -> currentLensId = c.cameraId; pendingZoomOnLens = c.zoomOnLens; nightPinned = true; nightFocus.reset() }
-        } else if (mode != CaptureMode.NOITE) {
+        } else if (!telePinMode) {
             nightFocusFailed.clear()
             if (nightPinned) {
                 nightPinned = false
@@ -1283,8 +1284,8 @@ class NovaCamera(
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val st = latestStats
             val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
-            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(mode == CaptureMode.NOITE, isFront, equivalentZoom)
-            if (mode == CaptureMode.NOITE) nightFocusFailed.clear()
+            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(telePinMode, isFront, equivalentZoom)
+            if (telePinMode) nightFocusFailed.clear()
             val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes &&
                     ((!mode.isVideo && mode != CaptureMode.RETRATO) || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
                 preferNative = !mode.isVideo && !isFront && (enoughLight || nightTele))
@@ -1383,15 +1384,18 @@ class NovaCamera(
         }, PINNED_STALL_MS)
     }
 
+    /** Noturno e FOTO fixam a tele nativa (rajada rápida, sem troca de lente no escuro). */
+    private val telePinMode get() = mode == CaptureMode.NOITE || mode == CaptureMode.FOTO
+
     /** Tele fixada pelo Noturno sem foco: volta à lógica (o firmware pode usar outra lente com recorte). */
     private fun nightFocusFallback(route: String) {
-        if (released || paused || !nightPinned || mode != CaptureMode.NOITE || isRecording || capturing) return
+        if (released || paused || !nightPinned || !telePinMode || isRecording || capturing) return
         val child = currentLens?.takeIf { it.routeKey == route && it.physicalCameraId != null } ?: return
         val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null } ?: return
         nightFocusFailed.add(route); nightPinned = false; nightFocus.reset()
         pendingZoomOnLens = child.intrinsic * zoomOnLens / parent.intrinsic
         currentLensId = parent.routeKey
-        listener.onMessage("A tele não focou (perto ou escuro demais); o Noturno usa a lente automática")
+        listener.onMessage("A tele não focou (perto ou escuro demais); a câmera usa a lente automática")
         bind()
     }
 
@@ -1949,7 +1953,7 @@ class NovaCamera(
             if (heldFocusDiopters == null) lastAfState = result.get(CaptureResult.CONTROL_AF_STATE)
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
-            if (nightPinned && mode == CaptureMode.NOITE && !capturing) {
+            if (nightPinned && telePinMode && !capturing) {
                 val route = currentLens?.routeKey
                 if (route != null && nightFocus.failed(SystemClock.uptimeMillis(), result.get(CaptureResult.CONTROL_AF_STATE)))
                     handler.post { nightFocusFallback(route) }

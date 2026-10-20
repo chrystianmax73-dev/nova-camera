@@ -1,3 +1,13 @@
+# 0.31.2 — Etapa B2: rajada rápida na tele da FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Medido (diagnóstico 19/10, FOTO 3×/5× no escuro):** 960–1040 ms entre quadros da rajada (solicitação ~260 ms + entrega ~700 ms por JPEG); 8 quadros da Alta resolução = 8 s na mão. No Noturno, desde a 0.29.5, a tele fica fixada na lente física e a rajada caiu para ~250 ms/quadro.
+- **Causa:** a FOTO só fixava a tele nativa com luz boa (ISO < 800 e < 20 ms); no escuro ficava na câmera lógica, onde o firmware processa cada JPEG por ~1 s (e pode trocar a 5× pela 3× recortada).
+- **Mudança:** FOTO fixa a tele nativa a partir de 2,5× também no escuro, igual ao Noturno, com o mesmo resgate: foco que não fecha por 2,5 s (perto demais/escuro) devolve à lente automática com aviso. Fora de FOTO/Noturno, nada muda.
+- **Disparo sem atraso (parcial):** o "toque→captura 968 ms" medido vinha do refoco no ponto antes da rajada (espera até 700 ms) + ~260 ms de início; o refoco continua (foto nítida > 0,7 s), o ganho aqui é na rajada.
+- **Mudou × não mexi:** só a escolha da lente na tele da FOTO no escuro. Intocados: processamento, tom, IA, Noturno, vídeo, Retrato.
+- **Não medido no aparelho:** confirmar no diagnóstico "timestamp bufferN: intervalo" ~250 ms na FOTO 3×/5× no escuro.
+
+---
+
 # 0.31.1 — Etapa B: acabamento em vários núcleos, foto idêntica (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Medido (diagnóstico 19/10, 49 MP):** tom 3,5–4,1 s, pouca luz 3,5–4,0 s, perfil 3,8–4,3 s — três passadas de `Engine.toneInPlace` em um núcleo, 12–14 s do acabamento.
 - **Mudança:** `toneInPlace` lê e grava faixas de 64 linhas em série (o Bitmap nunca é tocado por duas threads) e faz a conta tonal das faixas em paralelo (`Parallel`, que já respeita calor e economia). Cada pixel depende só dele e da coordenada: resultado idêntico. Esperado ~3× mais rápido com 4 núcleos (não medido no S24).
