@@ -1,4 +1,5 @@
-# 0.32.1 — Galeria atualizada, QR da garrafa, texto automático (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.32.1 — Galeria atualizada, QR da garrafa, texto automático (Claude; branch `claude/nova-interface`; APK de teste build114 entregue)
+- **[Baixar ZIP com app-release.apk — build114 (1114)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39359607009/artifacts/12236309889)**. Artefato 12236309889, 156108582 bytes; sha256:29ec010c31c32e1bc4fd03f47ad5f915b1646c11b47d40d2b63351aebcce4379; expira 2026-11-19T02:42:55Z; sem release. Fonte dc6ec59; gatilho restaurado em 0d5689c.
 - **Retorno do dono (20/10, noite):**
   - "Na revisão a foto sai perfeita e na galeria não."
   - "QR da garrafa não lê."
