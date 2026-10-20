@@ -128,11 +128,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var lockChip: TextView
     private lateinit var qrChip: TextView
     /** Aviso do código no visor, acima dos controles (entra com animação; toque mostra o conteúdo). */
-    private lateinit var codePill: TextView
+    private lateinit var codePill: com.novacamera.s24.ui.CodePill
     /** Botão T (texto na prévia) e a tela de leitura sobre a imagem congelada. */
     private lateinit var textButton: TextView
     private lateinit var textLens: com.novacamera.s24.ui.TextLensView
     private lateinit var textBar: LinearLayout
+    private lateinit var textClose: android.widget.ImageView
+    private lateinit var textHint: TextView
     private var textSpotter: com.novacamera.s24.camera.TextSpotter? = null
     private val closeTextLens = object : androidx.activity.OnBackPressedCallback(false) { override fun handleOnBackPressed() { endTextLens() } }
     private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
@@ -826,18 +828,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             if (bottomEdge - top != oldBottom - oldTop) cameraState?.let { st -> handler.post { layoutAll(st.mode) } }
         }
         root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        codePill = TextView(this).apply {
-            setTextColor(Nova.TEXT); textSize = 15f; typeface = Nova.MEDIUM
-            setPadding(dpi(16), dpi(10), dpi(20), dpi(10))
-            background = Nova.pill(0xE6101B2C.toInt(), dp(24f))
-            compoundDrawablePadding = dpi(10)
-            setCompoundDrawablesRelativeWithIntrinsicBounds(com.novacamera.s24.ui.QrGlyph(dpi(22), Nova.TEXT), null, null, null)
-            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dpi(300)
-            elevation = dp(6f); visibility = View.GONE
+        codePill = com.novacamera.s24.ui.CodePill(this).apply {
+            visibility = View.GONE
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             setOnClickListener { qrFound?.let { showQr(it) } }
         }
-        root.addView(codePill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        // Posição absoluta: o aviso fica logo abaixo do código lido (acima dele se faltar espaço), como no iPhone.
+        root.addView(codePill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
         textButton = TextView(this).apply {
             background = Nova.pill(0xE6101B2C.toInt(), dp(26f)); elevation = dp(6f)
             gravity = Gravity.CENTER; visibility = View.GONE
@@ -848,7 +845,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         }
         root.addView(textButton, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dpi(18) })
         bottom.addOnLayoutChangeListener { _, _, top, _, _, _, _, _, _ ->
-            for (v in listOf<View>(codePill, textButton)) (v.layoutParams as FrameLayout.LayoutParams).let { lp ->
+            for (v in listOf<View>(textButton)) (v.layoutParams as FrameLayout.LayoutParams).let { lp ->
                 val want = (root.height - top) + dpi(16)
                 if (lp.bottomMargin != want) { lp.bottomMargin = want; v.layoutParams = lp }
             }
@@ -859,12 +856,27 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             onSelection = { n -> updateTextBar(n) }
         }
         previewFrame.addView(textLens, FrameLayout.LayoutParams(-1, -1))
+        textLens.onCopyOne = { t -> clipText(t, "Bloco copiado") }
+        val glass = { r: Float -> android.graphics.drawable.GradientDrawable().apply { cornerRadius = r; setColor(0xE6101828.toInt()); setStroke(dpi(1), 0x26FFFFFF) } }
         textBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
-            background = Nova.pill(0xF2101B2C.toInt(), dp(28f)); elevation = dp(8f)
-            setPadding(dpi(6), dpi(6), dpi(6), dpi(6)); visibility = View.GONE
+            background = glass(dp(30f)); elevation = dp(10f)
+            setPadding(dpi(8), dpi(8), dpi(8), dpi(8)); visibility = View.GONE
         }
-        root.addView(textBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dpi(40) })
+        root.addView(textBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dpi(72) })
+        textClose = android.widget.ImageView(this).apply {
+            setImageDrawable(com.novacamera.s24.ui.LineIcon(com.novacamera.s24.ui.LineIcon.Kind.CLOSE, dpi(22), Nova.TEXT))
+            background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(0xCC101828.toInt()); setStroke(dpi(1), 0x26FFFFFF) }
+            setPadding(dpi(11), dpi(11), dpi(11), dpi(11)); elevation = dp(8f); visibility = View.GONE
+            contentDescription = "Fechar leitura de texto"
+            setOnClickListener { endTextLens() }
+        }
+        root.addView(textClose, FrameLayout.LayoutParams(dpi(44), dpi(44), Gravity.TOP or Gravity.START))
+        textHint = TextView(this).apply {
+            setTextColor(Nova.TEXT); textSize = 13f; typeface = Nova.MEDIUM
+            background = glass(dp(18f)); setPadding(dpi(14), dpi(8), dpi(14), dpi(8)); elevation = dp(8f); visibility = View.GONE
+        }
+        root.addView(textHint, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         onBackPressedDispatcher.addCallback(this, closeTextLens)
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
@@ -914,13 +926,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
             onFound = { content ->
                 qrFound = content
-                codePill.text = content.label()
+                codePill.setContent(com.novacamera.s24.ui.LineIcon.Kind.valueOf(content.iconName()), content.headline(), content.action(),
+                    warn = content is com.novacamera.s24.core.QrContent.Link && !content.secure)
                 codePill.contentDescription = "Código lido: ${content.summary()}. Toque para ver e escolher o que fazer"
                 showCodePill()
                 Haptics.tick(codePill)
             },
             onGone = { qrFound = null; hideCodePill(); overlay.hideCode() },
-            onSeen = { quad -> if (qrFound != null) overlay.showCode(quad) },
+            onSeen = { quad -> if (qrFound != null) { overlay.showCode(quad); placeCodePill(quad) } },
             inspect = { bmp -> checkLens(bmp) },
         ).also { qrScanner = it }
         scanner.start()
@@ -928,20 +941,42 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun stopQr() { qrScanner?.stop(); if (::codePill.isInitialized) { hideCodePill(); overlay.hideCode() } }
 
+    private var codeQuad: FloatArray? = null
+
+    /** Aviso logo abaixo do código (pontos da prévia → raiz); acima dele se faltar espaço; preso dentro do visor. */
+    private fun placeCodePill(quad: FloatArray) {
+        codeQuad = quad
+        val w = codePill.width.takeIf { it > 0 } ?: return
+        val h = codePill.height
+        val left = previewFrame.x; val top = previewFrame.y
+        val cx = (quad[0] + quad[2] + quad[4] + quad[6]) / 4f
+        val qTop = minOf(quad[1], quad[3], quad[5], quad[7]); val qBottom = maxOf(quad[1], quad[3], quad[5], quad[7])
+        val gap = dp(18f)
+        val x = (left + cx - w / 2f).coerceIn(left + dp(12f), left + previewFrame.width - w - dp(12f))
+        var y = top + qBottom + gap
+        if (y + h > top + previewFrame.height - dp(12f)) y = top + qTop - gap - h
+        y = y.coerceIn(top + dp(12f), top + previewFrame.height - h - dp(12f))
+        if (codePill.alpha < 0.05f || codePill.visibility != View.VISIBLE) { codePill.x = x; codePill.y = y }
+        else codePill.animate().x(x).y(y).setDuration(160).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
     private fun showCodePill() {
         if (codePill.visibility == View.VISIBLE && codePill.alpha > 0.99f) return
         codePill.animate().cancel()
         codePill.visibility = View.VISIBLE
-        codePill.alpha = 0f; codePill.scaleX = 0.88f; codePill.scaleY = 0.88f; codePill.translationY = dp(14f)
-        codePill.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(300)
-            .setInterpolator(android.view.animation.OvershootInterpolator(1.6f)).start()
+        codePill.alpha = 0f; codePill.scaleX = 0.86f; codePill.scaleY = 0.86f
+        // Mede antes de posicionar (primeira vez: largura ainda 0).
+        codePill.post { codeQuad?.let(::placeCodePill)
+            codePill.pivotX = codePill.width / 2f; codePill.pivotY = 0f
+            codePill.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f)).start() }
     }
 
     private fun hideCodePill() {
         if (!::codePill.isInitialized || codePill.visibility != View.VISIBLE) return
         codePill.animate().cancel()
-        codePill.animate().alpha(0f).translationY(dp(10f)).setDuration(180)
-            .withEndAction { codePill.visibility = View.GONE }.start()
+        codePill.animate().alpha(0f).scaleX(0.92f).scaleY(0.92f).setDuration(180)
+            .withEndAction { codePill.visibility = View.GONE; codeQuad = null }.start()
     }
 
     /** Disparo com a palma: palma aberta por ~0,7 s inicia o contador (3 s, ou o temporizador escolhido, se maior). */
@@ -994,7 +1029,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             val frozen = runCatching { bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false) }.getOrNull()
             if (frozen != null) {
                 textLens.begin(frozen); closeTextLens.isEnabled = true
-                hideTextButton(); setTextBar(listOf("Lendo…" to null, "✕" to { endTextLens() }))
+                hideTextButton(); enterTextChrome(); showTextHint("Lendo o texto…")
             } else hint.show("Lendo texto…", 4000)
             contourExecutor.execute {
                 val lines = runCatching { com.novacamera.s24.processing.TextReader.read(this, bmp) }
@@ -1009,58 +1044,85 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                         endTextLens(); hint.show("Nenhum texto encontrado. Aproxime ou ilumine melhor.", 2200); return@runOnUiThread
                     }
                     textLens.showLines(lines.map { it.text to android.graphics.RectF(it.box.left * k, it.box.top * k, it.box.right * k, it.box.bottom * k) })
+                    showTextHint("Toque para selecionar · segure para copiar o bloco")
                 }
             }
         }
         if (!accepted) { readingText = false; reader.close() }
     }
 
-    private fun clipText(text: String) {
+    private fun clipText(text: String, label: String = "Texto copiado") {
         getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Texto", text))
-        hint.show("Texto copiado", 1400)
+        hint.show(label, 1400)
     }
 
-    /** Ações conforme a seleção: nada marcado = vale para tudo. Link/e-mail/telefone na seleção ganham "Abrir". */
+    private class TextAction(val label: String, val icon: com.novacamera.s24.ui.LineIcon.Kind, val run: () -> Unit)
+
+    /** Ações conforme a seleção: nada marcado = vale para tudo. Link na seleção ganha "Abrir". */
     private fun updateTextBar(selected: Int) {
         val all = selected == 0
         val text = textLens.text()
-        val actions = ArrayList<Pair<String, (() -> Unit)?>>()
-        actions += (if (all) "Tudo" else "Desmarcar") to { textLens.selectAll(all) }
-        actions += (if (all) "Copiar tudo" else "Copiar ($selected)") to { clipText(textLens.text()); endTextLens() }
+        val actions = ArrayList<TextAction>()
+        actions += TextAction(if (all) "Copiar tudo" else "Copiar ($selected)", com.novacamera.s24.ui.LineIcon.Kind.COPY) { clipText(textLens.text()); endTextLens() }
+        actions += TextAction(if (all) "Selecionar" else "Limpar", com.novacamera.s24.ui.LineIcon.Kind.SELECT_ALL) { textLens.selectAll(all) }
         android.util.Patterns.WEB_URL.matcher(text).takeIf { it.find() }?.group()?.let { url ->
-            actions += "Abrir link" to {
+            actions += TextAction("Abrir link", com.novacamera.s24.ui.LineIcon.Kind.LINK) {
                 val u = if (url.startsWith("http", true)) url else "https://$url"
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u))) }; endTextLens()
             }
         }
-        actions += "Compartilhar" to {
+        actions += TextAction("Compartilhar", com.novacamera.s24.ui.LineIcon.Kind.SHARE) {
             runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, textLens.text()), null)) }
         }
-        actions += "✕" to { endTextLens() }
         setTextBar(actions)
     }
 
-    private fun setTextBar(actions: List<Pair<String, (() -> Unit)?>>) {
+    private fun setTextBar(actions: List<TextAction>) {
         textBar.removeAllViews()
-        actions.forEach { (label, act) ->
-            textBar.addView(TextView(this).apply {
-                text = label; textSize = 14f; typeface = Nova.MEDIUM
-                setTextColor(if (act == null) Nova.TEXT_MUTED else Nova.TEXT)
-                setPadding(dpi(14), dpi(10), dpi(14), dpi(10))
-                if (act != null) { background = Nova.pill(0x00000000, dp(20f)); setOnClickListener { Haptics.tick(this); act() } }
+        actions.forEach { a ->
+            textBar.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dpi(14), dpi(6), dpi(14), dpi(6)); minimumWidth = dpi(76)
+                background = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x3348BFFF),
+                    null, android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(22f); setColor(0xFFFFFFFF.toInt()) })
+                addView(android.widget.ImageView(context).apply { setImageDrawable(com.novacamera.s24.ui.LineIcon(a.icon, dpi(24), Nova.TEXT)) },
+                    LinearLayout.LayoutParams(dpi(24), dpi(24)))
+                addView(TextView(context).apply { text = a.label; textSize = 11.5f; typeface = Nova.MEDIUM; setTextColor(Nova.TEXT); gravity = Gravity.CENTER
+                    setPadding(0, dpi(4), 0, 0) })
+                setOnClickListener { Haptics.tick(this); a.run() }
             })
         }
         if (textBar.visibility != View.VISIBLE) {
-            textBar.visibility = View.VISIBLE; textBar.alpha = 0f; textBar.translationY = dp(16f)
-            textBar.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            textBar.visibility = View.VISIBLE; textBar.alpha = 0f; textBar.translationY = dp(20f)
+            textBar.animate().alpha(1f).translationY(0f).setDuration(300).setInterpolator(android.view.animation.OvershootInterpolator(1.1f)).start()
         }
+    }
+
+    /** Leitura de texto ocupa a tela: controles da câmera saem com fade; fechar e dica entram. */
+    private fun enterTextChrome() {
+        listOf<View>(bottom, zoomBar).forEach { v -> v.animate().cancel(); v.animate().alpha(0f).setDuration(180).withEndAction { v.visibility = View.INVISIBLE }.start() }
+        hideCodePill()
+        (textClose.layoutParams as FrameLayout.LayoutParams).let { it.topMargin = (previewFrame.y + dp(14f)).toInt(); it.marginStart = dpi(14); textClose.layoutParams = it }
+        (textHint.layoutParams as FrameLayout.LayoutParams).let { it.topMargin = (previewFrame.y + dp(18f)).toInt(); textHint.layoutParams = it }
+        textClose.visibility = View.VISIBLE; textClose.alpha = 0f; textClose.animate().alpha(1f).setDuration(220).start()
+    }
+
+    private fun showTextHint(text: String) {
+        textHint.text = text
+        textHint.animate().cancel()
+        textHint.visibility = View.VISIBLE; textHint.alpha = 0f; textHint.translationY = -dp(8f)
+        textHint.animate().alpha(1f).translationY(0f).setDuration(240).start()
     }
 
     private fun endTextLens() {
         closeTextLens.isEnabled = false
-        if (::textLens.isInitialized) textLens.end()
-        if (::textBar.isInitialized && textBar.visibility == View.VISIBLE)
-            textBar.animate().alpha(0f).translationY(dp(12f)).setDuration(160).withEndAction { textBar.visibility = View.GONE }.start()
+        if (!::textLens.isInitialized) return
+        textLens.end()
+        if (textBar.visibility == View.VISIBLE)
+            textBar.animate().alpha(0f).translationY(dp(16f)).setDuration(160).withEndAction { textBar.visibility = View.GONE }.start()
+        listOf<View>(textClose, textHint).forEach { v -> if (v.visibility == View.VISIBLE) v.animate().alpha(0f).setDuration(150).withEndAction { v.visibility = View.GONE }.start() }
+        if (bottom.visibility == View.INVISIBLE) { bottom.visibility = View.VISIBLE; bottom.animate().alpha(1f).setDuration(200).start() }
+        zoomBar.animate().cancel(); zoomBar.alpha = 1f; updateZoomVisibility() // a barra de zoom tem regra própria de visibilidade
     }
 
     private fun startTextSpot() {

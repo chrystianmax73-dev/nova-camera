@@ -1,3 +1,24 @@
+# 0.33.0 — QR e texto com visual premium + selfie em contraluz (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10, prints da 0.32.1):** QR e texto funcionam, mas "muito genérico; tem que ter cara de premium (referência iPhone)". A selfie em contraluz precisa ficar melhor. "O resto está perfeito: não mexer em mais nada."
+- **QR:**
+  - **Aviso ancorado no código** (`ui/CodePill.kt`): logo abaixo do código, ou acima se faltar espaço, preso dentro do visor e deslizando quando o código se move. Antes ficava em cima da barra de zoom.
+  - **Visual:** ícone num círculo com o degradê do app (link, Wi-Fi, telefone, e-mail, texto), o essencial em destaque (domínio/rede/número), a ação embaixo ("Abrir link"; link sem https vem em laranja) e uma seta. Vidro escuro com borda de 1 px.
+  - **Moldura:** cantos arredondados e traço de 4,5 dp com brilho azul, mais uma "respiração" de ±2,5% enquanto o código está na tela.
+- **Texto** (`ui/TextLensView.kt`, `core/TextBlocks.kt`):
+  - **Blocos:** caixas repetidas (≥ 60% dentro de outra) saem, e linhas do mesmo parágrafo viram um bloco.
+  - **Destaque:** sem bordas; o texto acende e o resto escurece. Na entrada, um brilho diagonal atravessa cada bloco.
+  - **Seleção:** azul suave com contorno fino. Toque e segure copia só aquele bloco.
+  - **Moldura da tela:** durante a leitura os controles da câmera saem com fade. Entram um botão de fechar redondo no topo, uma dica ("Toque para selecionar · segure para copiar o bloco") e uma barra de vidro com ícones e rótulos: Copiar, Selecionar/Limpar, Abrir link (se houver), Compartilhar. O botão voltar fecha.
+- **Selfie em contraluz** (`core/imaging/BacklitLift.kt`): só na câmera frontal (Foto/HDR).
+  - **Como funciona:** o segmentador do Retrato (pessoa + pele do rosto) mede o rosto contra o fundo. Se o rosto estiver abaixo de 0,40, com 0,18 de diferença para o fundo, a pessoa clareia até o rosto chegar a ~0,46 (no máximo 70% do fundo e 1,68× nos valores).
+  - **Sem halo:** só sobem os tons mais escuros que o fundo; a borda da máscara é curta.
+  - **Validação na versão reduzida:** a pessoa precisa clarear ≥ 8% sem estourar mais que 0,5%. A revisão reaplica igual, com os mapas gravados na sessão.
+  - **Selfie do dono (20/10, simulada no servidor com o mesmo modelo):** rosto 84 → 133 de 255; estouro igual (0,24%); halo removido na segunda versão da regra.
+- **Mudou × não mexi:** mudaram só o visual do QR, a tela de texto e a contraluz da selfie (câmera frontal). Não mexi em câmera traseira, Noturno, Retrato, vídeo nem no tom de nenhuma outra foto.
+- Testes: `BacklitLiftTest`, `TextBlocksTest` (+ anteriores; 439 no total).
+
+---
+
 # 0.32.1 — Galeria atualizada, QR da garrafa, texto automático (Claude; branch `claude/nova-interface`; APK de teste build114 entregue)
 - **[Baixar ZIP com app-release.apk — build114 (1114)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39359607009/artifacts/12236309889)**. Artefato 12236309889, 156108582 bytes; sha256:29ec010c31c32e1bc4fd03f47ad5f915b1646c11b47d40d2b63351aebcce4379; expira 2026-11-19T02:42:55Z; sem release. Fonte dc6ec59; gatilho restaurado em 0d5689c.
 - **Retorno do dono (20/10, noite):**

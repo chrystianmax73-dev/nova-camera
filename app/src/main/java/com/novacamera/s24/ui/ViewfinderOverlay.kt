@@ -306,8 +306,9 @@ class ViewfinderOverlay(context: Context) : View(context) {
     private var codeAppear = 0f
     private var codeAnim: ValueAnimator? = null
     private val codePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.5f * resources.displayMetrics.density
-        strokeCap = Paint.Cap.ROUND; setShadowLayer(4f * resources.displayMetrics.density, 0f, 0f, 0x99000000.toInt())
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 4.5f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        setShadowLayer(8f * resources.displayMetrics.density, 0f, 0f, 0xAA48BFFF.toInt())
     }
     private val codeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val codePath = android.graphics.Path()
@@ -354,7 +355,22 @@ class ViewfinderOverlay(context: Context) : View(context) {
         codeFill.color = Color.argb((40 * a).toInt(), 0x48, 0xBF, 0xFF)
         canvas.drawPath(codePath, codeFill)
         codePaint.alpha = (255 * a).toInt()
-        canvas.drawLines(com.novacamera.s24.core.CodeFrame.brackets(codeNow, scale), codePaint)
+        // Respiração sutil (±2,5%) enquanto o código está na tela: a moldura parece "viva", não um desenho parado.
+        val breath = 1f + 0.025f * kotlin.math.sin((android.os.SystemClock.uptimeMillis() % 1800L) / 1800f * 6.2832f)
+        val seg = com.novacamera.s24.core.CodeFrame.brackets(codeNow, scale * breath)
+        // Cada canto: dois braços unidos por uma curva (canto arredondado, como as molduras do sistema).
+        codePath.reset()
+        for (c in 0 until 4) {
+            val o = c * 8
+            val cx0 = seg[o]; val cy0 = seg[o + 1]
+            val ax = seg[o + 2]; val ay = seg[o + 3]; val bx = seg[o + 6]; val by = seg[o + 7]
+            codePath.moveTo(ax, ay)
+            codePath.lineTo(cx0 + (ax - cx0) * 0.3f, cy0 + (ay - cy0) * 0.3f)
+            codePath.quadTo(cx0, cy0, cx0 + (bx - cx0) * 0.3f, cy0 + (by - cy0) * 0.3f)
+            codePath.lineTo(bx, by)
+        }
+        canvas.drawPath(codePath, codePaint)
+        if (codeAppear >= 1f) postInvalidateOnAnimation()
     }
 
     private fun scheduleFade(delay: Long) {
