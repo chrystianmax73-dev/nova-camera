@@ -819,11 +819,27 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 Haptics.tick(qrChip)
             },
             onGone = { qrFound = null; if (::qrChip.isInitialized) qrChip.visibility = View.GONE },
+            inspect = { bmp -> checkLens(bmp) },
         ).also { qrScanner = it }
         scanner.start()
     }
 
     private fun stopQr() { qrScanner?.stop() }
+
+    private val lensSmudge = com.novacamera.s24.core.LensSmudge()
+
+    /** Thread do leitor: só com luz boa (o véu do escuro é ruído, não gordura). */
+    private fun checkLens(frame: android.graphics.Bitmap) {
+        val st = if (::camera.isInitialized) camera.previewStats else null
+        if (st == null || st.iso > 400 || st.exposureNs > 20_000_000L) return
+        val small = android.graphics.Bitmap.createScaledBitmap(frame, 160, (160f * frame.height / frame.width).toInt().coerceAtLeast(16), true)
+        val px = IntArray(small.width * small.height).also { small.getPixels(it, 0, small.width, 0, 0, small.width, small.height) }
+        val key = com.novacamera.s24.core.LensSmudge.sceneKey(px, small.width, small.height)
+        small.recycle()
+        val (black, contrast) = com.novacamera.s24.core.LensSmudge.measure(px)
+        if (lensSmudge.add(black, contrast, key, SystemClock.elapsedRealtime()))
+            runOnUiThread { if (!isDestroyed) hint.show("A lente parece suja ou engordurada: limpe com um pano macio para fotos mais nítidas", 4500) }
+    }
 
     // ------------------------------------------------------------------ texto (PP-OCRv5, offline)
 

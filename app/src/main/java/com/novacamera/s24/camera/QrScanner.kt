@@ -19,6 +19,8 @@ class QrScanner(
     private val slow: () -> Boolean,
     private val onFound: (QrContent) -> Unit,
     private val onGone: () -> Unit,
+    /** Mesmo quadro, na thread do leitor, antes de liberar (aviso de lente suja). */
+    private val inspect: ((android.graphics.Bitmap) -> Unit)? = null,
 ) : AutoCloseable {
     private val handler = Handler(Looper.getMainLooper())
     private val reader = PreviewFrameReader(preview, 960f)
@@ -49,6 +51,7 @@ class QrScanner(
                     val text = runCatching { zxing.read(bmp, android.graphics.Rect(0, 0, bmp.width, bmp.height), 0) }
                         .getOrNull()?.firstOrNull { !it.text.isNullOrBlank() }?.text
                     lastReadMs = (SystemClock.elapsedRealtimeNanos() - t) / 1e6
+                    inspect?.let { runCatching { it(bmp) } }
                     bmp.recycle()
                     handler.post {
                         busy = false

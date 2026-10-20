@@ -1,8 +1,9 @@
 # 0.31.6 — Etapas F (documento) e G (foco no escuro) (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **F — Documento (Ferramentas › "DOC"):** prévia na maior resolução disponível (sem nova captura) → `core/DocQuad.kt` acha a folha (maior região clara pelo limiar de Otsu, sem as que encostam em 3+ bordas; cantos pelos extremos de x+y e x−y; recusa se a área do quadrilátero não bate com a da região ou < 15% da cena) → perspectiva endireitada (`Matrix.setPolyToPoly`, até 3000 px) → `Pictures/Nova Camera/Documentos`. "Compartilhar PDF": uma página A4 pelo `PdfDocument` do Android em `Documents/Nova Camera`. Limites: folha clara sobre fundo mais escuro, inteira na tela; resolução da prévia (não da foto).
 - **G — Foco no escuro (`FocusPolicy.DARK_WAIT_MS`):** fora do Noturno, com ISO ≥ 1600 ou ≥ 33 ms, o refoco antes da rajada (ponto tocado ou centro) espera até 1,5 s em vez de 0,7 s. Noturno inalterado (1,2 s).
-- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro. Processamento, tom, QR, texto, vídeo intocados.
-- Testes: `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
+- **Extra 1 — Aviso de lente suja (`core/LensSmudge.kt`):** reaproveita o quadro que o leitor de QR já lê, então o custo é quase zero. Só roda com luz boa (ISO ≤ 400 e ≤ 20 ms). O aviso "A lente parece suja" aparece quando o ponto preto fica ≥ 12% e o contraste ≤ 45% em ≥ 80% das amostras de 30 s, em ≥ 3 cenas diferentes. No máximo uma vez a cada 30 min. Os limiares vêm da teoria e não foram calibrados no S24 Ultra; se avisar sem motivo, subir `VEIL_BLACK`.
+- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro; aviso de lente (só texto na tela). Processamento, tom, QR, texto, vídeo intocados.
+- Testes: `LensSmudgeTest`, `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
 
 ---
 

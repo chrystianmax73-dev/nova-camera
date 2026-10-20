@@ -182,6 +182,8 @@ class NovaCamera(
     val capturingPhoto get() = capturing
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
+    /** ISO/exposição/foco da prévia (aviso de lente suja só com luz boa). */
+    val previewStats get() = latestStats
     /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */
     private val motion = MotionMeter(activity)
     private var motionWanted = false
