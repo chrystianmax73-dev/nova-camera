@@ -1,3 +1,14 @@
+# Retorno do dono sobre a 0.31.6 (20/10, noite) — fila do próximo dia (Claude)
+1. **A foto da revisão e a da galeria parecem diferentes.** O dono quer que a galeria receba a versão Nova como aparece na revisão. Ainda falta confirmar qual é a diferença: se aparecem duas fotos (original e Nova) ou se a final difere da prévia da revisão. `keepOriginals` já vem desligado. O dono vai mandar prints.
+2. **QR na garrafa (curva, código pequeno, ISO 1073) não foi lido; na caixa de pizza foi.** A Samsung leu. Plano:
+   - Ler um recorte central em resolução maior além da imagem inteira de 960 px.
+   - Tentar a leitura invertida.
+   - Moldura animada nos cantos do código, usando a posição que o zxing devolve, e um chip mais caprichado.
+3. **Texto:** detectar sozinho e mostrar o ícone, e a seleção sobre a imagem como na Samsung ("extrair texto"), com animação.
+4. **Fechamento nativo** (SIGABRT em `libnovadenoise.so`, thread nova-contour, 19/10 22:11 no horário local = provavelmente 0.31.6). Mesmo executor do leitor de texto e do contorno; investigar o OCR.
+5. **A IA de detalhe pode quase nunca entrar pelo caminho do zoom ÷ lente.** O diagnóstico mostra `sensor disponível=null×null mm`. Usar `FocalLengthIn35mmFilm` do JPEG (ex.: 69 mm ÷ 23) para achar a lente.
+6. Outros ajustes visuais que o dono vai detalhar.
+
 # Etapa 0.32.0 (Claude) — galeria no app, palma, IA de detalhe (pedido do dono)
 - Detalhes em `docs/STATUS.md` (0.32.0).
 - `runNextRefine` foi reorganizado: o NAFNet dispensado ou recusado não encerra mais o refino, porque a IA de detalhe pode entrar depois. Estado na sessão: `detail`=done/skipped e `detailReport`. `Session.meta` agora guarda `srFactor`, e o caminho AUTO guarda `zoom`.
