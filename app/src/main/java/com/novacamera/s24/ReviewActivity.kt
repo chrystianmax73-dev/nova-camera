@@ -54,7 +54,7 @@ class ReviewActivity : NovaScreen() {
         compare = CompareView(this)
         content.addView(compare, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dpi(8) })
         if (s.note.isNotEmpty()) content.addView(caption(s.note))
-        content.addView(caption("Arraste a linha para comparar o original com a versão Nova. Dois dedos ampliam; toque duplo volta."))
+        content.addView(caption("Toque e segure a foto para ver o original inteiro no mesmo lugar; solte para ver a Nova (é a que está na galeria). Arraste a linha para comparar; dois dedos ampliam; toque duplo volta."))
         aiAvailable = com.novacamera.s24.processing.NcnnDenoiser.available(this) && s.meta.getProperty("banded") != "true"
         aiStatus = caption("")
         refineButton = button("Refinar foto inteira com IA") { requestRefine() }

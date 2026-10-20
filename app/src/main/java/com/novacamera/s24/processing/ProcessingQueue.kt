@@ -877,6 +877,7 @@ object ProcessingQueue {
         }
         if(ok) context.contentResolver.openOutputStream(target,"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } }
             ?: error("Sem acesso à fotografia final")
+        if(ok) MediaWriter.refresh(context.contentResolver,target)
         output.delete()
         session.note=if(ok)"Alta resolução processada em faixas" else "Mantido JPEG do sensor: processamento em faixas indisponível ou além do orçamento"
         session.enhancedUri=target;session.save();finish(job,session,target,originalUri,null)
@@ -897,6 +898,8 @@ object ProcessingQueue {
         val r = resolver
         if (enhanced != null && r != null) job.liveClip?.let { LiveClips.bind(r, enhanced, it) }
         else job.liveClip?.complete(null, 0)
+        // Confere o arquivo da galeria depois de gravar (diagnóstico: "versão Nova" ou "SEM marca Nova").
+        if (enhanced != null && r != null) job.trace?.mark(MediaWriter.verify(r, enhanced))
         started.remove(job.id)?.let { (t0, h0) ->
             com.novacamera.s24.core.CostLog.add(com.novacamera.s24.core.CostLog.Entry(
                 job.kind.label, android.os.SystemClock.elapsedRealtime() - t0, h0, heat))
@@ -1020,7 +1023,7 @@ object ProcessingQueue {
                     synchronized(LiveClips.lock) {
                         app.contentResolver.openOutputStream(session.enhancedUri ?: error("Sem fotografia"),"wt")?.use { dst -> output.inputStream().use { it.copyTo(dst) } } ?: error("Sem saída")
                     }
-                    session.enhancedUri?.let { LiveClips.reattach(app.contentResolver, it) }
+                    session.enhancedUri?.let { LiveClips.reattach(app.contentResolver, it); MediaWriter.refresh(app.contentResolver, it) }
                     output.delete();session.tone=tone;session.save()
                     return@runCatching
                 }

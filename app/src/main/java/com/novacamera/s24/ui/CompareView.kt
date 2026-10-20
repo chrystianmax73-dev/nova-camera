@@ -67,12 +67,21 @@ class CompareView(context: Context) : View(context) {
         override fun onDoubleTap(e: MotionEvent): Boolean {
             zoom = 1f; panX = 0f; panY = 0f; invalidate(); report(); return true
         }
+        // Toque e segure: a foto inteira vira o original, no mesmo lugar; soltar volta à Nova. A linha
+        // compara partes diferentes da cena e engana o olho (20/10: "a galeria não processou").
+        override fun onLongPress(e: MotionEvent) {
+            if (gesture || holdSplit != null) return
+            holdSplit = split; split = 1f
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            invalidate()
+        }
     })
+    private var holdSplit: Float? = null
     private var lastFocusX = 0f
     private var lastFocusY = 0f
 
     init {
-        contentDescription = "Comparação entre original e aprimorado. Arraste para comparar; dois dedos ampliam"
+        contentDescription = "Comparação entre original e aprimorado. Arraste para comparar; toque e segure para ver o original inteiro; dois dedos ampliam"
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -122,12 +131,18 @@ class CompareView(context: Context) : View(context) {
             canvas.restore()
         }
         canvas.restore()
-        canvas.drawLine(x, fit.top, x, fit.bottom, line)
-        canvas.drawCircle(x, fit.centerY(), dp(9f), knob)
         val left = if (p != null) "Sem IA" else "Original"
         val right = if (p != null) "Com IA" else "Nova"
-        canvas.drawText(left, fit.left + dp(10f), fit.top + dp(22f), label)
-        canvas.drawText(right, fit.right - dp(10f) - label.measureText(right), fit.top + dp(22f), label)
+        if (holdSplit != null) {
+            // Segurando: só o original, sem linha (o rótulo diz o que está na tela).
+            val t = "$left · solte para ver a $right"
+            canvas.drawText(t, fit.left + dp(10f), fit.top + dp(22f), label)
+        } else {
+            canvas.drawLine(x, fit.top, x, fit.bottom, line)
+            canvas.drawCircle(x, fit.centerY(), dp(9f), knob)
+            canvas.drawText(left, fit.left + dp(10f), fit.top + dp(22f), label)
+            canvas.drawText(right, fit.right - dp(10f) - label.measureText(right), fit.top + dp(22f), label)
+        }
         if (zoom > 1.01f) {
             val z = "${(zoom * 10).toInt() / 10f}×"
             canvas.drawText(z, fit.centerX() - label.measureText(z) / 2, fit.bottom - dp(12f), label)
@@ -160,10 +175,11 @@ class CompareView(context: Context) : View(context) {
                     focus(event)
                     panX += lastFocusX - fx; panY += lastFocusY - fy
                     clampPan(); invalidate()
-                } else if (!gesture) moveSplit(event)
+                } else if (!gesture && holdSplit == null) moveSplit(event)
             }
             MotionEvent.ACTION_POINTER_UP -> focus(event, skip = event.actionIndex)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                holdSplit?.let { split = it; holdSplit = null; invalidate() }
                 if (gesture) report() else performClick()
                 gesture = false
             }
