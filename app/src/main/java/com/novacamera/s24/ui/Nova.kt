@@ -53,4 +53,14 @@ object Haptics {
         v.performHapticFeedback(if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)
     }
     fun heavy(v: View) { if (enabled) v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+    /** Degrau leve (dial do zoom, régua): o "clique" curto do Android 14+. */
+    fun segment(v: View) {
+        if (!enabled) return
+        v.performHapticFeedback(if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_TICK else HapticFeedbackConstants.CLOCK_TICK)
+    }
+    /** Limiar atingido (parada óptica, troca de lente, nível alcançado): tique firme. */
+    fun threshold(v: View) {
+        if (!enabled) return
+        v.performHapticFeedback(if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE else HapticFeedbackConstants.CONTEXT_CLICK)
+    }
 }

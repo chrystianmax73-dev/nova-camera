@@ -205,6 +205,22 @@ class ShutterButton(context: Context) : View(context) {
         parent?.requestDisallowInterceptTouchEvent(false)
     }
 
+    /** Pulso da captura: o centro encolhe ~12% e volta com mola, e um anel claro se expande e some. */
+    private var pulse = 0f
+    private var ripple = 0f
+    fun capturePulse() {
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 380; interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                pulse = if (t < 0.25f) t / 0.25f else (1f - (t - 0.25f) / 0.75f).let { r -> r * r * (1f + 0.6f * kotlin.math.sin(r * 9.4f)) }.coerceIn(-0.15f, 1f)
+                ripple = t
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { pulse = 0f; ripple = 0f; invalidate() } })
+        }.start()
+    }
+
     private fun animatePress(to: Float) {
         ValueAnimator.ofFloat(press, to).apply {
             duration = if (to > 0) 70 else Nova.FAST
@@ -229,7 +245,12 @@ class ShutterButton(context: Context) : View(context) {
             canvas.drawArc(rect, spinAngle - 90f, 70f, false, arc)
         }
 
-        val scale = 1f - 0.08f * press
+        if (ripple > 0f && ripple < 1f) {
+            ring.alpha = (140 * (1f - ripple)).toInt()
+            canvas.drawCircle(cx, cy, outer - dp(1.5f) + dp(10f) * ripple, ring)
+            ring.alpha = enabledAlpha
+        }
+        val scale = 1f - 0.08f * press - 0.12f * pulse
         val photoColor = Nova.TEXT
         disc.color = ColorUtils.blendARGB(photoColor, Nova.REC, videoFraction)
         disc.alpha = enabledAlpha

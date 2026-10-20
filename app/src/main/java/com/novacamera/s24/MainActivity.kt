@@ -435,10 +435,23 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private val sensors by lazy { getSystemService(android.hardware.SensorManager::class.java) }
     private var levelSmoothed: Float? = null
+    private var levelOk = false
     private val levelListener = object : android.hardware.SensorEventListener {
         override fun onSensorChanged(e: android.hardware.SensorEvent) {
             val a = com.novacamera.s24.core.imaging.ViewfinderAid.horizon(e.values[0], e.values[1], e.values[2])
-            if (a == null) { levelSmoothed = null; overlay.horizon = null; return }
+            // Aparelho deitado (foto de cima, a até ~20° da horizontal): mira dupla em vez da linha.
+            val g = kotlin.math.sqrt(e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2]).coerceAtLeast(0.1f)
+            if (kotlin.math.abs(e.values[2]) / g > 0.94f) {
+                val k = dp(400f)
+                val o = android.graphics.PointF(-e.values[0] / g * k, e.values[1] / g * k)
+                overlay.horizon = null; overlay.topDown = o
+                val ok = kotlin.math.hypot(o.x, o.y) < dp(4f)
+                if (ok && !levelOk) Haptics.threshold(overlay)
+                levelOk = ok; levelSmoothed = null
+                return
+            }
+            overlay.topDown = null
+            if (a == null) { levelSmoothed = null; overlay.horizon = null; levelOk = false; return }
             // Suaviza sem atravessar ±180° pelo caminho longo.
             val prev = levelSmoothed
             val next = if (prev == null) a else {
@@ -447,6 +460,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             }
             levelSmoothed = next
             overlay.horizon = next
+            // Tique firme ao nivelar (uma vez por entrada no nível, como no iPhone).
+            val ok = com.novacamera.s24.core.imaging.ViewfinderAid.levelError(next) < 1f
+            if (ok && !levelOk) Haptics.threshold(overlay)
+            levelOk = ok
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
     }
@@ -461,7 +478,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun stopLevel() {
         sensors?.unregisterListener(levelListener)
         levelSmoothed = null
-        overlay.horizon = null
+        overlay.horizon = null; overlay.topDown = null; levelOk = false
     }
 
     /** Amostra de energia/temperatura por atividade (diagnóstico de sessões longas). */
@@ -768,7 +785,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         zoomBar = ZoomBar(this).apply {
             listener = object : ZoomBar.Listener {
                 override fun onStop(value: Float) = camera.zoomTo(value)
-                override fun onDrag(value: Float) = camera.zoomFollow(value)
+                override fun onDrag(value: Float) { userZoomUntil = android.os.SystemClock.uptimeMillis() + 400; camera.zoomFollow(value) }
                 override fun onDragEnd() {}
             }
         }
@@ -1931,7 +1948,24 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     }
 
-    override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+    /** Até quando o zoom em curso é do dedo do usuário (pinça ou arrastar a barra): só então há degraus táteis. */
+    private var userZoomUntil = 0L
+    private var lastZoomHaptic = 0f
+    private var lastStepHapticAt = 0L
+
+    override fun onZoom(equivalentZoom: Float) {
+        zoomBar.zoom = equivalentZoom
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now < userZoomUntil && lastZoomHaptic > 0f) {
+            when (com.novacamera.s24.core.ZoomDetent.crossed(lastZoomHaptic, equivalentZoom, cameraState?.zoomStops.orEmpty())) {
+                com.novacamera.s24.core.ZoomDetent.Kind.STOP -> { Haptics.threshold(zoomBar); lastStepHapticAt = now }
+                com.novacamera.s24.core.ZoomDetent.Kind.STEP -> if (now - lastStepHapticAt >= com.novacamera.s24.core.ZoomDetent.MIN_STEP_MS) {
+                    Haptics.segment(zoomBar); lastStepHapticAt = now }
+                else -> {}
+            }
+        }
+        lastZoomHaptic = equivalentZoom
+    }
 
     override fun onFaces(faces: List<android.graphics.RectF>) {
         overlay.faces = faces
@@ -1942,7 +1976,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onFocusResult(success: Boolean, locked: Boolean) {
         overlay.setFocusResult(success, locked && camera.exposureLocked)
         if (locked) {
-            Haptics.heavy(overlay)
+            Haptics.threshold(overlay)
             lockChip.text = if (camera.exposureLocked) "AE/AF BLOQUEADO  ✕" else "AF BLOQUEADO  ✕"
             lockChip.visibility = View.VISIBLE
         }
@@ -1978,6 +2012,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onActiveLens(label: String?) {
         if (::tracking.isInitialized) tracking.stop("Lente física mudou; toque novamente no assunto")
         if (label == null) return
+        // Troca de lente sentida na mão (não na primeira lente da sessão).
+        if (lensChip.text.isNotEmpty() && lensChip.text != label) Haptics.threshold(lensChip)
         lensChip.text = label
         lensChip.alpha = 1f
         lensChip.visibility = View.VISIBLE
@@ -1988,7 +2024,41 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onCaptureStarted() {
         overlay.flash()
         shutter.busy = true
+        shutter.capturePulse()
+        flyToThumbnail()
         if (settings.shutterSound) sound.play(MediaActionSound.SHUTTER_CLICK)
+    }
+
+    private val flyReader by lazy { com.novacamera.s24.camera.PreviewFrameReader(preview, 480f) }
+
+    /**
+     * A foto "voa" do visor para a miniatura (cantos arredondando, encolhendo em curva), como nas câmeras
+     * de referência. Quadro reduzido da prévia, lido fora da thread da interface; nada muda na captura.
+     */
+    private fun flyToThumbnail() {
+        if (!::thumbnail.isInitialized || camera.mode.isVideo) return
+        flyReader.read { bmp, _ ->
+            if (bmp == null || isDestroyed) { bmp?.recycle(); return@read }
+            val view = android.widget.ImageView(this).apply {
+                setImageBitmap(bmp); scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(18f) / v.scaleX.coerceAtLeast(0.05f)) }
+                }
+                clipToOutline = true; elevation = dp(10f)
+            }
+            val pw = previewFrame.width; val ph = previewFrame.height
+            root.addView(view, FrameLayout.LayoutParams(pw, ph).apply { leftMargin = previewFrame.x.toInt(); topMargin = previewFrame.y.toInt() })
+            val loc = IntArray(2); val rootLoc = IntArray(2)
+            thumbnail.getLocationInWindow(loc); root.getLocationInWindow(rootLoc)
+            val tx = loc[0] - rootLoc[0] + thumbnail.width / 2f; val ty = loc[1] - rootLoc[1] + thumbnail.height / 2f
+            val k = thumbnail.width.toFloat() / maxOf(1, pw)
+            view.pivotX = pw / 2f; view.pivotY = ph / 2f
+            view.animate().scaleX(k).scaleY(k)
+                .translationX(tx - (previewFrame.x + pw / 2f)).translationY(ty - (previewFrame.y + ph / 2f))
+                .setDuration(420).setInterpolator(Nova.EASE)
+                .setUpdateListener { view.invalidateOutline() }
+                .withEndAction { root.removeView(view); bmp.recycle() }.start()
+        }
     }
 
     override fun onPhotoSaved(uri: Uri?) {
@@ -2172,7 +2242,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.showExposure(fraction, CameraMath.formatEv(CameraMath.evForIndex(idx, s.evStepNum, s.evStepDen)), keep = false)
     }
 
-    override fun onPinch(scaleFactor: Float) = camera.zoomBy(scaleFactor)
+    override fun onPinch(scaleFactor: Float) { userZoomUntil = android.os.SystemClock.uptimeMillis() + 400; camera.zoomBy(scaleFactor) }
 
     override fun onPinchEnd() {}
 
@@ -2239,18 +2309,44 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.resume()
     }
 
+    /**
+     * Volume como "Camera Control" (pesquisa 20/10, item 6). Volume + dispara no aperto (sem atraso, como antes).
+     * Volume − imita o meio-aperto do iPhone: segurar 0,35 s trava AE/AF no maior rosto (ou no centro) e soltar
+     * não dispara; um toque curto dispara ao soltar. Esperar o soltar só no − mantém o + instantâneo.
+     */
+    private var volumeDownAt = 0L
+    private var volumeDownLocked = false
+    private val volumeHoldLock = Runnable {
+        if (volumeDownAt == 0L || !camera.ready) return@Runnable
+        volumeDownLocked = true
+        val face = camera.facesInView().maxByOrNull { (it.right - it.left) * (it.bottom - it.top) }
+        val x = face?.let { (it.left + it.right) / 2f } ?: (overlay.width / 2f)
+        val y = face?.let { (it.top + it.bottom) / 2f } ?: (overlay.height / 2f)
+        onLongPress(x, y)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
             lastInteraction = SystemClock.elapsedRealtime()
             if (idlePaused) { resumeFromIdle(); return true }
-            if (event.repeatCount == 0) onShutter()
+            if (event.repeatCount != 0) return true
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || camera.isRecording) { onShutter(); return true }
+            volumeDownAt = SystemClock.uptimeMillis(); volumeDownLocked = false
+            overlay.postDelayed(volumeHoldLock, VOLUME_HOLD_MS)
             return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) return true
+        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && volumeDownAt != 0L) {
+                overlay.removeCallbacks(volumeHoldLock)
+                volumeDownAt = 0L
+                if (!volumeDownLocked) onShutter()
+            }
+            return true
+        }
         return super.onKeyUp(keyCode, event)
     }
 
@@ -2352,6 +2448,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private const val AID_WIDTH = 240
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f
+        private const val VOLUME_HOLD_MS = 350L
     }
 
 }

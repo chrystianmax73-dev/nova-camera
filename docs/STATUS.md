@@ -1,4 +1,46 @@
-# 0.34.0 — Contraluz nas duas câmeras, toque inteligente e Retrato de objeto (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.35.0 — Bug dos controles ao vivo + zoom tátil, obturador, nível iPhone, AE/AF e volume (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10):** "pode fazer principalmente o bug" e as 10 sugestões da pesquisa. Este pacote traz o bug e os itens 1, 2, 3 e 6. Os itens 4, 5, 10 (0.36) e 7, 8, 9 (0.37) vêm depois, cada um validado.
+- **Bug dos controles ao vivo** (Desfoque, Tom, Temperatura sumiam até sair e entrar no app):
+  - **Causa:** uma única falha do efeito da prévia, ou duas travadas, ligava `portraitPreviewFailed` para sempre na sessão.
+  - **Agora** (`core/EffectBreaker.kt`): um disjuntor com espera de 4 s, depois 20 s, depois 120 s. Passada a espera, a câmera religa o efeito sozinha, se não estiver gravando nem fotografando. Sessão nova zera tudo.
+- **Detector (CI):** o build116 reprovou o PicoDet (dif. 0,91) mas copiou os arquivos antes da checagem, então o modelo entrou na 0.34.0 mesmo assim. Agora só entra aprovado. A dif. 0,91 provavelmente veio do próprio teste (memória do binding Python liberada cedo, reproduzido aqui), não do modelo. O build da 0.35 confirma. Tenta fp16 e fp32; se reprovar, o log mostra o primeiro nó divergente. sha256 do ONNX fixado.
+- **Item 1, zoom tátil** (`core/ZoomDetent.kt`):
+  - Tique leve a cada passo: 0,1× até 3×, 0,5× até 10×, 1× acima, no máximo um a cada 35 ms.
+  - Tique forte ao passar por 0,6/1/3/5/10…, nos dois sentidos.
+  - Tique de limiar ao trocar de lente.
+  - Só durante o gesto do usuário (pinça ou régua), não em zoom automático.
+- **Item 2, identidade:**
+  - O obturador encolhe 12% com mola e solta um anel.
+  - A miniatura da foto "voa" até o canto da galeria (420 ms).
+  - Números do zoom com algarismos tabulares, que não "dançam".
+- **Item 3, nível iPhone:**
+  - Duas marcas fixas e uma linha central que gira.
+  - Abaixo de 1° tudo fica amarelo, se junta, e vem um tique.
+  - Celular deitado (foto de cima): cruz amarela fixa e um círculo que se move até centralizar.
+- **Item 6, AE/AF e volume:**
+  - Ao travar, o retículo pulsa duas vezes e assenta em amarelo, com tique de limiar.
+  - A régua de exposição se interrompe em volta do sol.
+  - **Volume +:** dispara na hora, como antes.
+  - **Volume −:** toque curto dispara ao soltar; segurar 0,35 s trava AE/AF no maior rosto (ou no centro) sem disparar.
+  - **Custo:** o Volume − dispara ~0,1 s mais tarde que o +, porque precisa esperar o soltar. Por isso o + continua instantâneo.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Religar do efeito da prévia (controles ao vivo) | Noturno, HDR, tom, IA de ruído e de detalhe |
+| Tiques do zoom e da troca de lente | Curva e velocidade do zoom |
+| Animação do obturador, miniatura voando, números do zoom | Disparo e captura em si (sem atraso novo no botão nem no Volume +) |
+| Desenho do nível e mira de cima | QR, texto, contraluz, toque inteligente, Retrato |
+| Pulso do AE/AF, régua do sol, Volume − | Vídeo e Cinema |
+| CI do detector (só entra aprovado) | Assinatura e keystore |
+
+- **Testes:** `EffectBreakerTest`, `ZoomDetentTest` (+3). A suíte completa e o lint passaram aqui.
+
+---
+
+# 0.34.0 — Contraluz nas duas câmeras, toque inteligente e Retrato de objeto (Claude; branch `claude/nova-interface`; APK de teste build116 entregue)
+- **[Baixar ZIP com app-release.apk — build116 (1116)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39447653695/artifacts/12277308920)**. Artefato 12277308920, 158374155 bytes; sha256:a1ac2670bcc1ec02944650a7dbe2ebbe1fd21a83b81654098db09cb49bf71911; expira 2026-11-19T15:30:27Z; sem release.
+- **Ressalva do build116:** a checagem ncnn × ONNX do detector reprovou (dif. 0,91), mas o modelo entrou no APK (cópia antes da checagem). Os nomes ao tocar podem estar errados nesta versão. Corrigido na 0.35.0.
 - **Pedido do dono (20/10):** fazer as quatro sugestões da pesquisa, inclusive na traseira. O bug dos controles ao vivo fica registrado (handoff) para o próximo pacote, junto com as próximas sugestões.
 - **Contraluz A, medição na captura** (`core/BacklightMeter.kt`): com rosto na prévia, a compensação compara o rosto com o resto da cena. Rosto abaixo de 0,42 e pelo menos 0,16 mais escuro que o resto = contraluz, mesmo sem nada estourado. Antes exigia 2% estourado, e a selfie de 20/10 tinha 0,24%. A compensação leva o rosto a ~0,42, em luz linear (gama 2,2): ex. +0,77 EV para rosto 84/255. Com mais de 25% estourado, não sobe mais. Frontal e traseira.
 - **Contraluz B, HDR:** os quadros do HDR partem da exposição já corrigida pelo rosto; o quadro curto continua protegendo o céu.

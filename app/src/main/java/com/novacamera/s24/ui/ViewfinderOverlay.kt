@@ -120,27 +120,42 @@ class ViewfinderOverlay(context: Context) : View(context) {
             }
         }
         horizon?.let { a ->
+            // Nível no estilo do iPhone: dois traços fixos nas pontas (referência do aparelho) e o traço do meio
+            // girando com o horizonte; nivelado (< 1°), tudo fica amarelo e vira uma linha só.
             val err = com.novacamera.s24.core.imaging.ViewfinderAid.levelError(a)
             val ok = err < 1f
-            levelPaint.color = if (ok) 0xFF00E676.toInt() else 0xCCFFFFFF.toInt()
-            levelPaint.strokeWidth = dp(if (ok) 2f else 1.4f)
             val cx = width / 2f; val cy = height / 2f
-            val half = dp(70f)
-            canvas.save()
-            canvas.rotate(a, cx, cy)
-            canvas.drawLine(cx - half, cy, cx - dp(14f), cy, levelPaint)
-            canvas.drawLine(cx + dp(14f), cy, cx + half, cy, levelPaint)
+            val ref = Math.round(a / 90f) * 90f
+            val color = if (ok) LEVEL_YELLOW else 0xE6FFFFFF.toInt()
+            levelPaint.color = color; levelPaint.strokeWidth = dp(2f)
+            levelPaint.setShadowLayer(dp(3f), 0f, 0f, 0x66000000)
+            canvas.save(); canvas.rotate(ref, cx, cy)
+            canvas.drawLine(cx - dp(80f), cy, cx - dp(52f), cy, levelPaint)
+            canvas.drawLine(cx + dp(52f), cy, cx + dp(80f), cy, levelPaint)
             canvas.restore()
-            // Referência fixa (nível do aparelho) curta, para ver a diferença.
-            if (!ok) {
-                levelPaint.color = 0x80FFFFFF.toInt(); levelPaint.strokeWidth = dp(1f)
-                val ref = Math.round(a / 90f) * 90f
-                canvas.save(); canvas.rotate(ref, cx, cy)
-                canvas.drawLine(cx - dp(10f), cy, cx + dp(10f), cy, levelPaint)
-                canvas.restore()
-            }
+            val half = if (ok) dp(52f) else dp(40f)
+            canvas.save(); canvas.rotate(if (ok) ref else a, cx, cy)
+            canvas.drawLine(cx - half, cy, cx + half, cy, levelPaint)
+            canvas.restore()
+            levelPaint.clearShadowLayer()
+        }
+        topDown?.let { o ->
+            // Foto de cima: mira fixa (alvo) e mira que acompanha a inclinação; alinhadas, ficam amarelas.
+            val cx = width / 2f; val cy = height / 2f
+            val ok = kotlin.math.hypot(o.x, o.y) < dp(4f)
+            levelPaint.strokeWidth = dp(2f)
+            levelPaint.color = LEVEL_YELLOW
+            val r = dp(14f)
+            canvas.drawLine(cx - r, cy, cx + r, cy, levelPaint); canvas.drawLine(cx, cy - r, cx, cy + r, levelPaint)
+            levelPaint.color = if (ok) LEVEL_YELLOW else 0xE6FFFFFF.toInt()
+            canvas.drawCircle(cx + o.x, cy + o.y, dp(10f), levelPaint.apply { style = Paint.Style.STROKE })
+            levelPaint.style = Paint.Style.FILL_AND_STROKE
         }
     }
+
+    /** Deslocamento da mira de "foto de cima" (px), ou null fora dessa posição. */
+    var topDown: android.graphics.PointF? = null
+        set(v) { field = v; invalidate() }
 
     /** Desliga gestos de foco/exposição (ex.: modo indisponível ou câmera pausada). */
     var focusEnabled = true
@@ -263,6 +278,14 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     fun setFocusResult(success: Boolean, isLocked: Boolean) {
         if (ringX < 0) return
+        if (isLocked && !locked) {
+            // Trava: o retículo "pulsa" duas vezes (como o iPhone) antes de assentar em amarelo.
+            fadeAnimator?.cancel(); ringAlpha = 1f
+            ValueAnimator.ofFloat(1f, 1.16f, 0.94f, 1.08f, 1f).apply {
+                duration = 520; interpolator = Nova.EASE
+                addUpdateListener { ringScale = it.animatedValue as Float; invalidate() }
+            }.start()
+        }
         locked = isLocked
         ringColor = when {
             isLocked -> Nova.LOCK
@@ -526,9 +549,12 @@ class ViewfinderOverlay(context: Context) : View(context) {
             if (evVisible) {
                 val barX = cx + dp(34f) + dp(18f)
                 val half = dp(34f)
-                linePaint.color = Nova.TEXT; linePaint.alpha = (alpha * 0.55f).toInt(); linePaint.strokeWidth = dp(1.2f)
-                canvas.drawLine(barX, cy - half, barX, cy + half, linePaint)
                 val ky = cy + half - 2 * half * evFraction
+                // Linha interrompida em volta do sol (leitura do iPhone): o sol "corta" a régua.
+                linePaint.color = Nova.TEXT; linePaint.alpha = (alpha * 0.55f).toInt(); linePaint.strokeWidth = dp(1.2f)
+                val gap = dp(11f)
+                if (ky - gap > cy - half) canvas.drawLine(barX, cy - half, barX, ky - gap, linePaint)
+                if (ky + gap < cy + half) canvas.drawLine(barX, ky + gap, barX, cy + half, linePaint)
                 knobPaint.color = Nova.LOCK; knobPaint.alpha = alpha
                 drawSun(canvas, barX, ky, knobPaint)
                 evText?.let {
@@ -563,5 +589,9 @@ class ViewfinderOverlay(context: Context) : View(context) {
         }
     }
 
-    private companion object { const val CONTOUR_MS = 1600L }
+    private companion object {
+        /** Amarelo do nível alinhado (mesmo tom do iPhone). */
+        const val LEVEL_YELLOW = 0xFFFFD60A.toInt()
+        const val CONTOUR_MS = 1600L
+    }
 }

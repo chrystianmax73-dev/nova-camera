@@ -1,5 +1,11 @@
-# Bug registrado pelo dono (20/10) — NÃO corrigir ainda; entra no próximo pacote junto com as sugestões
-- **Controles ao vivo (Desfoque, Exposição, Tom, Temperatura) às vezes não aparecem.** Só aparecem depois de sair e entrar de novo no app. O dono já tinha relatado antes. Investigar a visibilidade da `LiveControls` × modo/estado da câmera depois de rebind (`MainActivity.layoutAll`, `liveControls`).
+# Etapa 0.35.0 (Claude) — bug dos controles ao vivo + itens 1, 2, 3, 6 da pesquisa (detalhes em `docs/STATUS.md`)
+- **Bug dos controles ao vivo, corrigido:**
+  - A causa era `portraitPreviewFailed`, permanente na sessão.
+  - Agora é `EffectBreaker` (4 s → 20 s → 120 s, janela de 180 s). Em `NovaCamera.pauseEffect()`, ele religa via `bind()` passada a espera.
+  - **Não voltar a usar flag permanente.** Se o efeito falhar em loop, o disjuntor já espaça as tentativas.
+- **Detector:** `tools/picodet/export_ncnn.py` só copia para assets depois de aprovar. Manter as referências explícitas dos `ncnn.Mat` no Python: temporários dão lixo.
+- **Volume:** + dispara no aperto; − dispara ao soltar ou trava AE/AF segurando 0,35 s (`VOLUME_HOLD_MS`).
+- **Próximos:** 0.36 com Ultra HDR, estilos 2D com subtom, distorção + macro. 0.37 com borracha (MI-GAN MIT + MobileSAM Apache), melhor rosto (blendshapes), céu (U²-Net: conferir licença dos pesos antes).
 
 # Retorno do dono sobre a 0.31.6 → tratado na 0.32.1 (ver `docs/STATUS.md`)
 - Pendente só o que depende do aparelho: confirmar a galeria atualizando, o custo do QR duplo e do botão de texto no S24, e o deslocamento do próximo fechamento nativo, se houver.

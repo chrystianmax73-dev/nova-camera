@@ -99,7 +99,7 @@ class SettingsActivity : NovaScreen() {
         switch("Realce de foco no foco manual", "Contorna em verde o que está nítido enquanto o foco manual estiver em uso.",
             { settings.focusPeaking }, { settings.focusPeaking = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
-        switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
+        switch("Tecla de volume fotografa", "Volume + dispara na hora. Volume −: toque dispara; segure para travar foco e exposição. Também grava vídeo.",
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
 
         section("Foto Nova")
