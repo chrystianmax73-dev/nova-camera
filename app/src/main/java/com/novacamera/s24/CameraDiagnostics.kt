@@ -220,7 +220,8 @@ fun exitReport(context: Context): String = buildString {
         if (e.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE && Build.VERSION.SDK_INT >= 31) {
             val bytes = runCatching { e.traceInputStream?.use { it.readBytes() } }.getOrNull()
             if (bytes == null) append("\n      (tombstone indisponível)")
-            else com.novacamera.s24.core.NativeCrashHints.extract(bytes).forEach { append("\n      $it") }
+            else (com.novacamera.s24.core.NativeTombstone.parse(bytes)?.lines()
+                ?: com.novacamera.s24.core.NativeCrashHints.extract(bytes)).forEach { append("\n      $it") }
         }
     }
 }

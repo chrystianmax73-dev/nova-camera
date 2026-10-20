@@ -1,3 +1,12 @@
+# 0.31.0 — Etapa A: estabilidade (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Plano autorizado pelo dono (20/10):** A estabilidade → B acabamento mais rápido → B2 rajada rápida e disparo sem atraso → C atenção ao assunto → D QR sempre ligado na FOTO → E texto → F documento → G foco no escuro → itens extras (lente suja, DNG fundido, palma, localização opcional, galeria própria) e IA de detalhe com trava de consistência. Uma etapa por APK.
+- **Fotos de Alta resolução perdidas (#3/#4 do diagnóstico de 19/10):** a checagem de memória antes da super-resolução usava o heap Java (cheio de temporários do alinhamento: ~320 MB "necessários" × ~310 livres) para uma saída que é Bitmap em memória nativa → desistia e salvava só o original. Agora usa a RAM livre do aparelho com folga 2× e sem pressão de memória (`core/OutputMemory.kt`).
+- **Fechamentos nativos (MediaPipe/ncnn):** causa ainda desconhecida. (1) Diagnóstico novo (`core/NativeTombstone.kt`): lê o tombstone (protobuf do AOSP) e mostra sinal, mensagem do abort, **a thread que caiu** com o topo da pilha e as últimas linhas de log de erro (antes: textos soltos de todas as threads). (2) Proteção (`core/NativeGate.kt`): uma inferência nativa por vez; trabalho de foto (NAFNet por bloco, profundidade e segmentação da foto, contorno ao toque) espera a vez; análise ao vivo (Retrato/Cinema) pula o quadro se ocupado, e a IA em segundo plano cede 120 ms quando a prévia pulou quadro.
+- **Mudou × não mexi:** mudou só a checagem de memória da Alta resolução, o diagnóstico de falha nativa e a ordem de execução das IAs nativas. Intocados: imagem (fusão, tom, Noturno, IA), foco, vídeo, interface.
+- **Não medido no aparelho.** Testes: `StabilityTest`, `NativeGateTest`.
+
+---
+
 # 0.30.7 — IA que mede, age na medida e prova que melhorou; Noturno automático da FOTO desligado por padrão (Claude; branch `claude/nova-interface`; APK de teste build108 entregue)
 - **[Baixar ZIP com app-release.apk — build108 (1108)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39344782935/artifacts/12230218836)**. Artefato 12230218836, 138719432 bytes; sha256:cf4eff57c76519dff8e6c927ec11fabfaf03eb7c39ca408a05f5e5a91e09710a; expira 2026-11-19T00:06:39Z; sem release. Gatilho restaurado em 2391d82.
 - **Pedido do dono (19/10):** IA com identificação e validação (aprovada); **não** entrar no Noturno sozinho na FOTO.

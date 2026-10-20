@@ -30,7 +30,7 @@ object ContourSegmenter {
                 .build()).also { segmenter = it }
         val roi = InteractiveSegmenter.RegionOfInterest.create(NormalizedKeypoint.create(nx.coerceIn(0f, 1f), ny.coerceIn(0f, 1f)))
         return PersonSegmenter.withOwnedInput(frame, INPUT) { image ->
-            val masks = seg.segment(image, roi).confidenceMasks().get()
+            val masks = com.novacamera.s24.core.NativeGate.run("contorno ao toque") { seg.segment(image, roi) }.confidenceMasks().get()
             try {
                 // Uma máscara (assunto) ou duas (fundo, assunto): a última é sempre o assunto.
                 val m = masks.last()

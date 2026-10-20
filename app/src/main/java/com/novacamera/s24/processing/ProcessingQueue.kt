@@ -417,7 +417,7 @@ object ProcessingQueue {
                         timed(job,"alinhamento ${frames.size} quadros") { Engine.align(sources, job.cancel, retainReliability = false) { progress(0.05f + 0.15f * it, "Alinhando ${frames.size} quadros") } }
                     } else null
                     // Não trocar a resolução selecionada por 1,5× conforme o lixo ainda não coletado.
-                    val scale = if (a == null) 1f else safeOutScale(job.outScale, sources[0].width, sources[0].height)
+                    val scale = if (a == null) 1f else safeOutScale(context, job.outScale, sources[0].width, sources[0].height)
                     val (out, n) = timed(job,"super-resolução") { Engine.superRes(sources, a, job.srFactor, scale, frame0.rotationDegrees, job.mirror, job.cancel) {
                         progress(0.2f + 0.45f * it, "Super-resolução")
                     } }
@@ -820,13 +820,20 @@ object ProcessingQueue {
      * reaplicar com outra intensidade — sempre a partir da base, nunca acumulando.
      */
     /** Preserva a escala pedida. Recolhe temporários uma vez, só sob pressão, fora da UI. */
-    private fun safeOutScale(wanted: Float, w: Int, h: Int): Float {
+    /**
+     * A foto de saída é um Bitmap: os pixels ficam na memória nativa (Android 8+), não no heap Java. Até a
+     * 0.30.7 a conta usava o heap Java, que logo depois do alinhamento ainda guarda ~200 MB temporários:
+     * 320 MB "necessários" × 310 livres → a Alta resolução desistia e salvava só o original (rajadas #3/#4
+     * do diagnóstico de 19/10). Agora: RAM livre do aparelho para a saída, com folga, e o sistema sem
+     * pressão de memória.
+     */
+    private fun safeOutScale(context: Context, wanted: Float, w: Int, h: Int): Float {
         if (wanted <= 1f) return wanted
-        val rt = Runtime.getRuntime()
-        val required = (w * wanted).toLong() * (h * wanted).toLong() * 4L * 1.6
-        fun free() = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())
-        if (free() < required) { System.gc() }
-        if (free() < required) throw SelectedResolutionUnavailable()
+        val required = (w * wanted).toLong() * (h * wanted).toLong() * 4L
+        val info = android.app.ActivityManager.MemoryInfo()
+        context.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
+        if (!com.novacamera.s24.core.OutputMemory.fits(required, info.availMem, info.threshold, info.lowMemory))
+            throw SelectedResolutionUnavailable()
         return wanted
     }
     private class SelectedResolutionUnavailable : RuntimeException()

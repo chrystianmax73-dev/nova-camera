@@ -212,7 +212,7 @@ object NcnnDenoiser {
                     }
                     inTile.setPixels(src, 0, size, 0, 0, size, size)
                     val t = SystemClock.elapsedRealtime()
-                    if (!nativeRun(handle, inTile, outTile)) {
+                    if (!com.novacamera.s24.core.NativeGate.run("NAFNet") { nativeRun(handle, inTile, outTile) }) {
                         status = "fallback: inferência falhou"
                         retryAfterMs = SystemClock.elapsedRealtime() + DenoisePolicy.IDLE_MS
                         release()

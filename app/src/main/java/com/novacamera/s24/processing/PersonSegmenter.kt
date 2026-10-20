@@ -74,7 +74,7 @@ object PersonSegmenter {
             val before=android.os.SystemClock.elapsedRealtime()
             return withOwnedInput(frame,256) { image ->
                 val nativeAt=android.os.SystemClock.elapsedRealtime();inputMs=nativeAt-before
-                val masks=segmenter.segment(image).confidenceMasks().get()
+                val masks=com.novacamera.s24.core.NativeGate.run("segmentação ao vivo") { segmenter.segment(image) }.confidenceMasks().get()
                 val extractAt=android.os.SystemClock.elapsedRealtime();nativeMs=extractAt-nativeAt
                 try {
                     // A prévia só usa pessoa/fundo. Cabelo e rosto completos continuam na foto final.
@@ -111,7 +111,7 @@ object PersonSegmenter {
     }
 
     private fun run(segmenter: ImageSegmenter, photo: Bitmap, input: Int): Result = withOwnedInput(photo,input) { image ->
-        val masks = segmenter.segment(image).confidenceMasks().get()
+        val masks = com.novacamera.s24.core.NativeGate.run("segmentação da foto") { segmenter.segment(image) }.confidenceMasks().get()
         try {
             fun plane(i: Int): Plane {
                 val img = masks[i]
