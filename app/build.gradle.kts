@@ -74,7 +74,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "0.33.0"
+        versionName = "0.34.0"
         // Alvo: Galaxy S24/S25 Ultra (arm64). Evita levar as bibliotecas nativas (MediaPipe) de 4 arquiteturas.
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {

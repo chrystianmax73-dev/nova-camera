@@ -1,3 +1,19 @@
+# 0.34.0 — Contraluz nas duas câmeras, toque inteligente e Retrato de objeto (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10):** fazer as quatro sugestões da pesquisa, inclusive na traseira. O bug dos controles ao vivo fica registrado (handoff) para o próximo pacote, junto com as próximas sugestões.
+- **Contraluz A, medição na captura** (`core/BacklightMeter.kt`): com rosto na prévia, a compensação compara o rosto com o resto da cena. Rosto abaixo de 0,42 e pelo menos 0,16 mais escuro que o resto = contraluz, mesmo sem nada estourado. Antes exigia 2% estourado, e a selfie de 20/10 tinha 0,24%. A compensação leva o rosto a ~0,42, em luz linear (gama 2,2): ex. +0,77 EV para rosto 84/255. Com mais de 25% estourado, não sobe mais. Frontal e traseira.
+- **Contraluz B, HDR:** os quadros do HDR partem da exposição já corrigida pelo rosto; o quadro curto continua protegendo o céu.
+- **Contraluz C, pessoa clareada no processamento** (`BacklitLift`): agora também na traseira (antes só selfie). Sem pessoa grande o bastante, nada muda.
+- **Toque inteligente** (`processing/ObjectDetector.kt`, `cpp/detect.cpp`, `core/Detections.kt`):
+  - **O que faz:** o toque, além do contorno (MagicTouch), mostra uma caixa com cantos arredondados e o nome do objeto num chip de vidro ("Planta", "Garrafa", "Pessoa"…, 80 classes COCO em português), e some em ~3 s.
+  - **Modelo:** PP-PicoDet-S 416 (Apache-2.0), CPU, ~1,2 GFLOP por toque, convertido no CI (`tools/picodet/export_ncnn.py`). O exportador corrige o `roi` do Resize que o ncnn não aceitava.
+  - **Validação local**, com o PicoDet v1 de mesmo formato do espelho, só para validar o código; o APK usa o LCNet oficial baixado no CI: ncnn × ONNX com notas a 0,008 de diferença. Garrafa da Coca 0,81, cama 0,92, selfie = pessoa 0,98, foto de exemplo do COCO = pessoas e pipa.
+  - **Limite:** só as 80 classes COCO ("vaso de planta" sim; árvore e planta no chão não). Fora delas, fica só o contorno.
+- **Retrato de objeto:** tocou fora da pessoa, o recorte do objeto (MagicTouch na própria foto, 768 px) vira o assunto e a profundidade só completa o recorte. Nota da foto: "Assunto: objeto tocado (recorte + profundidade)". Antes o assunto do toque vinha só da profundidade.
+- **Mudou × não mexi:** mudaram a medição de contraluz (rosto), o clareamento de pessoa (também traseira), a caixa e o nome do objeto ao tocar, e o assunto do Retrato quando se toca num objeto. Não mexi em Noturno, vídeo, tom geral, IA de ruído e de detalhe, QR nem texto.
+- Testes: `BacklightMeterTest` (+3), `DetectionsTest`; 447 no total.
+
+---
+
 # 0.33.0 — QR e texto com visual premium + selfie em contraluz (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Pedido do dono (20/10, prints da 0.32.1):** QR e texto funcionam, mas "muito genérico; tem que ter cara de premium (referência iPhone)". A selfie em contraluz precisa ficar melhor. "O resto está perfeito: não mexer em mais nada."
 - **QR:**

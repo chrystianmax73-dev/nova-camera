@@ -6,7 +6,7 @@ project(novadenoise)
 set(ncnn_DIR ${NCNN_ROOT}/${ANDROID_ABI}/lib/cmake/ncnn)
 find_package(ncnn REQUIRED)
 
-add_library(novadenoise SHARED denoise.cpp depth.cpp ocr.cpp)
+add_library(novadenoise SHARED denoise.cpp depth.cpp ocr.cpp detect.cpp)
 target_link_libraries(novadenoise ncnn android jnigraphics log)
 
 

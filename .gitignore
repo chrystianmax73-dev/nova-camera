@@ -19,6 +19,7 @@ app/.cxx/
 app/src/main/assets/nafnet/
 app/src/main/assets/depth/
 app/src/main/assets/detail/
+app/src/main/assets/detect/
 
 # Cache do Python dos exportadores
 __pycache__/

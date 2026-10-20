@@ -576,8 +576,20 @@ object ProcessingQueue {
                 val depth = runCatching { timed(job,"profundidade/carga") { DepthEstimator.estimate(context, base) } }
                     .also { scheduleDepthRelease() }
                     .onFailure { Log.w(TAG, "profundidade falhou", it) }.getOrNull()
-                val subject = runCatching { timed(job,"refino de máscara") { Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint,
-                    report={job.trace?.mark(it)}) } }
+                // Toque fora da pessoa: o recorte do objeto tocado (MagicTouch na própria foto) vira o assunto; a
+                // profundidade só completa esse recorte (planta, garrafa, xícara nítidas; fundo desfocado).
+                val tap = job.subjectPoint
+                val tapOnPerson = tap != null && person != null &&
+                    person.person.sample(tap.first * person.person.w - 0.5f, tap.second * person.person.h - 0.5f) >= 0.5f
+                val objectMask = if (tap != null && !tapOnPerson) runCatching { timed(job, "recorte do objeto tocado") {
+                    val small = Engine.preview(base, 768).let { (px, w, h) -> Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888) }
+                    try { ContourSegmenter.mask(context, small, tap.first, tap.second) } finally { small.recycle() }
+                } }.onFailure { Log.w(TAG, "recorte do objeto falhou", it) }.getOrNull() else null
+                job.trace?.mark("retrato: toque=${tap != null} na pessoa=$tapOnPerson recorte do objeto=${objectMask != null}")
+                val subject = runCatching { timed(job,"refino de máscara") {
+                    if (objectMask != null) Engine.portraitSubject(base, objectMask, null, depth, tap, report={job.trace?.mark(it)})
+                        ?.let { Engine.PortraitSubject(it.matte, it.blur, "Assunto: objeto tocado (recorte + profundidade)") }
+                    else Engine.portraitSubject(base, person?.person, person?.hair, depth, job.subjectPoint, report={job.trace?.mark(it)}) } }
                     .onFailure { Log.w(TAG, "assunto do retrato falhou", it) }.getOrNull()
                 if (subject != null) {
                     session.saveMatte(subject.matte)

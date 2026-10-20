@@ -186,6 +186,22 @@ jobs:
           mkdir -p app/src/main/assets/detail
           python3 tools/realesr/export_ncnn.py --weights "$RUNNER_TEMP/x4v3.pth" --wdn "$RUNNER_TEMP/wdn.pth" --out app/src/main/assets/detail
           ls -la app/src/main/assets/detail
+      - name: Detector de objetos opcional (PP-PicoDet-S 416 → ncnn)
+        # Toque inteligente (nome + caixa do objeto). ONNX oficial "sem pós-processamento" do PaddleDetection
+        # (Apache-2.0). Converte, confere ncnn × onnxruntime na imagem de exemplo do próprio repositório; se
+        # qualquer passo falhar, o APK sai sem o detector e o toque continua só com o contorno.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy onnx onnxruntime pillow
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/picodet.onnx" https://paddledet.bj.bcebos.com/deploy/third_engine/picodet_s_416_coco_lcnet.onnx
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/coco.jpg" https://raw.githubusercontent.com/PaddlePaddle/PaddleDetection/release/2.8/demo/000000014439.jpg
+          echo "sha256 do modelo: $(sha256sum "$RUNNER_TEMP/picodet.onnx" | cut -d' ' -f1)"
+          mkdir -p app/src/main/assets/detect
+          python3 tools/picodet/export_ncnn.py --onnx "$RUNNER_TEMP/picodet.onnx" --image "$RUNNER_TEMP/coco.jpg" --out app/src/main/assets/detect
+          ls -la app/src/main/assets/detect
       - name: Compilar APK assinado
         env:
           NOVA_KEYSTORE_FILE: ${{ runner.temp }}/nova-upload-key.jks
@@ -204,6 +220,7 @@ jobs:
               print('profundidade no APK:', {'assets/depth/depth.param', 'assets/depth/depth.bin'} <= names)
               print('detalhe no APK:', {'assets/detail/detail.param', 'assets/detail/detail.bin'} <= names)
               print('mão no APK:', 'assets/hand/hand_landmarker.task' in names)
+              print('detector no APK:', {'assets/detect/detect.param', 'assets/detect/detect.bin'} <= names)
           PY
       - name: Verificar continuidade da assinatura e versionCode
         shell: bash

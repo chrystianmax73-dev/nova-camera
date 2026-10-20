@@ -299,6 +299,82 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     fun setBigCountdown(n: Int) { bigCountdown = n; invalidate() }
 
+    // Toque inteligente: caixa do objeto reconhecido + nome (PP-PicoDet), entra com encaixe e some sozinha.
+    private val objRect = android.graphics.RectF()
+    private var objLabel: String? = null
+    private var objAlpha = 0f
+    private var objAnim: ValueAnimator? = null
+    private val objStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f * resources.displayMetrics.density
+        setShadowLayer(6f * resources.displayMetrics.density, 0f, 0f, 0x88000000.toInt())
+    }
+    private val objCorner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 4f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND; setShadowLayer(8f * resources.displayMetrics.density, 0f, 0f, 0xAA48BFFF.toInt())
+    }
+    private val objChip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6101828.toInt() }
+    private val objDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF48BFFF.toInt() }
+    private val objText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textSize = 13f * resources.displayMetrics.scaledDensity
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }
+    private val objTmp = android.graphics.RectF()
+
+    /** Objeto tocado (pontos deste overlay = prévia). Some em ~3 s. */
+    fun showObject(rect: android.graphics.RectF, label: String) {
+        objRect.set(rect); objLabel = label
+        objAnim?.cancel()
+        objAnim = ValueAnimator.ofFloat(0f, 1f, 1f, 0f).apply {
+            duration = 3200
+            setInterpolator { t -> t }
+            addUpdateListener {
+                val f = it.animatedFraction
+                objAlpha = when { f < 0.08f -> f / 0.08f; f > 0.9f -> (1f - f) / 0.1f; else -> 1f }
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { objLabel = null; invalidate() } })
+            start()
+        }
+    }
+
+    fun clearObject() { objAnim?.cancel(); objLabel = null; invalidate() }
+
+    private fun drawObject(canvas: Canvas) {
+        val label = objLabel ?: return
+        if (objAlpha <= 0.01f) return
+        val d = resources.displayMetrics.density
+        // Entrada: a caixa "assenta" de 6% maior para o tamanho real.
+        val k = 1f + 0.06f * (1f - kotlin.math.min(1f, objAlpha))
+        val cx = objRect.centerX(); val cy = objRect.centerY()
+        objTmp.set(cx - objRect.width() / 2 * k, cy - objRect.height() / 2 * k, cx + objRect.width() / 2 * k, cy + objRect.height() / 2 * k)
+        val a = (255 * objAlpha).toInt()
+        objStroke.alpha = (a * 0.55f).toInt()
+        canvas.drawRoundRect(objTmp, 14f * d, 14f * d, objStroke)
+        objCorner.alpha = a
+        val arm = kotlin.math.min(objTmp.width(), objTmp.height()) * 0.18f
+        val r = 14f * d
+        with(objTmp) {
+            canvas.drawArc(left, top, left + 2 * r, top + 2 * r, 180f, 90f, false, objCorner)
+            canvas.drawLine(left + r, top, left + r + arm, top, objCorner); canvas.drawLine(left, top + r, left, top + r + arm, objCorner)
+            canvas.drawArc(right - 2 * r, top, right, top + 2 * r, 270f, 90f, false, objCorner)
+            canvas.drawLine(right - r, top, right - r - arm, top, objCorner); canvas.drawLine(right, top + r, right, top + r + arm, objCorner)
+            canvas.drawArc(right - 2 * r, bottom - 2 * r, right, bottom, 0f, 90f, false, objCorner)
+            canvas.drawLine(right - r, bottom, right - r - arm, bottom, objCorner); canvas.drawLine(right, bottom - r, right, bottom - r - arm, objCorner)
+            canvas.drawArc(left, bottom - 2 * r, left + 2 * r, bottom, 90f, 90f, false, objCorner)
+            canvas.drawLine(left + r, bottom, left + r + arm, bottom, objCorner); canvas.drawLine(left, bottom - r, left, bottom - r - arm, objCorner)
+        }
+        // Nome num chip de vidro acima da caixa (abaixo, se não couber), com ponto azul.
+        val tw = objText.measureText(label)
+        val ch = 28f * d; val cw = tw + 34f * d
+        var top = objTmp.top - ch - 8f * d
+        if (top < 8f * d) top = objTmp.bottom + 8f * d
+        val left = (objTmp.centerX() - cw / 2).coerceIn(8f * d, width - cw - 8f * d)
+        objChip.alpha = (230 * objAlpha).toInt(); objDot.alpha = a; objText.alpha = a
+        canvas.drawRoundRect(left, top, left + cw, top + ch, ch / 2, ch / 2, objChip)
+        canvas.drawCircle(left + 14f * d, top + ch / 2, 4f * d, objDot)
+        canvas.drawText(label, left + 24f * d, top + ch / 2 - (objText.ascent() + objText.descent()) / 2, objText)
+    }
+
     // QR: moldura animada nos cantos do código lido (pontos da prévia = deste overlay, mesmo tamanho).
     private val codeTarget = FloatArray(8)
     private val codeNow = FloatArray(8)
@@ -394,6 +470,7 @@ class ViewfinderOverlay(context: Context) : View(context) {
             com.novacamera.s24.core.CrashLog.record(context, "visor (não fatal)", e)
         }
         drawContour(canvas)
+        drawObject(canvas)
         drawCode(canvas)
         if (showGrid) {
             for (i in 1..2) {

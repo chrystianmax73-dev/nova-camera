@@ -535,7 +535,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
         contourGeneration++
-        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release(); com.novacamera.s24.processing.TextReader.release() }
+        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release(); com.novacamera.s24.processing.TextReader.release(); com.novacamera.s24.processing.ObjectDetector.release() }
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -2109,7 +2109,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
      */
     private var contourGeneration = 0
     private fun showTapContour(x: Float, y: Float) {
-        overlay.clearContour()
+        overlay.clearContour(); overlay.clearObject()
         if (!settings.tapContour || camera.isRecording || camera.mode.isPro || preview.width <= 0) return
         val frame = runCatching { preview.bitmap }.getOrNull() ?: return
         val gen = ++contourGeneration
@@ -2117,12 +2117,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         contourExecutor.execute {
             val r = runCatching { com.novacamera.s24.processing.ContourSegmenter.contour(this, frame, nx, ny, Nova.ACCENT_SOFT) }
                 .onFailure { com.novacamera.s24.core.CrashLog.record(this, "contorno (não fatal)", it) }.getOrNull()
-            frame.recycle()
             if (r != null) runOnUiThread {
                 if (gen != contourGeneration || isDestroyed) return@runOnUiThread
                 overlay.showContour(r)
                 // Foto/Retrato: o AF refaz a medição só dentro do objeto contornado.
                 r.focus?.let { camera.focusOnObject(camera.tapFocusToken, it) }
+            }
+            // Toque inteligente: o que é o objeto tocado (caixa + nome). O quadro é o da prévia (pontos do visor).
+            val obj = if (gen == contourGeneration) runCatching {
+                com.novacamera.s24.core.Detections.pickAt(com.novacamera.s24.processing.ObjectDetector.detect(this, frame), x, y, frame.width, frame.height)
+            }.onFailure { com.novacamera.s24.core.CrashLog.record(this, "detector (não fatal)", it) }.getOrNull() else null
+            frame.recycle()
+            if (obj != null) runOnUiThread {
+                if (gen != contourGeneration || isDestroyed) return@runOnUiThread
+                overlay.showObject(android.graphics.RectF(obj.l, obj.t, obj.r, obj.b), obj.label)
+                Haptics.tick(overlay)
             }
         }
     }
