@@ -299,6 +299,64 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     fun setBigCountdown(n: Int) { bigCountdown = n; invalidate() }
 
+    // QR: moldura animada nos cantos do código lido (pontos da prévia = deste overlay, mesmo tamanho).
+    private val codeTarget = FloatArray(8)
+    private val codeNow = FloatArray(8)
+    private var codeVisible = false
+    private var codeAppear = 0f
+    private var codeAnim: ValueAnimator? = null
+    private val codePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.5f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND; setShadowLayer(4f * resources.displayMetrics.density, 0f, 0f, 0x99000000.toInt())
+    }
+    private val codeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val codePath = android.graphics.Path()
+
+    /** Código visto nesta leitura (cantos em volta, x0,y0…x3,y3). A primeira vez entra com um "encaixe". */
+    fun showCode(quad: FloatArray) {
+        quad.copyInto(codeTarget)
+        if (!codeVisible) {
+            codeVisible = true
+            quad.copyInto(codeNow)
+            codeAnim?.cancel()
+            codeAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 320; interpolator = android.view.animation.OvershootInterpolator(1.4f)
+                addUpdateListener { codeAppear = it.animatedValue as Float; invalidate() }
+                start()
+            }
+        }
+        postInvalidateOnAnimation()
+    }
+
+    fun hideCode() {
+        if (!codeVisible) return
+        codeAnim?.cancel()
+        codeAnim = ValueAnimator.ofFloat(codeAppear.coerceAtMost(1f), 0f).apply {
+            duration = 180
+            addUpdateListener { codeAppear = it.animatedValue as Float; if (codeAppear <= 0f) codeVisible = false; invalidate() }
+            start()
+        }
+    }
+
+    private fun drawCode(canvas: Canvas) {
+        if (!codeVisible) return
+        if (com.novacamera.s24.core.CodeFrame.follow(codeNow, codeTarget, 0.3f)) postInvalidateOnAnimation()
+        val a = codeAppear.coerceIn(0f, 1f)
+        val scale = 1.35f - 0.35f * codeAppear // entra de fora para dentro e assenta no código
+        codePath.reset()
+        val cx = (codeNow[0] + codeNow[2] + codeNow[4] + codeNow[6]) / 4f
+        val cy = (codeNow[1] + codeNow[3] + codeNow[5] + codeNow[7]) / 4f
+        for (i in 0 until 4) {
+            val x = cx + (codeNow[2 * i] - cx) * scale; val y = cy + (codeNow[2 * i + 1] - cy) * scale
+            if (i == 0) codePath.moveTo(x, y) else codePath.lineTo(x, y)
+        }
+        codePath.close()
+        codeFill.color = Color.argb((40 * a).toInt(), 0x48, 0xBF, 0xFF)
+        canvas.drawPath(codePath, codeFill)
+        codePaint.alpha = (255 * a).toInt()
+        canvas.drawLines(com.novacamera.s24.core.CodeFrame.brackets(codeNow, scale), codePaint)
+    }
+
     private fun scheduleFade(delay: Long) {
         fadeAnimator?.cancel()
         fadeAnimator = ValueAnimator.ofFloat(1f, 0f).apply {
@@ -320,6 +378,7 @@ class ViewfinderOverlay(context: Context) : View(context) {
             com.novacamera.s24.core.CrashLog.record(context, "visor (não fatal)", e)
         }
         drawContour(canvas)
+        drawCode(canvas)
         if (showGrid) {
             for (i in 1..2) {
                 val x = width * i / 3f

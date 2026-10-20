@@ -12,6 +12,15 @@ sealed class QrContent(val raw: String) {
     class Text(raw: String) : QrContent(raw)
 
     /** Uma linha curta para o chip da câmera. */
+    /** Rótulo do aviso no visor (como "Link do Instagram" na Samsung): o que é + o essencial. */
+    fun label(): String = when (this) {
+        is Link -> (if (secure) "" else "⚠ ") + "Link · " + host.removePrefix("www.")
+        is Wifi -> "Wi-Fi · $ssid"
+        is Phone -> "Ligar · $number"
+        is Email -> "E-mail · $address"
+        is Text -> "Texto · " + raw.replace('\n', ' ').take(28)
+    }
+
     fun summary(): String = when (this) {
         is Link -> (if (secure) "" else "⚠ ") + host
         is Wifi -> "Wi-Fi: $ssid"

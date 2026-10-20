@@ -127,6 +127,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var selectedTrackingEpoch = -1L
     private lateinit var lockChip: TextView
     private lateinit var qrChip: TextView
+    /** Aviso do código no visor, acima dos controles (entra com animação; toque mostra o conteúdo). */
+    private lateinit var codePill: TextView
     private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
     private var palmShutter: com.novacamera.s24.camera.PalmShutter? = null
     private var qrFound: com.novacamera.s24.core.QrContent? = null
@@ -815,6 +817,24 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             if (bottomEdge - top != oldBottom - oldTop) cameraState?.let { st -> handler.post { layoutAll(st.mode) } }
         }
         root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        codePill = TextView(this).apply {
+            setTextColor(Nova.TEXT); textSize = 15f; typeface = Nova.MEDIUM
+            setPadding(dpi(16), dpi(10), dpi(20), dpi(10))
+            background = Nova.pill(0xE6101B2C.toInt(), dp(24f))
+            compoundDrawablePadding = dpi(10)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(com.novacamera.s24.ui.QrGlyph(dpi(22), Nova.TEXT), null, null, null)
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dpi(300)
+            elevation = dp(6f); visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { qrFound?.let { showQr(it) } }
+        }
+        root.addView(codePill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        bottom.addOnLayoutChangeListener { _, _, top, _, _, _, _, _, _ ->
+            (codePill.layoutParams as FrameLayout.LayoutParams).let { lp ->
+                val want = (root.height - top) + dpi(16)
+                if (lp.bottomMargin != want) { lp.bottomMargin = want; codePill.layoutParams = lp }
+            }
+        }
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
@@ -863,18 +883,35 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
             onFound = { content ->
                 qrFound = content
-                qrChip.text = "QR · ${content.summary()}  ›"
-                qrChip.contentDescription = "Código lido: ${content.summary()}. Toque para ver e escolher o que fazer"
-                qrChip.visibility = View.VISIBLE
-                Haptics.tick(qrChip)
+                codePill.text = content.label()
+                codePill.contentDescription = "Código lido: ${content.summary()}. Toque para ver e escolher o que fazer"
+                showCodePill()
+                Haptics.tick(codePill)
             },
-            onGone = { qrFound = null; if (::qrChip.isInitialized) qrChip.visibility = View.GONE },
+            onGone = { qrFound = null; hideCodePill(); overlay.hideCode() },
+            onSeen = { quad -> if (qrFound != null) overlay.showCode(quad) },
             inspect = { bmp -> checkLens(bmp) },
         ).also { qrScanner = it }
         scanner.start()
     }
 
-    private fun stopQr() { qrScanner?.stop() }
+    private fun stopQr() { qrScanner?.stop(); if (::codePill.isInitialized) { hideCodePill(); overlay.hideCode() } }
+
+    private fun showCodePill() {
+        if (codePill.visibility == View.VISIBLE && codePill.alpha > 0.99f) return
+        codePill.animate().cancel()
+        codePill.visibility = View.VISIBLE
+        codePill.alpha = 0f; codePill.scaleX = 0.88f; codePill.scaleY = 0.88f; codePill.translationY = dp(14f)
+        codePill.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(300)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.6f)).start()
+    }
+
+    private fun hideCodePill() {
+        if (!::codePill.isInitialized || codePill.visibility != View.VISIBLE) return
+        codePill.animate().cancel()
+        codePill.animate().alpha(0f).translationY(dp(10f)).setDuration(180)
+            .withEndAction { codePill.visibility = View.GONE }.start()
+    }
 
     /** Disparo com a palma: palma aberta por ~0,7 s inicia o contador (3 s, ou o temporizador escolhido, se maior). */
     private fun startPalm() {
