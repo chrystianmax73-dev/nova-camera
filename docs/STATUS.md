@@ -1,4 +1,5 @@
-# 0.36.1 — Retrato: objeto em contraluz clareado; contraluz só com rosto (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.1 — Retrato: objeto em contraluz clareado; contraluz só com rosto (Claude; branch `claude/nova-interface`; APK de teste build119 entregue)
+- **[Baixar ZIP com app-release.apk — build119 (1119)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39487649489/artifacts/12294842293)**. Artefato 12294842293, 162818906 bytes; fonte 0833f0b (gatilho 1f9fac9, restaurado em efdb79c); sem release. Profundidade, detalhe, mão, cena e detector no APK; o detector só entra se for aprovado.
 - **Retorno do dono (20/10).** As duas fotos enviadas foram feitas na **0.35.0** (EXIF), ou seja, sem as mudanças da 0.36.
   - **Pano verde:** gravou "pessoa em contraluz clareada (0,6 EV)" sem nenhuma pessoa.
   - **Retrato da garrafa:** ainda escuro; o dono pediu clareamento natural.
