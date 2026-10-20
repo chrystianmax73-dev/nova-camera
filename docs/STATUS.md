@@ -1,4 +1,5 @@
-# 0.36.2 — Vídeo no 5× com pouca luz usa a lente 3× (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.2 — Vídeo no 5× com pouca luz usa a lente 3× (Claude; branch `claude/nova-interface`; APK de teste build120 entregue)
+- **[Baixar ZIP com app-release.apk — build120 (1120)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39504988708/artifacts/12303785864)**. Artefato 12303785864, 162820312 bytes; sha256:050cca26b7735ed5aefb932d41a8a5d4744688dc93d6876e1e45584bd0468bdf; fonte d32f14b (gatilho 3e64f10, restaurado em 6db65af); expira 2026-11-19; sem release.
 - **Pedido do dono (20/10):** filmando, ao dar zoom para 5× e 10× a imagem fica preta, mesmo com luz; a 3× fica normal. A qualidade das fotos deve continuar exatamente como está.
 - **Diagnóstico 0.36.1:**
   - Prévia 1× a ISO 1468, 1/30 s: ambiente escuro para a câmera.
