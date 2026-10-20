@@ -1,5 +1,14 @@
 # Retorno do dono sobre a 0.31.6 (20/10, noite) — fila do próximo dia (Claude)
-1. **A foto da revisão e a da galeria parecem diferentes.** O dono quer que a galeria receba a versão Nova como aparece na revisão. Ainda falta confirmar qual é a diferença: se aparecem duas fotos (original e Nova) ou se a final difere da prévia da revisão. `keepOriginals` já vem desligado. O dono vai mandar prints.
+1. **A galeria não fica igual à "Nova" da revisão** (print 4 = revisão, print 5 = arquivo da galeria; foto HDR 3× Alta resolução 48 MP, IA dispensada). O "Ajuste salvo" da revisão também não aparece na galeria.
+   - O arquivo da galeria tem a assinatura "NOVA CAMERA", que só vai na versão processada. Então ele passou pelo processamento, mas o resultado difere da prévia da revisão.
+   - Suspeitas, nesta ordem:
+     - (a) A galeria da Samsung mostra a versão antiga em cache: `reRender`/`MediaWriter.write` regravam a mesma URI no lugar ("wt") sem atualizar a MediaStore.
+     - (b) A prévia da revisão (base reduzida + `render`) e a final de 48 MP divergem no tom.
+   - Plano:
+     - Verificação pós-gravação: reler o arquivo da galeria, comparar com o que foi renderizado e registrar no diagnóstico.
+     - Forçar a atualização da MediaStore depois de regravar.
+     - Comparar `render` na prévia × resolução cheia na Alta resolução.
+   - Pedido ao dono: o arquivo da foto em si (zip), não o print.
 2. **QR na garrafa (curva, código pequeno, ISO 1073) não foi lido; na caixa de pizza foi.** A Samsung leu. Plano:
    - Ler um recorte central em resolução maior além da imagem inteira de 960 px.
    - Tentar a leitura invertida.
