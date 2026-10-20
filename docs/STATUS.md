@@ -1,4 +1,5 @@
-# 0.36.0 — Tele com pouca luz, Retrato com mais destaque, selfie contraluz, mensagens e ícone de cena (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.0 — Tele com pouca luz, Retrato com mais destaque, selfie contraluz, mensagens e ícone de cena (Claude; branch `claude/nova-interface`; APK de teste build118 entregue)
+- **[Baixar ZIP com app-release.apk — build118 (1118)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39462378228/artifacts/12283428444)**. Artefato 12283428444, 162818524 bytes; fonte 983f5c5 (gatilho 4db851a, restaurado em ecdafb6); sem release. Detector APROVADO; profundidade, detalhe, mão, cena e detector no APK.
 - **Pedido do dono (20/10, testes da 0.35):** "pode fazer tudo que você disse", com pesquisa antes e resultados excelentes. Mensagens: "Em processamento" breve, sem ficar fixa, e "Concluído" ao terminar. Tela da foto: só o resultado final. Objeto tocado sem o nome; cena ao lado do zoom, como Samsung/iPhone.
 - **Pesquisa (3 frentes):**
   - Night Sight/HDR+ e Smart HDR para pouca luz e contraluz.
