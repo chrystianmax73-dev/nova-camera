@@ -14,7 +14,8 @@
 
 ---
 
-# 0.33.0 — QR e texto com visual premium + selfie em contraluz (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.33.0 — QR e texto com visual premium + selfie em contraluz (Claude; branch `claude/nova-interface`; APK de teste build115 entregue)
+- **[Baixar ZIP com app-release.apk — build115 (1115)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39444011567/artifacts/12275751060)**. Artefato 12275751060, 156122445 bytes; sha256:0f6a0687d7570de9996df0935785bcb6f492eb0c1ceeebae729afb6110c907cb; expira 2026-11-19T15:06:40Z; sem release.
 - **Pedido do dono (20/10, prints da 0.32.1):** QR e texto funcionam, mas "muito genérico; tem que ter cara de premium (referência iPhone)". A selfie em contraluz precisa ficar melhor. "O resto está perfeito: não mexer em mais nada."
 - **QR:**
   - **Aviso ancorado no código** (`ui/CodePill.kt`): logo abaixo do código, ou acima se faltar espaço, preso dentro do visor e deslizando quando o código se move. Antes ficava em cima da barra de zoom.
