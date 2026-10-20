@@ -669,7 +669,12 @@ object Engine {
     }
 
     /** Atenção ao assunto: faixas lidas/gravadas em série, conta em paralelo (como [toneInPlace]). */
-    fun attentionInPlace(bmp: Bitmap, maps: com.novacamera.s24.core.imaging.SubjectAttention.Maps, cancel: CancelToken, region: Region? = null) {
+    fun attentionInPlace(bmp: Bitmap, maps: com.novacamera.s24.core.imaging.SubjectAttention.Maps, cancel: CancelToken, region: Region? = null) =
+        tilesInPlace(bmp, cancel, region) { t, tw, th, ox, oy, fw, fh -> com.novacamera.s24.core.imaging.SubjectAttention.applyTile(t, tw, th, ox, oy, fw, fh, maps) }
+
+    /** Aplica [op] em faixas de 64 linhas, em paralelo; [op] recebe a faixa e a posição dela na foto cheia. */
+    fun tilesInPlace(bmp: Bitmap, cancel: CancelToken, region: Region? = null,
+                     op: (IntArray, Int, Int, Int, Int, Int, Int) -> Unit) {
         val fullW = region?.fullW ?: bmp.width; val fullH = region?.fullH ?: bmp.height
         val ox = region?.x ?: 0; val oy = region?.y ?: 0
         val rows = 64
@@ -683,10 +688,7 @@ object Engine {
                 if (bands.size <= k) bands += IntArray(bmp.width * rows)
                 bmp.getPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start))
             }
-            Parallel.map(starts.size) { k ->
-                com.novacamera.s24.core.imaging.SubjectAttention.applyTile(bands[k], bmp.width, min(rows, bmp.height - starts[k]),
-                    ox, oy + starts[k], fullW, fullH, maps)
-            }
+            Parallel.map(starts.size) { k -> op(bands[k], bmp.width, min(rows, bmp.height - starts[k]), ox, oy + starts[k], fullW, fullH) }
             starts.forEachIndexed { k, start -> bmp.setPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start)) }
             y0 = starts.last() + rows
         }

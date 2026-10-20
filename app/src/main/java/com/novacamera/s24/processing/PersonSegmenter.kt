@@ -46,6 +46,8 @@ object PersonSegmenter {
         val coverage: Float,
         /** Fração ocupada por pele do rosto (rosto detectado de fato). */
         val faceCoverage: Float,
+        /** Pele do rosto (confiança), para medir o rosto na contraluz da selfie. */
+        val face: Plane? = null,
     )
 
     private fun options(model: String = MODEL) = ImageSegmenter.ImageSegmenterOptions.builder()
@@ -126,7 +128,7 @@ object PersonSegmenter {
             val hair = plane(HAIR)
             val face = plane(FACE_SKIN)
             val n = person.data.size.toFloat()
-            Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
+            Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n, face)
         } finally { masks.forEach { it.close() } }
     }
 }

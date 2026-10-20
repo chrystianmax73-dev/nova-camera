@@ -76,6 +76,8 @@ class Job(
     val trace: com.novacamera.s24.core.PhotoTrace? = null,
     /** Local no disparo (opção "Salvar local"; vazio quando desligada). */
     val geo: Map<String, String> = com.novacamera.s24.core.GeoTag.tagsNow(),
+    /** Câmera frontal (selfie): contraluz da pessoa ([com.novacamera.s24.core.imaging.BacklitLift]). */
+    val front: Boolean = false,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -147,6 +149,16 @@ class Session(val dir: File) {
     fun saveBlurMap(p: Plane) = savePlane(depthFile, p)
     fun loadBlurMap(): Plane? = loadPlane(depthFile)
     /** Atenção ao assunto ([com.novacamera.s24.core.imaging.SubjectAttention]): peso e luminância suave. */
+    /** Contraluz da selfie: mapas e plano gravados para a revisão reaplicar igual. */
+    fun saveBacklit(m: com.novacamera.s24.core.imaging.SubjectAttention.Maps, plan: com.novacamera.s24.core.imaging.BacklitLift.Plan) {
+        savePlane(File(dir, "backlit_w.bin"), m.weight); savePlane(File(dir, "backlit_b.bin"), m.base); meta.setProperty("backlit", plan.toMeta())
+    }
+    fun loadBacklit(): Pair<com.novacamera.s24.core.imaging.SubjectAttention.Maps, com.novacamera.s24.core.imaging.BacklitLift.Plan>? {
+        val plan = com.novacamera.s24.core.imaging.BacklitLift.Plan.fromMeta(meta.getProperty("backlit")) ?: return null
+        val w = loadPlane(File(dir, "backlit_w.bin")) ?: return null
+        val b = loadPlane(File(dir, "backlit_b.bin")) ?: return null
+        return com.novacamera.s24.core.imaging.SubjectAttention.Maps(w, b) to plan
+    }
     fun saveAttention(m: com.novacamera.s24.core.imaging.SubjectAttention.Maps) { savePlane(File(dir, "attention_w.bin"), m.weight); savePlane(File(dir, "attention_b.bin"), m.base) }
     fun loadAttention(): com.novacamera.s24.core.imaging.SubjectAttention.Maps? {
         val w = loadPlane(File(dir, "attention_w.bin")) ?: return null
@@ -319,6 +331,23 @@ object ProcessingQueue {
 
     fun session(context: Context, id: String): Session? =
         File(sessionsDir(context), id).takeIf { it.isDirectory }?.let(::Session)
+
+    /** Mede e, se for contraluz, grava os mapas na sessão. Devolve o EV (sRGB) ou null. */
+    private fun backlit(context: Context, base: Bitmap, session: Session): Float? {
+        val (px, w, h) = Engine.preview(base, 384)
+        val small = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        val seg = try { PersonSegmenter.segment(context, small) } finally { small.recycle() }
+        fun resample(p: com.novacamera.s24.core.imaging.Plane) = FloatArray(w * h) { k ->
+            p.sample((k % w + 0.5f) * p.w / w - 0.5f, (k / w + 0.5f) * p.h / h - 0.5f) }
+        val person = resample(seg.person)
+        val face = seg.face?.let(::resample)
+        val lum = FloatArray(w * h) { val c = px[it]; (((c shr 16) and 255) * 0.299f + ((c shr 8) and 255) * 0.587f + (c and 255) * 0.114f) / 255f }
+        val plan = com.novacamera.s24.core.imaging.BacklitLift.plan(lum, person, face) ?: return null
+        val maps = com.novacamera.s24.core.imaging.BacklitLift.maps(lum, person, w, h)
+        if (!com.novacamera.s24.core.imaging.BacklitLift.accept(px, w, h, maps, plan)) return null
+        session.saveBacklit(maps, plan)
+        return plan.ev
+    }
 
     /** IA de detalhe vale para esta sessão? ([com.novacamera.s24.core.DetailPolicy]) */
     private fun detailWanted(context: Context, session: Session, bmp: Bitmap): Boolean {
@@ -522,6 +551,11 @@ object ProcessingQueue {
                         note = listOf(note, "sombra do assunto clareada (${"%.0f".format(Locale.US, maps.coverage * 100)}% da cena)").filter { it.isNotEmpty() }.joinToString(" · ")
                     }
                 } }.onFailure { Log.w(TAG, "atenção ao assunto falhou", it) }
+            // Selfie em contraluz: a pessoa clareia, o fundo fica ([BacklitLift]); provado na versão reduzida.
+            if (job.front && (job.kind == JobKind.PHOTO || job.kind == JobKind.HDR || job.kind == JobKind.AUTO))
+                runCatching { timed(job, "contraluz") { backlit(context, base, session)?.let { ev ->
+                    note = listOf(note, "rosto em contraluz clareado (${"%.1f".format(Locale.US, ev)} EV)").filter { it.isNotEmpty() }.joinToString(" · ")
+                } } }.onFailure { Log.w(TAG, "contraluz falhou", it) }
             // Redução de ruído por IA em segundo plano, depois que a foto já está na galeria ([AiAutoPolicy]:
             // Noturno, Retrato, zoom e pouca luz; Alta resolução incluída, em faixas). A base sai com mais
             // qualidade para a rede.
@@ -969,6 +1003,11 @@ object ProcessingQueue {
                 val lift = if (replay) plans?.lowLight else Engine.lowLightPlan(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull()).also { plans?.lowLight = it }
                 if (lift != null) Engine.toneInPlace(bmp, lift, 1f, false, cancel, if (replay) region else null) {}
             }
+        // Selfie em contraluz: a pessoa sobe, o fundo fica (mapas gravados na sessão).
+        session.loadBacklit()?.let { (maps, plan) ->
+            step("acabamento/contraluz") { Engine.tilesInPlace(bmp, cancel, if (replay) region else null) { t, tw, th, ox, oy, fw, fh ->
+                com.novacamera.s24.core.imaging.BacklitLift.applyTile(t, tw, th, ox, oy, fw, fh, maps, plan) } }
+        }
         // Atenção ao assunto (FOTO no escuro): sombra sobe só onde há informação ou toque; mapa gravado na sessão.
         if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) session.loadAttention()?.let { maps ->
             step("acabamento/assunto") { Engine.attentionInPlace(bmp, maps, cancel, if (replay) region else null) }

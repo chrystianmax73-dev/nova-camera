@@ -2331,7 +2331,8 @@ class NovaCamera(
                 zoom = captureZoom, srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, portraitDarkBackground = settings.portraitDarkBackground, style = currentStyle(),
                 liveClip = takeLiveClip(),
-                subjectPoint = if (kind == JobKind.PORTRAIT || kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) subjectPointForPhoto(mirror) else null, trace=trace))
+                subjectPoint = if (kind == JobKind.PORTRAIT || kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) subjectPointForPhoto(mirror) else null, trace=trace,
+                front = isFront))
             frames.clear() // Job e coleta já possuem listas próprias.
             if(ownsCapture) listener.onProcessingQueued(kind)
         }
