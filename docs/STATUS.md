@@ -1,3 +1,14 @@
+# 0.31.3 — Etapa C: atenção ao assunto na FOTO no escuro (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (19–20/10):** sem toque, achar sozinho onde há informação na sombra (a caixa com a criança e as letras embaixo do frasco) e dar prioridade a ela; com toque, o objeto tocado; o resto não muda. Nada de deixar a foto inteira clara como no Noturno.
+- **Detector de objetos adiado por licença:** o EfficientDet-Lite0 do MediaPipe não tem licença publicada pela Google (nem no arquivo nem em model card; só um pacote de terceiros diz Apache-2.0). A regra do projeto exige licença confirmada. Alternativa com licença clara para depois, se precisar: NanoDet (Apache-2.0, roda no ncnn que já temos).
+- **Como acha o assunto (`core/imaging/SubjectAttention.kt`):** na foto reduzida (~512 px) e suavizada (o ruído some, contorno real fica): densidade de contornos acima do piso de ruído da própria cena × escuridão local (média abaixo de ~30%); mais o ponto tocado (círculo de 12% do menor lado). Bordas suavizadas para não haver recorte visível.
+- **O que faz:** só nessas áreas, sombra sobe até +0,8 EV pela luminância suavizada (como o tom local), preto profundo (< ~3%) e meio-tom/alta luz intocados, sem estourar (teto 250).
+- **Validação antes de valer:** cobertura de assunto entre 0,5% e 40% da cena (senão não é "atenção"), a área clareia ≥ 8% e não estoura mais que 0,5%. Recusada: nada muda. Rastro: "atenção: cobertura=…% toque=… aceita=…"; nota da foto: "sombra do assunto clareada (N% da cena)".
+- **Onde vale:** FOTO (um quadro, multiquadro, zoom, HDR) com ISO ≥ 800. Fora: Noturno, Retrato, Food, vídeo, foto com luz. A revisão (inclusive a prévia da IA por região) reaplica o mesmo mapa gravado na sessão.
+- Testes: `SubjectAttentionTest` (acha as letras na sombra e deixa a parede; cena sem assunto recusada; toque na sombra vira assunto; recorte = mesmo trecho da foto inteira).
+
+---
+
 # 0.31.2 — Etapa B2: rajada rápida na tele da FOTO (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Medido (diagnóstico 19/10, FOTO 3×/5× no escuro):** 960–1040 ms entre quadros da rajada (solicitação ~260 ms + entrega ~700 ms por JPEG); 8 quadros da Alta resolução = 8 s na mão. No Noturno, desde a 0.29.5, a tele fica fixada na lente física e a rajada caiu para ~250 ms/quadro.
 - **Causa:** a FOTO só fixava a tele nativa com luz boa (ISO < 800 e < 20 ms); no escuro ficava na câmera lógica, onde o firmware processa cada JPEG por ~1 s (e pode trocar a 5× pela 3× recortada).
@@ -16,7 +27,8 @@
 
 ---
 
-# 0.31.0 — Etapa A: estabilidade (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.31.0 — Etapa A: estabilidade (Claude; branch `claude/nova-interface`; APK de teste build109 entregue)
+- **[Baixar ZIP com app-release.apk — build109 (1109)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39347132376/artifacts/12231662706)**. Artefato 12231662706, 138720298 bytes; sha256:dea6ec5b08e1f4189d10411d9470b180776bdf834c290f54e7e0b2d0acde3677; expira 2026-11-19T00:31:06Z; sem release. Gatilho restaurado em e0eff22.
 - **Plano autorizado pelo dono (20/10):** A estabilidade → B acabamento mais rápido → B2 rajada rápida e disparo sem atraso → C atenção ao assunto → D QR sempre ligado na FOTO → E texto → F documento → G foco no escuro → itens extras (lente suja, DNG fundido, palma, localização opcional, galeria própria) e IA de detalhe com trava de consistência. Uma etapa por APK.
 - **Fotos de Alta resolução perdidas (#3/#4 do diagnóstico de 19/10):** a checagem de memória antes da super-resolução usava o heap Java (cheio de temporários do alinhamento: ~320 MB "necessários" × ~310 livres) para uma saída que é Bitmap em memória nativa → desistia e salvava só o original. Agora usa a RAM livre do aparelho com folga 2× e sem pressão de memória (`core/OutputMemory.kt`).
 - **Fechamentos nativos (MediaPipe/ncnn):** causa ainda desconhecida. (1) Diagnóstico novo (`core/NativeTombstone.kt`): lê o tombstone (protobuf do AOSP) e mostra sinal, mensagem do abort, **a thread que caiu** com o topo da pilha e as últimas linhas de log de erro (antes: textos soltos de todas as threads). (2) Proteção (`core/NativeGate.kt`): uma inferência nativa por vez; trabalho de foto (NAFNet por bloco, profundidade e segmentação da foto, contorno ao toque) espera a vez; análise ao vivo (Retrato/Cinema) pula o quadro se ocupado, e a IA em segundo plano cede 120 ms quando a prévia pulou quadro.

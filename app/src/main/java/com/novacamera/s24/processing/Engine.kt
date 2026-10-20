@@ -668,6 +668,30 @@ object Engine {
         }
     }
 
+    /** Atenção ao assunto: faixas lidas/gravadas em série, conta em paralelo (como [toneInPlace]). */
+    fun attentionInPlace(bmp: Bitmap, maps: com.novacamera.s24.core.imaging.SubjectAttention.Maps, cancel: CancelToken, region: Region? = null) {
+        val fullW = region?.fullW ?: bmp.width; val fullH = region?.fullH ?: bmp.height
+        val ox = region?.x ?: 0; val oy = region?.y ?: 0
+        val rows = 64
+        val group = max(1, Parallel.workers) * 2
+        val bands = ArrayList<IntArray>(group)
+        var y0 = 0
+        while (y0 < bmp.height) {
+            if (cancel.cancelled) throw CancelledException()
+            val starts = (0 until group).map { y0 + it * rows }.filter { it < bmp.height }
+            starts.forEachIndexed { k, start ->
+                if (bands.size <= k) bands += IntArray(bmp.width * rows)
+                bmp.getPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start))
+            }
+            Parallel.map(starts.size) { k ->
+                com.novacamera.s24.core.imaging.SubjectAttention.applyTile(bands[k], bmp.width, min(rows, bmp.height - starts[k]),
+                    ox, oy + starts[k], fullW, fullH, maps)
+            }
+            starts.forEachIndexed { k, start -> bmp.setPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start)) }
+            y0 = starts.last() + rows
+        }
+    }
+
     /** Pouca luz na foto comum: clareia meios-tons (ver [ToneParams.lowLightLift]). Devolve o EV aplicado. */
     fun lowLightInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken): Float {
         val plan = lowLightPlan(bmp, iso) ?: return 0f

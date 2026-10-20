@@ -144,6 +144,13 @@ class Session(val dir: File) {
     val depthFile get() = File(dir, "depth_blur.bin")
     fun saveBlurMap(p: Plane) = savePlane(depthFile, p)
     fun loadBlurMap(): Plane? = loadPlane(depthFile)
+    /** Atenção ao assunto ([com.novacamera.s24.core.imaging.SubjectAttention]): peso e luminância suave. */
+    fun saveAttention(m: com.novacamera.s24.core.imaging.SubjectAttention.Maps) { savePlane(File(dir, "attention_w.bin"), m.weight); savePlane(File(dir, "attention_b.bin"), m.base) }
+    fun loadAttention(): com.novacamera.s24.core.imaging.SubjectAttention.Maps? {
+        val w = loadPlane(File(dir, "attention_w.bin")) ?: return null
+        val b = loadPlane(File(dir, "attention_b.bin")) ?: return null
+        return com.novacamera.s24.core.imaging.SubjectAttention.Maps(w, b)
+    }
     fun saveHdr(p: Plane) = savePlane(hdrFile, p)
     fun loadHdr(): Plane? = loadPlane(hdrFile)
     private fun savePlane(f: File, p: Plane) = DataOutputStream(f.outputStream().buffered()).use { out ->
@@ -464,6 +471,20 @@ object ProcessingQueue {
                     note = job.captureNote ?: "Um quadro (multiquadro indisponível nesta captura)"
             }
             if (job.cancel.cancelled) throw CancelledException()
+            // Atenção ao assunto: FOTO no escuro (ISO ≥ 800), não Noturno/Retrato/Food. Calculada e provada na
+            // versão reduzida; aplicada no acabamento (render), também na revisão.
+            val photoIso = job.imagingFacts.iso ?: jpegIso(frame0.jpeg)
+            if ((job.kind == JobKind.PHOTO || job.kind == JobKind.ZOOM || job.kind == JobKind.HDR) && (photoIso ?: 0) >= ATTENTION_MIN_ISO)
+                runCatching { timed(job, "atenção ao assunto") {
+                    val (px, w, h) = Engine.preview(base, 512)
+                    val maps = com.novacamera.s24.core.imaging.SubjectAttention.map(px, w, h, job.subjectPoint)
+                    val ok = com.novacamera.s24.core.imaging.SubjectAttention.accept(px, w, h, maps)
+                    job.trace?.mark("atenção: cobertura=${"%.1f".format(Locale.US, maps.coverage * 100)}% toque=${job.subjectPoint != null} aceita=$ok")
+                    if (ok) {
+                        session.saveAttention(maps)
+                        note = listOf(note, "sombra do assunto clareada (${"%.0f".format(Locale.US, maps.coverage * 100)}% da cena)").filter { it.isNotEmpty() }.joinToString(" · ")
+                    }
+                } }.onFailure { Log.w(TAG, "atenção ao assunto falhou", it) }
             // Redução de ruído por IA em segundo plano, depois que a foto já está na galeria ([AiAutoPolicy]:
             // Noturno, Retrato, zoom e pouca luz; Alta resolução incluída, em faixas). A base sai com mais
             // qualidade para a rede.
@@ -756,6 +777,8 @@ object ProcessingQueue {
             com.novacamera.s24.core.imaging.AiQuality.edgeEnergy(small, w / 4, h / 4))
     }
 
+    private const val ATTENTION_MIN_ISO = 800
+
     private fun jpegIso(jpeg: ByteArray): Int? = runCatching {
         androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(jpeg))
             .getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0).takeIf { it > 0 }
@@ -873,6 +896,10 @@ object ProcessingQueue {
                 val lift = if (replay) plans?.lowLight else Engine.lowLightPlan(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull()).also { plans?.lowLight = it }
                 if (lift != null) Engine.toneInPlace(bmp, lift, 1f, false, cancel, if (replay) region else null) {}
             }
+        // Atenção ao assunto (FOTO no escuro): sombra sobe só onde há informação ou toque; mapa gravado na sessão.
+        if (kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) session.loadAttention()?.let { maps ->
+            step("acabamento/assunto") { Engine.attentionInPlace(bmp, maps, cancel, if (replay) region else null) }
+        }
         // ISO alto: sombras sem manchas roxas/azuis de ruído de cor — antes do desfoque do retrato,
         // que transformaria essas manchas em "aquarela". Food fica com a cor que tem.
         if (kind != JobKind.FOOD) step("acabamento/crominância") { Engine.shadowChromaInPlace(bmp, session.meta.getProperty("nai.iso")?.toIntOrNull(), cancel) }
