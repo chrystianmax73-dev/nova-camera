@@ -1,3 +1,6 @@
+# Bug registrado pelo dono (20/10) — NÃO corrigir ainda; entra no próximo pacote junto com as sugestões
+- **Controles ao vivo (Desfoque, Exposição, Tom, Temperatura) às vezes não aparecem.** Só aparecem depois de sair e entrar de novo no app. O dono já tinha relatado antes. Investigar a visibilidade da `LiveControls` × modo/estado da câmera depois de rebind (`MainActivity.layoutAll`, `liveControls`).
+
 # Retorno do dono sobre a 0.31.6 → tratado na 0.32.1 (ver `docs/STATUS.md`)
 - Pendente só o que depende do aparelho: confirmar a galeria atualizando, o custo do QR duplo e do botão de texto no S24, e o deslocamento do próximo fechamento nativo, se houver.
 
