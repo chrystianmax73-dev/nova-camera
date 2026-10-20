@@ -78,6 +78,8 @@ class Job(
     val geo: Map<String, String> = com.novacamera.s24.core.GeoTag.tagsNow(),
     /** Câmera frontal (selfie): contraluz da pessoa ([com.novacamera.s24.core.imaging.BacklitLift]). */
     val front: Boolean = false,
+    /** Cena da prévia no disparo: ajuste leve na foto ([com.novacamera.s24.core.imaging.SceneTone]). */
+    val scene: com.novacamera.s24.core.SceneDetect.Scene = com.novacamera.s24.core.SceneDetect.Scene.NONE,
 ) {
     val id: Long = System.currentTimeMillis()
     internal val cancel = CancelToken()
@@ -446,6 +448,7 @@ object ProcessingQueue {
         session.zoom = job.zoom
         // IA de detalhe precisa saber o zoom digital e a lente ([DetailPolicy]).
         session.meta.setProperty("srFactor", job.srFactor.toString())
+        if (com.novacamera.s24.core.imaging.SceneTone.changesColor(job.scene)) session.meta.setProperty("scene", job.scene.name)
         session.signature = job.signature
         runCatching { session.save() } // data/EXIF já gravados, para uma eventual recuperação
         try {
@@ -557,6 +560,8 @@ object ProcessingQueue {
                 runCatching { timed(job, "contraluz") { backlit(context, base, session)?.let { ev ->
                     note = listOf(note, "pessoa em contraluz clareada (${"%.1f".format(Locale.US, ev)} EV)").filter { it.isNotEmpty() }.joinToString(" · ")
                 } } }.onFailure { Log.w(TAG, "contraluz falhou", it) }
+            if (com.novacamera.s24.core.imaging.SceneTone.changesColor(job.scene))
+                note = listOf(note, "cena: ${job.scene.label.lowercase(Locale.ROOT)} (ajuste leve de cor)").filter { it.isNotEmpty() }.joinToString(" · ")
             // Redução de ruído por IA em segundo plano, depois que a foto já está na galeria ([AiAutoPolicy]:
             // Noturno, Retrato, zoom e pouca luz; Alta resolução incluída, em faixas). A base sai com mais
             // qualidade para a rede.
@@ -1040,6 +1045,11 @@ object ProcessingQueue {
             if (matte != null && session.meta.getProperty("portrait.light") == "dark")
                 step("acabamento/fundo escuro") { Engine.darkBackgroundInPlace(bmp, matte, cancel) }
         }
+        // Cena reconhecida na prévia (planta, comida): ajuste leve de cor, antes do estilo do usuário.
+        session.meta.getProperty("scene")?.let { name -> runCatching { com.novacamera.s24.core.SceneDetect.Scene.valueOf(name) }.getOrNull() }
+            ?.takeIf { kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR || kind == JobKind.AUTO }
+            ?.let { scene -> step("acabamento/cena") { Engine.tilesInPlace(bmp, cancel, if (replay) region else null) { t, _, _, _, _, _, _ ->
+                com.novacamera.s24.core.imaging.SceneTone.applyTile(t, scene) } } }
         // Estilo ao vivo por último: mesma conta e mesma ordem da prévia (sobre a imagem pronta).
         step("acabamento/estilo") { Engine.styleInPlace(bmp, session.style, cancel) }
         progress(1f)

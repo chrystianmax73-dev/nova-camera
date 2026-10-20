@@ -46,6 +46,14 @@ data class EnginePrefs(val oemPortrait: Boolean = false, val oemNight: Boolean =
 
 object ModeResolver {
     const val NIGHT_FRAMES = 5
+    /**
+     * Noturno na tele (3×/5×/10×): pupila menor e o automático para em ~1/24 s (foto da cama, 20/10: 3 quadros,
+     * ruído 4,2 contra 2,8 na 3× com luz). Mais quadros do mesmo tempo baixam o ruído √N sem tremer mais;
+     * os quadros são lidos em faixas, então o custo é tempo, não memória.
+     */
+    const val NIGHT_TELE_FRAMES = 8
+
+    fun nightFrames(zoom: Float) = if (zoom >= NightLensPolicy.MIN_ZOOM) NIGHT_TELE_FRAMES else NIGHT_FRAMES
 
     fun resolve(mode: CaptureMode, facts: DeviceModeFacts, prefs: EnginePrefs = EnginePrefs()): ModeSupport = when (mode) {
         CaptureMode.FOTO, CaptureMode.VIDEO -> ModeSupport(mode, ModeEngine.STANDARD, "")

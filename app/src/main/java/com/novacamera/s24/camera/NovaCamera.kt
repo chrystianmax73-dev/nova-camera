@@ -180,6 +180,8 @@ class NovaCamera(
     @Volatile private var capturing = false
     /** Captura de foto em andamento (o leitor de QR pausa). */
     val capturingPhoto get() = capturing
+    /** Cena reconhecida na prévia ([com.novacamera.s24.core.SceneDetect]); vai junto com a foto para o ajuste leve. */
+    @Volatile var scene = com.novacamera.s24.core.SceneDetect.Scene.NONE
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
     /** ISO/exposição/foco da prévia (aviso de lente suja só com luz boa). */
@@ -2242,7 +2244,7 @@ class NovaCamera(
                 val max = when {
                     h != null && h.thermalStatus >= ThermalPolicy.SEVERE -> 1
                     h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE) -> 3
-                    else -> ModeResolver.NIGHT_FRAMES
+                    else -> ModeResolver.nightFrames(equivalent(zoomOnLens))
                 }
                 val st = latestStats
                 val c = caps
@@ -2333,7 +2335,7 @@ class NovaCamera(
                 portraitBlur = settings.portraitBlur, portraitDarkBackground = settings.portraitDarkBackground, style = currentStyle(),
                 liveClip = takeLiveClip(),
                 subjectPoint = if (kind == JobKind.PORTRAIT || kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) subjectPointForPhoto(mirror) else null, trace=trace,
-                front = isFront))
+                front = isFront, scene = if (mode == CaptureMode.FOTO) scene else com.novacamera.s24.core.SceneDetect.Scene.NONE))
             frames.clear() // Job e coleta já possuem listas próprias.
             if(ownsCapture) listener.onProcessingQueued(kind)
         }
@@ -2408,7 +2410,8 @@ class NovaCamera(
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
-                                        val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,3)
+                                        val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,
+                                            if (equivalent(zoomOnLens) >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM) ModeResolver.NIGHT_TELE_FRAMES else 3)
                                         steps=List(n){0};captureNote=note ?: "Pouca luz: redução de ruído adaptativa"
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.HDR -> if(exposure.isExposureCompensationSupported && aeAdjustable()) {

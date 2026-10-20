@@ -60,6 +60,7 @@ import com.novacamera.s24.processing.ProcessingQueue
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Haptics
 import com.novacamera.s24.ui.HintView
+import com.novacamera.s24.ui.LineIcon
 import com.novacamera.s24.ui.ModeGrid
 import com.novacamera.s24.ui.ModeStrip
 import com.novacamera.s24.ui.Nova
@@ -112,6 +113,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var resChip: TextChip
     private lateinit var rawChip: TextChip
     private lateinit var lensChip: TextView
+    /** Cena reconhecida (ícone perto do zoom, [com.novacamera.s24.core.SceneDetect]); toque desliga o ajuste. */
+    private lateinit var sceneChip: TextView
+    private var sceneWatcher: com.novacamera.s24.camera.SceneWatcher? = null
+    private var sceneOff = false
     private lateinit var modeGrid: ModeGrid
     private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
     private lateinit var toolsButton: NovaIconView
@@ -531,6 +536,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         startQr()
         startTextSpot()
         startPalm()
+        startScene()
         startGeo()
         val sig = signature()
         val settingsChanged = sig != settingsSignature
@@ -548,6 +554,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         stopQr()
         textSpotter?.stop(); endTextLens()
         palmShutter?.stop()
+        sceneWatcher?.stop()
         stopGeo()
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
@@ -601,6 +608,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         tracking.close()
         qrScanner?.close(); qrScanner = null
         palmShutter?.close(); palmShutter = null
+        sceneWatcher?.close(); sceneWatcher = null
         textSpotter?.close(); textSpotter = null
         camera.release()
         sound.release()
@@ -902,6 +910,12 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         onBackPressedDispatcher.addCallback(this, closeTextLens)
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        sceneChip = statusChip(Nova.LOCK).apply {
+            visibility = View.GONE; compoundDrawablePadding = dpi(6)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { toggleSceneOff() }
+        }
+        root.addView(sceneChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dpi(16) })
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
         root.addView(toolsPanel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
 
@@ -999,6 +1013,59 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         codePill.animate().cancel()
         codePill.animate().alpha(0f).scaleX(0.92f).scaleY(0.92f).setDuration(180)
             .withEndAction { codePill.visibility = View.GONE; codeQuad = null }.start()
+    }
+
+    /**
+     * Cena na FOTO (pedido do dono, 20/10): ícone ao lado do zoom quando a foto vai ter ajuste leve de cena
+     * (planta, comida) ou tratamento próprio (pessoa, animal). Aparece com nome, recolhe para só o ícone em
+     * 1,5 s; tocar desliga o ajuste nesta sessão (ícone apagado).
+     */
+    private fun startScene() {
+        val watcher = sceneWatcher ?: com.novacamera.s24.camera.SceneWatcher(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.isRecording &&
+                !camera.capturingPhoto && !isFinishing },
+            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            faceArea = {
+                val area = (preview.width * preview.height).toFloat()
+                if (area <= 0f || !::camera.isInitialized) 0f
+                else (camera.facesInView().maxOfOrNull { (it.right - it.left) * (it.bottom - it.top) } ?: 0f) / area
+            },
+            onScene = { showScene(it) },
+        ).also { sceneWatcher = it }
+        watcher.start()
+    }
+
+    private val collapseScene = Runnable { if (sceneChip.visibility == View.VISIBLE) sceneChip.text = "" }
+
+    private fun showScene(scene: com.novacamera.s24.core.SceneDetect.Scene) {
+        handler.removeCallbacks(collapseScene)
+        if (::camera.isInitialized) camera.scene = if (sceneOff) com.novacamera.s24.core.SceneDetect.Scene.NONE else scene
+        if (scene == com.novacamera.s24.core.SceneDetect.Scene.NONE) {
+            sceneChip.animate().alpha(0f).setDuration(200).withEndAction { sceneChip.visibility = View.GONE }.start()
+            return
+        }
+        val kind = when (scene) {
+            com.novacamera.s24.core.SceneDetect.Scene.PERSON -> LineIcon.Kind.PERSON
+            com.novacamera.s24.core.SceneDetect.Scene.PET -> LineIcon.Kind.PET
+            com.novacamera.s24.core.SceneDetect.Scene.FOOD -> LineIcon.Kind.FOOD
+            else -> LineIcon.Kind.PLANT
+        }
+        val color = if (sceneOff) Nova.TEXT_MUTED else Nova.LOCK
+        sceneChip.setTextColor(color)
+        sceneChip.setCompoundDrawablesRelativeWithIntrinsicBounds(LineIcon(kind, dpi(16), color), null, null, null)
+        sceneChip.text = scene.label
+        sceneChip.contentDescription = "Cena: ${scene.label}" + if (sceneOff) ", ajuste desligado" else ". Toque para desligar o ajuste"
+        if (sceneChip.visibility != View.VISIBLE) {
+            sceneChip.alpha = 0f; sceneChip.scaleX = 0.9f; sceneChip.scaleY = 0.9f; sceneChip.visibility = View.VISIBLE
+        }
+        sceneChip.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).setInterpolator(Nova.EASE).start()
+        handler.postDelayed(collapseScene, 1500)
+    }
+
+    private fun toggleSceneOff() {
+        sceneOff = !sceneOff
+        hint.show(if (sceneOff) "Otimização de cena desligada" else "Otimização de cena ligada", 1500)
+        sceneWatcher?.scene?.let { showScene(it) }
     }
 
     /** Disparo com a palma: palma aberta por ~0,7 s inicia o contador (3 s, ou o temporizador escolhido, se maior). */
@@ -1385,6 +1452,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateZoomVisibility()
         (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
             (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
+        (sceneChip.layoutParams as FrameLayout.LayoutParams).topMargin =
+            (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin + (zoomBar.measuredHeight - dpi(28)) / 2
         (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         (toolsPanel.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
@@ -1412,7 +1481,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         preview.scaleType = if (landscape) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
         transitionImage.scaleType = if (landscape) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip, sceneChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -2070,7 +2139,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onProcessingQueued(kind: JobKind) {
         shutter.busy = false
-        hint.show("Foto capturada · processando", 1200)
+        // Aviso breve (pedido do dono, 20/10): some sozinho; o anel da miniatura mostra o andamento.
+        hint.show("Em processamento", PROCESSING_HINT_MS)
     }
 
     private fun onProcessingProgress(p: JobProgress) {
@@ -2089,21 +2159,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 // Nada foi salvo (ex.: falha sem original): a miniatura volta para a última mídia real.
                 if (p.enhancedUri == null && p.originalUri == null) lastMedia?.let { (u, m) -> showMedia(u, m, animate = false) }
             }
-            if (!auto || p.pending == 0) procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
+            procChip.visibility = View.GONE
             val shown = p.enhancedUri ?: if (auto) null else p.originalUri
             // AUTO regrava a mesma foto: só atualiza a miniatura se ela ainda for a última.
             if (shown != null && (!auto || lastMedia?.first == shown)) {
                 showMedia(shown, "image/jpeg", animate = true)
                 lastSession = if (p.sessionId != null && p.enhancedUri != null) p.sessionId to p.enhancedUri else null
             }
-            p.message?.let { hint.show(it, 3200) }
+            // Um aviso só quando a fila esvazia (10 fotos seguidas não viram 10 avisos); falhas e notas têm prioridade.
+            when {
+                p.message != null -> hint.show(p.message, 3200)
+                p.pending == 0 && shown != null -> hint.show("Concluído · foto pronta na galeria", 2500)
+            }
             return
         }
-        // O ajuste automático da FOTO é rápido e silencioso: sem selo de progresso.
-        if (auto || p.kind==JobKind.PHOTO) return
-        procChip.text = "${p.kind.label} · ${p.stage} ${Math.round(p.fraction * 100)}%  ✕"
-        procChip.contentDescription = "Processando ${p.kind.label}, ${Math.round(p.fraction * 100)} por cento. Toque para cancelar"
-        procChip.visibility = View.VISIBLE
+        // Sem selo fixo com etapa e porcentagem: o andamento fica no anel da miniatura.
     }
 
     override fun onRecording(phase: RecordingPhase, seconds: Long) {
@@ -2200,7 +2270,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             frame.recycle()
             if (obj != null) runOnUiThread {
                 if (gen != contourGeneration || isDestroyed) return@runOnUiThread
-                overlay.showObject(android.graphics.RectF(obj.l, obj.t, obj.r, obj.b), obj.label)
+                overlay.showObject(android.graphics.RectF(obj.l, obj.t, obj.r, obj.b), "")
                 Haptics.tick(overlay)
             }
         }
@@ -2449,6 +2519,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f
         private const val VOLUME_HOLD_MS = 350L
+        private const val PROCESSING_HINT_MS = 3500L
     }
 
 }

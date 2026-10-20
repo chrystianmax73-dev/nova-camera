@@ -10,12 +10,18 @@ import kotlin.math.min
  * pessoa até o rosto chegar a ~[TARGET] (no máximo [BG_RATIO] do fundo e [MAX_EV] em valores sRGB). Só os
  * tons mais escuros que o fundo sobem (faixa [Plan.lo]–[Plan.hi]): sem halo claro em volta da cabeça.
  * Validado na selfie do dono: rosto 84 → 133, estouro igual (0,24%).
+ * 0.36 (selfie de 20/10 na 0.35: rosto 0,38 × parede 0,80 ficava de fora pelo limite de 0,40): alvo 0,52 e até
+ * 1 EV, na faixa da pesquisa (rosto 0,45–0,55; +1,5–2 EV em luz linear ≈ 0,7–0,9 EV em sRGB). Rosto entre 0,40 e
+ * [ENTER_MAX] só entra com fundo bem mais claro ([WIDE_GAP]). Simulado na foto do dono: 0,38 → 0,52, sem halo.
  */
 object BacklitLift {
-    const val TARGET = 0.46f
+    const val TARGET = 0.52f
     const val BG_RATIO = 0.70f
-    /** Multiplicador máximo nos valores sRGB: 2^0,75 ≈ 1,68×. */
-    const val MAX_EV = 0.75f
+    /** Multiplicador máximo nos valores sRGB: 2^1 = 2× (≈ 2,2 EV em luz linear). */
+    const val MAX_EV = 1.0f
+    /** Rosto até aqui ainda entra, se o fundo estiver pelo menos [WIDE_GAP] mais claro. */
+    const val ENTER_MAX = 0.46f
+    const val WIDE_GAP = 0.30f
     const val MIN_EV = 0.15f
 
     class Plan(val ev: Float, val lo: Float, val hi: Float, val faceLum: Float, val bgLum: Float) {
@@ -44,7 +50,7 @@ object BacklitLift {
         if (pn < 0.08f * n || pn > 0.85f * n || bn < 0.10f * n) return null
         val subject = if (fn >= 0.01f * n) median(fv, fn) else median(pv, pn)
         val bg = median(bv, bn)
-        if (subject >= 0.40f || bg - subject < 0.18f) return null
+        if (subject >= ENTER_MAX || bg - subject < 0.18f || (subject >= 0.40f && bg - subject < WIDE_GAP)) return null
         val target = min(TARGET, BG_RATIO * bg)
         val ev = (ln(target / max(subject, 0.02f)) / ln(2f)).coerceIn(0f, MAX_EV)
         if (ev < MIN_EV) return null

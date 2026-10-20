@@ -220,6 +220,7 @@ jobs:
               print('profundidade no APK:', {'assets/depth/depth.param', 'assets/depth/depth.bin'} <= names)
               print('detalhe no APK:', {'assets/detail/detail.param', 'assets/detail/detail.bin'} <= names)
               print('mão no APK:', 'assets/hand/hand_landmarker.task' in names)
+              print('cena no APK:', 'assets/scene/efficientnet_lite0.tflite' in names)
               print('detector no APK:', {'assets/detect/detect.param', 'assets/detect/detect.bin'} <= names)
           PY
       - name: Verificar continuidade da assinatura e versionCode

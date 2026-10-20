@@ -24,7 +24,7 @@ class BacklitLiftTest {
         assertTrue(BacklitLift.accept(px, w, h, maps, plan!!))
         val out = px.copyOf(); BacklitLift.applyTile(out, w, h, 0, 0, w, h, maps, plan)
         val faceAfter = out[75 * w + 60] and 255
-        assertTrue("rosto $faceAfter", faceAfter in 110..125)   // mira 0,46 (117)
+        assertTrue("rosto $faceAfter", faceAfter in 110..125)   // mira min(0,52; 0,70 × fundo) ≈ 0,47 (119)
         assertEquals(170, out[10 * w + 5] and 255)               // fundo intacto
         assertEquals(170, out[45 * w + 25] and 255)              // borda do fundo sem halo
     }
@@ -32,6 +32,15 @@ class BacklitLiftTest {
     @Test fun semContraLuzNaoMexe() {
         assertNull(BacklitLift.plan(lum(scene(120, 150)), person, face)) // rosto já claro
         assertNull(BacklitLift.plan(lum(scene(60, 80)), person, face))   // fundo também escuro
+    }
+
+    @Test fun rostoMedioContraFundoMuitoClaroEntra() {
+        // Selfie de 20/10 na 0.35: rosto 0,38 × parede 0,80 ficava de fora (limite antigo 0,40).
+        val plan = BacklitLift.plan(lum(scene(97, 204)), person, face)
+        assertNotNull(plan)
+        assertEquals(0.45f, plan!!.ev, 0.05f)
+        // Rosto 0,43 com fundo só 0,16 mais claro: não é contraluz forte.
+        assertNull(BacklitLift.plan(lum(scene(110, 150)), person, face))
     }
 
     @Test fun limitesDoAumento() {

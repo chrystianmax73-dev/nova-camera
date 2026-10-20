@@ -857,8 +857,8 @@ object Engine {
         // A máscara já vem final de [portraitMatte] (borda firme; transição larga só no cabelo).
         val protectedMatte = matte
         val smallMatte = Planes.resize(protectedMatte, sw, sh)
-        val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (3 + 6 * s).toInt()))
-        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (5 + 18 * s).toInt()))
+        val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, Portrait.nearRadius(s).toInt()))
+        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, Portrait.farRadius(s).toInt()))
         val dist = blurMap ?: Portrait.backgroundDistance(protectedMatte)
         val grain = noiseSigma(bmp)
         progress(0.4f)

@@ -49,12 +49,18 @@ class ReviewActivity : NovaScreen() {
         if (s == null || !s.base.exists()) { finish(); return }
         session = s
         tone = s.tone; blur = s.blur
-        buildScreen("Revisão · ${s.kind.label}")
+        buildScreen("Foto · ${s.kind.label}")
 
         compare = CompareView(this)
         content.addView(compare, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dpi(8) })
         if (s.note.isNotEmpty()) content.addView(caption(s.note))
-        content.addView(caption("Toque e segure a foto para ver o original inteiro no mesmo lugar; solte para ver a Nova (é a que está na galeria). Arraste a linha para comparar; dois dedos ampliam; toque duplo volta."))
+        content.addView(caption("Esta é a foto como está na galeria. Toque e segure para ver o original; dois dedos ampliam."))
+        lateinit var compareButton: TextView
+        compareButton = button("Comparar com o original") {
+            compare.compareMode = !compare.compareMode
+            compareButton.text = if (compare.compareMode) "Ver só o resultado" else "Comparar com o original"
+        }
+        content.addView(compareButton, LinearLayout.LayoutParams(-1, dpi(44)).apply { topMargin = dpi(10) })
         aiAvailable = com.novacamera.s24.processing.NcnnDenoiser.available(this) && s.meta.getProperty("banded") != "true"
         aiStatus = caption("")
         refineButton = button("Refinar foto inteira com IA") { requestRefine() }

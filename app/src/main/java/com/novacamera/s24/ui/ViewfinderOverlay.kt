@@ -386,7 +386,9 @@ class ViewfinderOverlay(context: Context) : View(context) {
             canvas.drawArc(left, bottom - 2 * r, left + 2 * r, bottom, 90f, 90f, false, objCorner)
             canvas.drawLine(left + r, bottom, left + r + arm, bottom, objCorner); canvas.drawLine(left, bottom - r, left, bottom - r - arm, objCorner)
         }
-        // Nome num chip de vidro acima da caixa (abaixo, se não couber), com ponto azul.
+        // Nome num chip de vidro acima da caixa (abaixo, se não couber), com ponto azul. Sem nome (padrão desde
+        // a 0.36, pedido do dono): só a caixa; a cena aparece no ícone ao lado do zoom.
+        if (label.isEmpty()) return
         val tw = objText.measureText(label)
         val ch = 28f * d; val cw = tw + 34f * d
         var top = objTmp.top - ch - 8f * d

@@ -1,3 +1,19 @@
+# Etapa 0.36.0 (Claude) — retorno dos testes da 0.35 (detalhes em `docs/STATUS.md`)
+- **Pesquisa usada:**
+  - **Pouca luz:** Night Sight com quadros longos e mais quadros, preto no p0,5–1%, saturação 1,1–1,3 com o ganho.
+  - **Contraluz:** rosto 0,45–0,55 e até +1,5–2 EV linear, com mapa de ganho sem halo.
+  - **Retrato:** CoC linear na disparidade, R_max ≈ 2% da largura, desfoque em luz linear com oclusão (já existia), fundo −0,2 a −0,35 EV.
+  - **Cena:** EfficientNet-Lite0 do MediaPipe (Apache-2.0 nos metadados). Places365 e AIY evitados: licença dos pesos não confirmada.
+- **Não feito, de propósito:**
+  - Saturação no Noturno: o tom do Noturno é decisão do dono.
+  - Exposição por quadro mais longa na tele: `NightExposure.maxFrameNs`, risco de tremido sem teste físico.
+  - Clareamento extra dos olhos: precisa de face mesh.
+- **Próximo passo, se o dono pedir:** depois de confirmar o "N de 8" no aparelho, testar quadros mais longos na tele com o celular apoiado.
+- **Cena:**
+  - `SceneWatcher` só roda na FOTO, ~1×/s, e pula a leitura se outra IA nativa estiver ocupada.
+  - A cena vai no `Job.scene` → meta `scene` → `render()` ("acabamento/cena"). Só planta e comida mudam a cor.
+  - Exceção: o caminho de 200 MP em faixas (`JpegBands`) não aplica a cena.
+
 # Etapa 0.35.0 (Claude) — bug dos controles ao vivo + itens 1, 2, 3, 6 da pesquisa (detalhes em `docs/STATUS.md`)
 - **Bug dos controles ao vivo, corrigido:**
   - A causa era `portraitPreviewFailed`, permanente na sessão.

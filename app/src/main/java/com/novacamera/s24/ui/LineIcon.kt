@@ -10,7 +10,7 @@ import android.graphics.drawable.Drawable
 
 /** Ícones de traço (sem imagens embutidas) para as ações de QR e texto, no estilo dos ícones do app. */
 class LineIcon(private val kind: Kind, private val sizePx: Int, color: Int) : Drawable() {
-    enum class Kind { COPY, SELECT_ALL, SHARE, LINK, CLOSE, WIFI, PHONE, MAIL, TEXT, CHEVRON }
+    enum class Kind { COPY, SELECT_ALL, SHARE, LINK, CLOSE, WIFI, PHONE, MAIL, TEXT, CHEVRON, PERSON, PET, FOOD, PLANT }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; this.color = color; strokeWidth = sizePx / 12f
@@ -43,6 +43,16 @@ class LineIcon(private val kind: Kind, private val sizePx: Int, color: Int) : Dr
             Kind.MAIL -> { rr(3f, 5.5f, 21f, 18.5f, 2.5f); line(3.5f, 6.5f, 12f, 13f); line(20.5f, 6.5f, 12f, 13f) }
             Kind.TEXT -> { line(5f, 5f, 19f, 5f); line(12f, 5f, 12f, 19f); line(9f, 19f, 15f, 19f) }
             Kind.CHEVRON -> { line(9.5f, 6f, 15.5f, 12f); line(15.5f, 12f, 9.5f, 18f) }
+            Kind.PERSON -> { c.drawCircle(x + 12 * u, y + 8 * u, 3.6f * u, p)
+                r.set(x + 5 * u, y + 13.5f * u, x + 19 * u, y + 27.5f * u); c.drawArc(r, 180f, 180f, false, p) }
+            Kind.PET -> { c.drawOval(x + 7.5f * u, y + 12.5f * u, x + 16.5f * u, y + 20 * u, p)
+                for ((cx, cy) in listOf(5.5f to 10f, 9.5f to 6f, 14.5f to 6f, 18.5f to 10f)) c.drawCircle(x + cx * u, y + cy * u, 1.9f * u, fill) }
+            Kind.FOOD -> { line(7f, 3.5f, 7f, 20.5f); line(4.5f, 3.5f, 4.5f, 8.5f); line(9.5f, 3.5f, 9.5f, 8.5f)
+                path.reset(); path.moveTo(x + 4.5f * u, y + 8.5f * u); path.quadTo(x + 7f * u, y + 11f * u, x + 9.5f * u, y + 8.5f * u); c.drawPath(path, p)
+                path.reset(); path.moveTo(x + 17 * u, y + 20.5f * u); path.lineTo(x + 17 * u, y + 3.5f * u)
+                path.quadTo(x + 13 * u, y + 7 * u, x + 13.5f * u, y + 12.5f * u); path.lineTo(x + 17 * u, y + 12.5f * u); c.drawPath(path, p) }
+            Kind.PLANT -> { path.reset(); path.moveTo(x + 5 * u, y + 19 * u); path.quadTo(x + 4 * u, y + 5 * u, x + 19 * u, y + 4.5f * u)
+                path.quadTo(x + 20 * u, y + 19 * u, x + 5 * u, y + 19 * u); c.drawPath(path, p); line(5f, 19f, 14f, 10f) }
         }
     }
 

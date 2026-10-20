@@ -1,3 +1,56 @@
+# 0.36.0 — Tele com pouca luz, Retrato com mais destaque, selfie contraluz, mensagens e ícone de cena (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10, testes da 0.35):** "pode fazer tudo que você disse", com pesquisa antes e resultados excelentes. Mensagens: "Em processamento" breve, sem ficar fixa, e "Concluído" ao terminar. Tela da foto: só o resultado final. Objeto tocado sem o nome; cena ao lado do zoom, como Samsung/iPhone.
+- **Pesquisa (3 frentes):**
+  - Night Sight/HDR+ e Smart HDR para pouca luz e contraluz.
+  - Pixel/BokehMe/Filament para Retrato.
+  - Scene Optimizer e licenças de classificadores.
+  - Valores e fontes estão no handoff.
+- **Medição nas fotos do dono antes de mexer:**
+  - **Cama 5×:** "Noturno · 3 de 3 quadros" de 1/24 s, ISO 2056. Preto correto (p0,5 = 1/255), ou seja, sem véu. Ruído de luma 4,2 (TV 3×: 2,8) e saturação 0,22 (TV: 0,33).
+  - **Garrafa:** a Samsung tem mais nitidez medida (6,6 × 4,0, com halo de nitidez); o Nova é mais limpo e sem halo.
+  - **Selfie contraluz:** rosto 0,38 × parede 0,80, e o clareamento não entrou (limite de 0,40).
+- **Tele com pouca luz:** o Noturno na tele (3×/5×/10×) agora funde até **8 quadros**; antes eram 3 (FOTO no escuro) ou 5. O ruído cai ~√(8/3) ≈ 1,6× sem aumentar o tremido por quadro. Os quadros são lidos em faixas: custa tempo, não memória. O tom do Noturno não foi mexido (decisão anterior do dono), e por isso a saturação não foi aumentada.
+- **Selfie contraluz** (`BacklitLift`):
+  - Alvo do rosto 0,46 → 0,52 e limite 0,75 → 1 EV, em sRGB (≈ 2,2 EV em luz linear).
+  - Rosto entre 0,40 e 0,46 também entra quando o fundo está ≥ 0,30 mais claro.
+  - Simulado na foto do dono (segmentador do app em Python): rosto 0,38 → 0,52, parede intacta, sem halo.
+- **Retrato** (foto e prévia, mesma conta):
+  - Desfoque +33%: raio 6 + 24·s; no padrão, ~2,6% da largura (pesquisa: ~2%).
+  - Fundo desfocado ×0,92 em sRGB (≈ −0,27 EV linear), para o assunto "saltar" como na Samsung.
+  - Opção "Fundo escuro" e recorte não mudaram.
+- **Mensagens:**
+  - "Em processamento" aparece por 3,5 s e some. O selo fixo com etapa e porcentagem saiu; o anel da miniatura mostra o andamento.
+  - "Concluído · foto pronta na galeria" aparece uma vez, quando a fila esvazia. Falhas e notas continuam com prioridade.
+- **Tela da foto** (a da galeria do app):
+  - Abre só com o resultado, sem linha nem rótulos.
+  - Tocar e segurar mostra o original.
+  - Botão "Comparar com o original" liga a linha.
+- **Ícone de cena ao lado do zoom** (`core/SceneDetect.kt`, `camera/SceneWatcher.kt`, `core/imaging/SceneTone.kt`):
+  - **Fontes:** classificador EfficientNet-Lite0 int8 (Apache-2.0, 5,4 MB) a ~1×/s sobre um quadro de 320 px da prévia, para animal e comida. Planta pela cobertura de verde mais o grupo de planta. Pessoa pelos rostos.
+  - **Calibração da folhagem:** fotos de planta do dono deram 0,06–0,24; garrafa, cama, TV e selfies ≤ 0,006. A planta entra a partir de ~0,14.
+  - **Histerese:** entra com 0,6 estável por 0,7 s; sai abaixo de 0,45 por 1 s; no máximo uma troca a cada 2 s.
+  - **Comportamento do ícone:** aparece com nome e recolhe para só o ícone em 1,5 s. Tocar desliga o ajuste (ícone apagado).
+  - **Ajuste na foto, leve e sem tocar pele:** planta com vibrance +8% só nos verdes; comida com vibrance +8% e +2% de calor. Pessoa e animal: só o ícone (sem mudar cor).
+- **Toque no objeto:** fica só a caixa, sem o nome.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Quantos quadros o Noturno funde na tele (até 8) | Tom, preto e brilho do Noturno; Noturno na 1× |
+| Força do clareamento da pessoa em contraluz | Medição na captura (`BacklightMeter`) |
+| Raio do desfoque e leve escurecimento do fundo no Retrato (foto e prévia) | Recorte/máscara do Retrato, "Fundo escuro", profundidade |
+| Mensagens de processamento e aviso de concluído | Captura, disparo, anel da miniatura |
+| Tela da foto abre só no resultado (comparação vira botão) | Ajustes de intensidade/desfoque e IA na tela da foto |
+| Ícone de cena + ajuste leve em planta/comida (FOTO) | Vídeo, Pro, Retrato, Noturno não recebem ajuste de cena |
+| Objeto tocado sem nome | Contorno e caixa do toque |
+
+- **Testes:**
+  - `SceneDetectTest` (+5) e `BacklitLiftTest` (+1, mais o caso 0,38 × 0,80).
+  - A suíte completa e o lint passaram aqui.
+  - Nada foi testado no aparelho. O ganho real de ruído na tele depende de a fusão aceitar os 8 quadros (o Diagnóstico mostra "N de 8").
+
+---
+
 # 0.35.0 — Bug dos controles ao vivo + zoom tátil, obturador, nível iPhone, AE/AF e volume (Claude; branch `claude/nova-interface`; APK de teste build117 entregue)
 - **[Baixar ZIP com app-release.apk — build117 (1117)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39452275118/artifacts/12278424518)**. Artefato 12278424518, 158376911 bytes; fonte b38122f (gatilho 1c81fdb, restaurado em 2401d8b); sem release.
   - **Detector no build117:** APROVADO, ncnn × ONNX com dif. 0,018 (era 0,91 no 116), classe mais forte = pessoa, sha256 do ONNX conferido.

@@ -26,6 +26,13 @@ class CompareView(context: Context) : View(context) {
     /** Posição do divisor (0 = tudo aprimorado, 1 = tudo original). */
     var split = 0.5f
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
+    /**
+     * Comparação lado a lado (linha arrastável). Desligada, a tela mostra só o resultado final (pedido do dono,
+     * 20/10: "quero ver o resultado final, não antes e depois"); tocar e segurar ainda mostra o original.
+     */
+    var compareMode = false
+        set(v) { field = v; invalidate() }
+    private val shownSplit get() = if (compareMode || holdSplit != null) split else 0f
 
     /** Recorte em resolução cheia, sem e com IA, em coordenadas normalizadas da foto. */
     class Patch(val before: Bitmap, val after: Bitmap, val rect: RectF)
@@ -113,6 +120,7 @@ class CompareView(context: Context) : View(context) {
         canvas.save()
         canvas.clipRect(fit)
         canvas.drawBitmap(e, null, dst, paint)
+        val split = shownSplit
         val x = (fit.left + fit.width() * split)
         val p = patch
         if (p != null) {
@@ -137,7 +145,7 @@ class CompareView(context: Context) : View(context) {
             // Segurando: só o original, sem linha (o rótulo diz o que está na tela).
             val t = "$left · solte para ver a $right"
             canvas.drawText(t, fit.left + dp(10f), fit.top + dp(22f), label)
-        } else {
+        } else if (compareMode) {
             canvas.drawLine(x, fit.top, x, fit.bottom, line)
             canvas.drawCircle(x, fit.centerY(), dp(9f), knob)
             canvas.drawText(left, fit.left + dp(10f), fit.top + dp(22f), label)
@@ -166,7 +174,7 @@ class CompareView(context: Context) : View(context) {
         taps.onTouchEvent(event)
         scaler.onTouchEvent(event)
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { gesture = false; moveSplit(event) }
+            MotionEvent.ACTION_DOWN -> { gesture = false; if (compareMode) moveSplit(event) }
             MotionEvent.ACTION_POINTER_DOWN -> { gesture = true; focus(event) }
             MotionEvent.ACTION_MOVE -> {
                 if (event.pointerCount >= 2) {
@@ -175,7 +183,7 @@ class CompareView(context: Context) : View(context) {
                     focus(event)
                     panX += lastFocusX - fx; panY += lastFocusY - fy
                     clampPan(); invalidate()
-                } else if (!gesture && holdSplit == null) moveSplit(event)
+                } else if (!gesture && holdSplit == null && compareMode) moveSplit(event)
             }
             MotionEvent.ACTION_POINTER_UP -> focus(event, skip = event.actionIndex)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
