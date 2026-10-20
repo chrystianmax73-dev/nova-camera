@@ -329,8 +329,8 @@ class NovaCamera(
             }
             // Segunda parada em 1 min: sem o efeito da prévia nesta sessão (evita reabrir em ciclo).
             recentStalls.size >= 2 && portraitEffect != null -> {
-                portraitPreviewFailed = true
-                listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
+                val wait = pauseEffect()
+                listener.onMessage("Tom e Temperatura ao vivo pausados por ${wait / 1000} s para a câmera não travar; voltam sozinhos")
             }
             else -> listener.onMessage("A imagem parou; reabrindo a câmera")
         }
@@ -608,6 +608,7 @@ class NovaCamera(
         if (freshSessionRequested) {
             freshSessionRequested = false
             liveBlurBlocked = false
+            effectBreaker.reset()
             cinematicFailed=false; commonVideoChosen=false; cinematicTap=null
             referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
@@ -2638,7 +2639,17 @@ class NovaCamera(
     private var portraitAnalyzer: PortraitMaskAnalyzer? = null
     private val portraitExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-portrait-mask") }
     /** GL falhou nesta execução do app: sem nova tentativa até reabrir (a foto final não muda). */
-    private var portraitPreviewFailed = false
+    /** Falha do efeito da prévia: pausa com volta automática, não "desligado até reabrir o app" ([EffectBreaker]). */
+    private val effectBreaker = com.novacamera.s24.core.EffectBreaker()
+    private val portraitPreviewFailed get() = effectBreaker.blocked(SystemClock.uptimeMillis())
+    /** Ao fim da pausa, reabre a sessão para o efeito (e os controles ao vivo) voltarem sem sair do app. */
+    private fun pauseEffect(): Long {
+        val wait = effectBreaker.fail(SystemClock.uptimeMillis())
+        handler.postDelayed({
+            if (!released && !paused && !isRecording && !capturing && !effectBreaker.blocked(SystemClock.uptimeMillis()) && portraitEffect == null) bind()
+        }, wait + 50L)
+        return wait
+    }
 
     /** Tom e temperatura ao vivo: a prévia muda na hora e a foto usa a mesma conta. */
     fun setStyle(style: com.novacamera.s24.core.imaging.PhotoStyle) {
@@ -2704,9 +2715,10 @@ class NovaCamera(
             (mode in listOf(CaptureMode.RETRATO, CaptureMode.NOITE, CaptureMode.FOOD) && processingKind(support) != null))
         if (!portrait && !styleMode) return null
         val effect = PortraitPreviewEffect.create { e ->
-            Log.w(TAG, "prévia do retrato desligada", e)
-            portraitPreviewFailed = true
-            listener.onMessage("Prévia do desfoque indisponível neste aparelho; a foto continua com o desfoque")
+            Log.w(TAG, "prévia do retrato pausada", e)
+            val wait = pauseEffect()
+            if (wait > com.novacamera.s24.core.EffectBreaker.FIRST_MS)
+                listener.onMessage("Controles ao vivo pausados por ${wait / 1000} s; a foto continua com o desfoque e o tom")
             listener.onPortraitPreview(null)
             handler.post { bind() }
         }.apply {
