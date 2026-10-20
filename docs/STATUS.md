@@ -1,3 +1,11 @@
+# 0.31.6 — Etapas F (documento) e G (foco no escuro) (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **F — Documento (Ferramentas › "DOC"):** prévia na maior resolução disponível (sem nova captura) → `core/DocQuad.kt` acha a folha (maior região clara pelo limiar de Otsu, sem as que encostam em 3+ bordas; cantos pelos extremos de x+y e x−y; recusa se a área do quadrilátero não bate com a da região ou < 15% da cena) → perspectiva endireitada (`Matrix.setPolyToPoly`, até 3000 px) → `Pictures/Nova Camera/Documentos`. "Compartilhar PDF": uma página A4 pelo `PdfDocument` do Android em `Documents/Nova Camera`. Limites: folha clara sobre fundo mais escuro, inteira na tela; resolução da prévia (não da foto).
+- **G — Foco no escuro (`FocusPolicy.DARK_WAIT_MS`):** fora do Noturno, com ISO ≥ 1600 ou ≥ 33 ms, o refoco antes da rajada (ponto tocado ou centro) espera até 1,5 s em vez de 0,7 s. Noturno inalterado (1,2 s).
+- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro. Processamento, tom, QR, texto, vídeo intocados.
+- Testes: `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
+
+---
+
 # 0.31.5 — Etapa E: ler texto (offline) + build resistente à falha do Google Drive (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Ler texto:** Ferramentas › "TEXTO" congela a prévia (snapshot de 1600 px, sem nova captura) e lê com PP-OCRv5 mobile (detector DB + reconhecedor CTC, 18.383 caracteres, inclui acentos do português) no ncnn que o app já tem (Vulkan quando disponível; uma IA nativa por vez). Resultado: texto selecionável (copiar um trecho com o gesto normal), "Copiar tudo", "Compartilhar"; links, e-mails e telefones viram toque (o Android pergunta o app). Sem internet.
 - **Pós-processamento sem OpenCV (`core/OcrPost.kt`):** componentes conectados do mapa do detector (limiar 0,3; caixa ≥ 0,6), expansão pela altura da linha (×1,95, como o exemplo oficial do ncnn), CTC (vazio, repetição, espaço), ordem de leitura por linha. Texto inclinado/vertical fica fora nesta versão. Linhas com confiança média < 0,5 descartadas.

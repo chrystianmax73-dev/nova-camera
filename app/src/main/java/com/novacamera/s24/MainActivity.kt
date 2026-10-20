@@ -612,6 +612,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("RAW", rawChip)
             add("Ler texto", TextChip(this@MainActivity).apply { text = "TEXTO"; contentDescription = "Ler o texto da imagem"
                 setOnClickListener { hideTools(); readText() } })
+            add("Documento", TextChip(this@MainActivity).apply { text = "DOC"; contentDescription = "Digitalizar documento"
+                setOnClickListener { hideTools(); scanDocument() } })
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
         }
@@ -845,6 +847,92 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             }
         }
         if (!accepted) { readingText = false; reader.close() }
+    }
+
+    // ------------------------------------------------------------------ documento
+
+    /**
+     * Folha na prévia (maior resolução da prévia, sem nova captura): acha os 4 cantos ([com.novacamera.s24.core.DocQuad]),
+     * endireita a perspectiva e salva em Pictures/Nova Camera/Documentos; PDF de uma página para compartilhar.
+     */
+    private fun scanDocument() {
+        if (readingText) return
+        val reader = com.novacamera.s24.camera.PreviewFrameReader(preview, 4096f)
+        readingText = true
+        hint.show("Procurando a folha…", 3000)
+        val accepted = reader.read { bmp, _ ->
+            reader.close()
+            if (bmp == null) { readingText = false; hint.show("Não foi possível ler a prévia", 1600); return@read }
+            contourExecutor.execute {
+                val result = runCatching { flattenDocument(bmp) }
+                    .onFailure { com.novacamera.s24.core.CrashLog.record(this, "documento (não fatal)", it) }.getOrNull()
+                bmp.recycle()
+                runOnUiThread {
+                    readingText = false
+                    if (isDestroyed) { result?.second?.recycle(); return@runOnUiThread }
+                    if (result == null) hint.show("Folha não encontrada: papel claro sobre fundo mais escuro, inteiro na tela", 2600)
+                    else showDocument(result.first, result.second)
+                }
+            }
+        }
+        if (!accepted) { readingText = false; reader.close() }
+    }
+
+    /** (uri na galeria, imagem endireitada) ou null se não houver folha. */
+    private fun flattenDocument(src: android.graphics.Bitmap): Pair<android.net.Uri, android.graphics.Bitmap>? {
+        val s = minOf(1f, 400f / maxOf(src.width, src.height))
+        val sw = (src.width * s).toInt().coerceAtLeast(16); val sh = (src.height * s).toInt().coerceAtLeast(16)
+        val small = android.graphics.Bitmap.createScaledBitmap(src, sw, sh, true)
+        val px = IntArray(sw * sh).also { small.getPixels(it, 0, sw, 0, 0, sw, sh) }
+        if (small !== src) small.recycle()
+        val luma = IntArray(px.size) { val p = px[it]; ((p shr 16 and 255) * 77 + (p shr 8 and 255) * 150 + (p and 255) * 29) shr 8 }
+        val q = com.novacamera.s24.core.DocQuad.find(luma, sw, sh) ?: return null
+        val pts = FloatArray(8) { q.pts[it] / s }
+        val k = minOf(1f, 3000f / maxOf(q.widthPx / s, q.heightPx / s))
+        val ow = (q.widthPx / s * k).toInt().coerceAtLeast(64); val oh = (q.heightPx / s * k).toInt().coerceAtLeast(64)
+        val m = android.graphics.Matrix()
+        if (!m.setPolyToPoly(pts, 0, floatArrayOf(0f, 0f, ow.toFloat(), 0f, ow.toFloat(), oh.toFloat(), 0f, oh.toFloat()), 0, 4)) return null
+        val out = android.graphics.Bitmap.createBitmap(ow, oh, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(out).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(src, m, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)) }
+        val name = "NOVA_DOC_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date()) + ".jpg"
+        val uri = com.novacamera.s24.processing.MediaWriter.insert(contentResolver, out, name, "Pictures/Nova Camera/Documentos", emptyMap(), "Nova · documento")
+        return uri to out
+    }
+
+    private fun showDocument(uri: android.net.Uri, page: android.graphics.Bitmap) {
+        val view = android.widget.ImageView(this).apply { setImageBitmap(page); adjustViewBounds = true; setPadding(dpi(12), dpi(12), dpi(12), dpi(12)) }
+        android.app.AlertDialog.Builder(this).setTitle("Documento salvo na galeria").setView(view)
+            .setPositiveButton("Compartilhar PDF") { _, _ -> sharePdf(page) }
+            .setNeutralButton("Abrir") { _, _ -> runCatching { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } }
+            .setNegativeButton("Fechar", null)
+            .setOnDismissListener { view.setImageDrawable(null); page.recycle() }
+            .show()
+    }
+
+    /** PDF de uma página (PdfDocument do Android) em Documents/Nova Camera, compartilhado pelo seletor do sistema. */
+    private fun sharePdf(page: android.graphics.Bitmap) {
+        val uri = runCatching {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "NOVA_DOC_" + System.currentTimeMillis() + ".pdf")
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Nova Camera")
+            }
+            val u = contentResolver.insert(android.provider.MediaStore.Files.getContentUri("external"), values) ?: error("sem destino")
+            val doc = android.graphics.pdf.PdfDocument()
+            // A4 em pontos, folha ajustada mantendo a proporção.
+            val pw = 595; val ph = 842
+            val p = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(pw, ph, 1).create())
+            val sc = minOf(pw.toFloat() / page.width, ph.toFloat() / page.height)
+            val dw = page.width * sc; val dh = page.height * sc
+            p.canvas.drawBitmap(page, null, android.graphics.RectF((pw - dw) / 2, (ph - dh) / 2, (pw + dw) / 2, (ph + dh) / 2),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+            doc.finishPage(p)
+            contentResolver.openOutputStream(u)?.use { doc.writeTo(it) } ?: error("sem saída")
+            doc.close()
+            u
+        }.getOrNull() ?: return hint.show("Não foi possível gerar o PDF", 1600)
+        runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
+            .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), null)) }
     }
 
     /** Texto selecionável (copiar um trecho com o gesto normal do Android); links/telefones/e-mails viram toque. */

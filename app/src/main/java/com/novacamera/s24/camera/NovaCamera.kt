@@ -2490,7 +2490,8 @@ class NovaCamera(
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
             manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE,
             continuousSettled = (mode == CaptureMode.FOTO || mode == CaptureMode.RETRATO) && caps?.manualFocus == true &&
-                lastAfState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED && (latestStats?.focusDiopters ?: 0f) > 0f)
+                lastAfState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED && (latestStats?.focusDiopters ?: 0f) > 0f,
+            dark = latestStats?.let { it.iso >= 1600 || it.exposureNs >= 33_000_000L } == true)
         trace.mark("AF antes: estado=${lastAfState} foco=${latestStats?.focusDiopters} D ponto=${userPointActive}/${afAtPoint}")
         trace.mark("AF solicitado ${plan.target} limite${plan.waitMs}ms")
         focusBeforeBurst(cam, plan,trace) { trace.mark("AF liberou aquisição"); zoomOut() }
