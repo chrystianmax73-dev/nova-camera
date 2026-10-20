@@ -351,6 +351,18 @@ object ProcessingQueue {
         return plan.ev
     }
 
+    /** Retrato: mede o assunto (recorte) contra o fundo e, se for contraluz, grava os mapas. Devolve o EV ou null. */
+    private fun subjectBacklit(base: Bitmap, matte: com.novacamera.s24.core.imaging.Plane, session: Session): Float? {
+        val (px, w, h) = Engine.preview(base, 384)
+        val m = FloatArray(w * h) { k -> matte.sample((k % w + 0.5f) * matte.w / w - 0.5f, (k / w + 0.5f) * matte.h / h - 0.5f) }
+        val lum = FloatArray(w * h) { val c = px[it]; (((c shr 16) and 255) * 0.299f + ((c shr 8) and 255) * 0.587f + (c and 255) * 0.114f) / 255f }
+        val plan = com.novacamera.s24.core.imaging.BacklitLift.planSubject(lum, m) ?: return null
+        val maps = com.novacamera.s24.core.imaging.BacklitLift.maps(lum, m, w, h)
+        if (!com.novacamera.s24.core.imaging.BacklitLift.accept(px, w, h, maps, plan)) return null
+        session.saveBacklit(maps, plan)
+        return plan.ev
+    }
+
     /** IA de detalhe vale para esta sessão? ([com.novacamera.s24.core.DetailPolicy]) */
     private fun detailWanted(context: Context, session: Session, bmp: Bitmap): Boolean {
         if (!DetailRestorer.available(context)) return false
@@ -599,6 +611,10 @@ object ProcessingQueue {
                 if (subject != null) {
                     session.saveMatte(subject.matte)
                     subject.blur?.let { runCatching { session.saveBlurMap(it) } }
+                    // Assunto em contraluz (garrafa contra parede clara): sobe dentro do recorte, o fundo fica.
+                    runCatching { timed(job, "contraluz do assunto") { subjectBacklit(base, subject.matte, session) } }
+                        .onFailure { Log.w(TAG, "contraluz do assunto falhou", it) }.getOrNull()
+                        ?.let { ev -> note = listOf(note, "assunto em contraluz clareado (${"%.1f".format(Locale.US, ev)} EV)").filter { it.isNotEmpty() }.joinToString(" · ") }
                     session.hasPerson = true
                     // Soma à nota da captura (ex.: alta resolução), em vez de apagá-la.
                     subject.note?.let { note = if (note.isBlank()) it else "$note · $it" }

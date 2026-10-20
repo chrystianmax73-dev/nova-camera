@@ -138,11 +138,12 @@ object Portrait {
     fun nearRadius(s: Float) = 4f + 8f * s
 
     /**
-     * Destaque do assunto: o fundo desfocado desce um pouco (0,92 nos valores sRGB ≈ −0,27 EV em luz linear),
-     * como a vinheta de uma lente aberta. Na garrafa da Samsung o fundo fica abaixo do assunto; no Nova
-     * empatava. Foto e prévia iguais.
+     * Destaque do assunto: o fundo desfocado desce um pouco (0,96 nos valores sRGB ≈ −0,13 EV em luz linear),
+     * como a vinheta de uma lente aberta. Foto e prévia iguais. Na 0.36 era 0,92; o dono achou o Retrato escuro
+     * (garrafa contra parede clara), e o destaque passou a vir de clarear o assunto em contraluz
+     * ([BacklitLift.planSubject]), não de escurecer o fundo.
      */
-    const val BACKGROUND_KEEP = 0.92f
+    const val BACKGROUND_KEEP = 0.96f
 
     /** Fundo escuro: multiplica o fundo por [keep] (0,42 ≈ −1,25 EV), em transição suave pela máscara. */
     const val DARK_BACKGROUND_KEEP = 0.42f

@@ -48,10 +48,41 @@ object BacklitLift {
             if (face != null && face[k] >= 0.5f) fv[fn++] = lum[k]
         }
         if (pn < 0.08f * n || pn > 0.85f * n || bn < 0.10f * n) return null
+        // Sem rosto não há pessoa (pano verde de 20/10 na 0.35: o segmentador leu pano + sofá como "roupa/corpo",
+        // 59% da cena, e clareou 0,6 EV uma foto sem ninguém). Rosto pequeno (pessoa longe) basta: 0,3%.
+        if (fn < MIN_FACE * n) return null
         val subject = if (fn >= 0.01f * n) median(fv, fn) else median(pv, pn)
         val bg = median(bv, bn)
         if (subject >= ENTER_MAX || bg - subject < 0.18f || (subject >= 0.40f && bg - subject < WIDE_GAP)) return null
         val target = min(TARGET, BG_RATIO * bg)
+        val ev = (ln(target / max(subject, 0.02f)) / ln(2f)).coerceIn(0f, MAX_EV)
+        if (ev < MIN_EV) return null
+        return Plan(ev, subject + 0.45f * (bg - subject), subject + 0.8f * (bg - subject), subject, bg)
+    }
+
+    /** Fração mínima de rosto na cena para tratar a máscara como pessoa. */
+    const val MIN_FACE = 0.003f
+    /**
+     * Objeto do Retrato: o assunto inteiro (mediana do recorte) sobe até [OBJECT_RATIO] do fundo. Calibrado na
+     * garrafa de 20/10: assunto 0,15 × parede 0,62 → +0,65 EV, rótulo azul 0,09 → 0,14 (Samsung: 0,149).
+     */
+    const val OBJECT_RATIO = 0.38f
+
+    /**
+     * Retrato de objeto em contraluz (garrafa contra parede clara, 20/10: rótulo 0,09 × parede 0,68; a Samsung
+     * deixa o rótulo em 0,15). [matte]: recorte do Retrato (1 = assunto). Só tons abaixo da faixa [Plan.lo]
+     * sobem (os brancos do rótulo ficam), no máximo [MAX_EV]; o assunto continua bem mais escuro que o fundo
+     * (pesquisa: semântica tipo Smart HDR, ganho guiado pela máscara, sem halo).
+     */
+    fun planSubject(lum: FloatArray, matte: FloatArray): Plan? {
+        val n = lum.size
+        val sv = FloatArray(n); var sn = 0
+        val bv = FloatArray(n); var bn = 0
+        for (k in 0 until n) if (matte[k] >= 0.5f) sv[sn++] = lum[k] else if (matte[k] < 0.2f) bv[bn++] = lum[k]
+        if (sn < 0.02f * n || sn > 0.85f * n || bn < 0.10f * n) return null
+        val subject = median(sv, sn); val bg = median(bv, bn)
+        if (subject >= 0.35f || bg - subject < 0.25f) return null
+        val target = min(TARGET, OBJECT_RATIO * bg)
         val ev = (ln(target / max(subject, 0.02f)) / ln(2f)).coerceIn(0f, MAX_EV)
         if (ev < MIN_EV) return null
         return Plan(ev, subject + 0.45f * (bg - subject), subject + 0.8f * (bg - subject), subject, bg)

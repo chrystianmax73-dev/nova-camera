@@ -1,3 +1,7 @@
+# Etapa 0.36.1 (Claude)
+- **Contraluz:** o clareamento de pessoa (`BacklitLift.plan`) exige rosto ≥ 0,3%. O segmentador multiclasse marca pano e sofá como roupa; não tirar essa trava.
+- **Retrato:** objeto em contraluz via `planSubject` + `saveBacklit`, que o `render()` já aplica antes do desfoque. `OBJECT_RATIO` 0,38 foi calibrado em uma garrafa; calibrar com mais fotos reais.
+
 # Etapa 0.36.0 (Claude) — retorno dos testes da 0.35 (detalhes em `docs/STATUS.md`)
 - **Pesquisa usada:**
   - **Pouca luz:** Night Sight com quadros longos e mais quadros, preto no p0,5–1%, saturação 1,1–1,3 com o ganho.

@@ -1,3 +1,30 @@
+# 0.36.1 — Retrato: objeto em contraluz clareado; contraluz só com rosto (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Retorno do dono (20/10).** As duas fotos enviadas foram feitas na **0.35.0** (EXIF), ou seja, sem as mudanças da 0.36.
+  - **Pano verde:** gravou "pessoa em contraluz clareada (0,6 EV)" sem nenhuma pessoa.
+  - **Retrato da garrafa:** ainda escuro; o dono pediu clareamento natural.
+- **Bug do pano (`BacklitLift.plan`):**
+  - **Causa:** o segmentador multiclasse leu pano e sofá como "roupa/corpo" (59% da cena, rosto 0%), e o clareamento rodou.
+  - **Correção:** agora exige rosto em pelo menos 0,3% da cena (pessoa longe ainda entra).
+  - As manchas escuras no pano podem ser do próprio pano. Pedir o original (Originais) ao dono para comparar.
+- **Retrato de objeto em contraluz** (`BacklitLift.planSubject`, mesma conta e mapas do contraluz da pessoa, guiados pelo recorte do Retrato):
+  - **Gatilho:** assunto abaixo de 0,35, fundo pelo menos 0,25 mais claro.
+  - **Alvo:** 0,38 × o fundo, no máximo 1 EV em sRGB.
+  - **Proteção:** só tons abaixo da faixa sobem; brancos e amarelos do rótulo ficam. A pesquisa usada é a semântica tipo Smart HDR/HDR+, com ganho guiado por máscara e o assunto continuando abaixo do fundo.
+  - **Medido na garrafa do dono:** Nova 0.35, rótulo 0,09 × parede 0,68; Samsung, rótulo 0,149.
+  - **Simulado:** rótulo 0,09 → 0,142, sem halo e com o fundo intacto.
+- **Fundo do Retrato:** de ×0,92 (0.36.0) para ×0,96. O destaque passa a vir de subir o assunto, não de escurecer o fundo; o dono achou o Retrato escuro.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Contraluz da pessoa exige rosto | Força do contraluz da 0.36.0 |
+| Objeto do Retrato em contraluz clareado | Recorte, profundidade, desfoque (+33% da 0.36.0) |
+| Escurecimento do fundo do Retrato mais leve | Tudo o mais da 0.36.0 |
+
+- **Testes:** `BacklitLiftTest` (+2: sem rosto não é pessoa; objeto do Retrato). A suíte completa e o lint passaram aqui.
+
+---
+
 # 0.36.0 — Tele com pouca luz, Retrato com mais destaque, selfie contraluz, mensagens e ícone de cena (Claude; branch `claude/nova-interface`; APK de teste build118 entregue)
 - **[Baixar ZIP com app-release.apk — build118 (1118)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39462378228/artifacts/12283428444)**. Artefato 12283428444, 162818524 bytes; fonte 983f5c5 (gatilho 4db851a, restaurado em ecdafb6); sem release. Detector APROVADO; profundidade, detalhe, mão, cena e detector no APK.
 - **Pedido do dono (20/10, testes da 0.35):** "pode fazer tudo que você disse", com pesquisa antes e resultados excelentes. Mensagens: "Em processamento" breve, sem ficar fixa, e "Concluído" ao terminar. Tela da foto: só o resultado final. Objeto tocado sem o nome; cena ao lado do zoom, como Samsung/iPhone.

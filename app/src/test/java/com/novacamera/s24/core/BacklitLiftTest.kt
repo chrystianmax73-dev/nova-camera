@@ -43,6 +43,20 @@ class BacklitLiftTest {
         assertNull(BacklitLift.plan(lum(scene(110, 150)), person, face))
     }
 
+    @Test fun semRostoNaoEPessoa() {
+        // Pano verde no sofá: o segmentador marcou "roupa/corpo" sem rosto; não pode clarear.
+        assertNull(BacklitLift.plan(lum(scene(75, 170)), person, FloatArray(w * h)))
+        assertNull(BacklitLift.plan(lum(scene(75, 170)), person, null))
+    }
+
+    @Test fun objetoDoRetratoEmContraluz() {
+        // Garrafa (recorte do Retrato) 0,15 contra parede 0,62: sobe ~0,65 EV; objeto já claro não muda.
+        val plan = BacklitLift.planSubject(lum(scene(38, 158)), person)
+        assertNotNull(plan)
+        assertEquals(0.65f, plan!!.ev, 0.06f)
+        assertNull(BacklitLift.planSubject(lum(scene(110, 170)), person))
+    }
+
     @Test fun limitesDoAumento() {
         val plan = BacklitLift.plan(lum(scene(30, 200)), person, face)!!
         assertEquals(BacklitLift.MAX_EV, plan.ev, 1e-4f)
