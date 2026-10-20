@@ -81,9 +81,11 @@ object NativeTombstone {
                 when {
                     f == 2 && t == 2 -> threadName = th.str(th.bytes())
                     f == 4 && t == 2 -> {
-                        val fr = th.sub(th.bytes()); var fn = ""; var file = ""
-                        while (fr.more()) { val (ff, ft) = fr.next(); when { ff == 4 && ft == 2 -> fn = fr.str(fr.bytes()); ff == 6 && ft == 2 -> file = fr.str(fr.bytes()); else -> fr.skip(ft) } }
-                        if (frames.size < maxFrames) frames += listOf(fn.ifBlank { "?" }.take(120), file.substringAfterLast('/')).filter { it.isNotBlank() }.joinToString(" · ")
+                        val fr = th.sub(th.bytes()); var fn = ""; var file = ""; var relPc = -1L
+                        while (fr.more()) { val (ff, ft) = fr.next(); when { ff == 1 && ft == 0 -> relPc = fr.varint(); ff == 4 && ft == 2 -> fn = fr.str(fr.bytes()); ff == 6 && ft == 2 -> file = fr.str(fr.bytes()); else -> fr.skip(ft) } }
+                        // Sem símbolo, o deslocamento (rel_pc) permite achar a função com a .so da mesma versão.
+                        val name = fn.ifBlank { if (relPc >= 0) "? +0x${relPc.toString(16)}" else "?" }
+                        if (frames.size < maxFrames) frames += listOf(name.take(120), file.substringAfterLast('/')).filter { it.isNotBlank() }.joinToString(" · ")
                     }
                     else -> th.skip(t)
                 }

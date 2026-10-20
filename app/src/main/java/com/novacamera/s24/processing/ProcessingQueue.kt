@@ -324,7 +324,8 @@ object ProcessingQueue {
     private fun detailWanted(context: Context, session: Session, bmp: Bitmap): Boolean {
         if (!DetailRestorer.available(context)) return false
         val m = session.meta
-        val lens = com.novacamera.s24.core.DetailPolicy.lensZoom(m.getProperty("nai.focal")?.toFloatOrNull(),
+        // 1º a lente identificada na captura (focal do JPEG × lentes do aparelho); 2º focal × sensor, se houver.
+        val lens = m.getProperty("lensZoom")?.toFloatOrNull() ?: com.novacamera.s24.core.DetailPolicy.lensZoom(m.getProperty("nai.focal")?.toFloatOrNull(),
             m.getProperty("nai.sensorW")?.toFloatOrNull(), m.getProperty("nai.sensorH")?.toFloatOrNull())
         val kindOk = session.kind == JobKind.AUTO || session.kind == JobKind.PHOTO || session.kind == JobKind.ZOOM || session.kind == JobKind.HDR
         return com.novacamera.s24.core.DetailPolicy.eligible(kindOk, session.zoom, m.getProperty("srFactor", "1").toFloatOrNull() ?: 1f,
@@ -402,6 +403,8 @@ object ProcessingQueue {
         val frame0 = orderedFrames[0]
         session.exif = MediaWriter.exifOf(frame0.jpeg) + job.geo
         frame0.optics?.let{session.meta.setProperty("capture.optics",it.report())}
+        // Lente física identificada pela focal real do JPEG (o aparelho não informa o sensor da tele): IA de detalhe.
+        frame0.optics?.opticalZoom?.takeIf { !frame0.optics.conflict }?.let { session.meta.setProperty("lensZoom", it.toString()) }
         job.frames.mapIndexedNotNull { i,f->f.optics?.let{"quadro${i+1}: ${it.report()}"} }.takeIf{it.isNotEmpty()}
             ?.let{session.meta.setProperty("capture.optics.frames",it.joinToString(" | "))}
         var originalUri: Uri? = null

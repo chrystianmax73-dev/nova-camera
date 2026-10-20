@@ -52,11 +52,13 @@ object TextReader {
         if (!available(context)) return false
         val a = context.assets
         dict = a.open("$DIR/dict.txt").bufferedReader(Charsets.UTF_8).readLines()
-        handle = nativeLoad(a, "$DIR/${FILES[0]}", "$DIR/${FILES[1]}", "$DIR/${FILES[2]}", "$DIR/${FILES[3]}", true)
+        // CPU, não Vulkan: o app fechou (SIGABRT na libnovadenoise, thread do leitor, 19/10) e a leitura é sob
+        // demanda (~0,5 s a mais na CPU). Tira da GPU o que não precisa dela e não disputa com NAFNet/profundidade.
+        handle = NativeGate.run("texto: carga") { nativeLoad(a, "$DIR/${FILES[0]}", "$DIR/${FILES[1]}", "$DIR/${FILES[2]}", "$DIR/${FILES[3]}", false) }
         return handle != 0L
     }
 
-    @Synchronized fun release() { if (handle != 0L) { nativeRelease(handle); handle = 0L } }
+    @Synchronized fun release() { if (handle != 0L) { val h = handle; handle = 0L; NativeGate.run("texto: liberação") { nativeRelease(h) } } }
     @Synchronized fun releaseIfIdle(nowMs: Long) { if (handle != 0L && nowMs - lastUsed >= IDLE_MS) release() }
 
     /** Lê as linhas de [photo] (orientada como na tela). Lista vazia se não houver texto ou modelo. */
