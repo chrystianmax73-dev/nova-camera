@@ -2,7 +2,7 @@ name: Nova Camera - APK assinado
 on:
   workflow_dispatch:
   push:
-    branches: [codex/native-camera-resolution]
+    branches: [codex/native-camera-resolution, claude/nova-interface]
 concurrency:
   group: nova-signed-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -236,7 +236,7 @@ jobs:
           retention-days: 30
       - name: Publicar prévia no repositório privado
         # Esta branch entrega APK para validação, sem criar releases automaticamente.
-        if: github.event_name != 'push' || github.ref_name != 'codex/video-estabilidade-0-20'
+        if: github.event_name != 'push' || (github.ref_name != 'codex/video-estabilidade-0-20' && github.ref_name != 'claude/nova-interface')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
