@@ -400,21 +400,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             // Cópia reduzida (≤ 320 px) e assíncrona; antes, preview.bitmap copiava a prévia inteira na
             // thread da interface ~1,5×/s só para medir 64 px.
             backlightBusy = true
+            // Rosto mais forte da prévia (frações do visor): a contraluz passa a medir o rosto contra o fundo.
+            val face = camera.facesInView().maxByOrNull { (it.right - it.left) * (it.bottom - it.top) }?.let { f ->
+                val pw = preview.width.toFloat().coerceAtLeast(1f); val ph = preview.height.toFloat().coerceAtLeast(1f)
+                floatArrayOf(f.left / pw, f.top / ph, f.right / pw, f.bottom / ph).takeIf { (it[2] - it[0]) * (it[3] - it[1]) >= 0.004f }
+            }
             val started = backlightReader.read { bmp, _ ->
                 if (bmp == null) { backlightBusy = false; return@read }
-                measureBacklight(bmp)
+                measureBacklight(bmp, face)
             }
             if (!started) backlightBusy = false
         }
 
-        private fun measureBacklight(bmp: android.graphics.Bitmap) {
+        private fun measureBacklight(bmp: android.graphics.Bitmap, face: FloatArray?) {
             io.execute {
                 val reading = runCatching {
                     val w = 64; val h = (64 * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
                     val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
                     val px = IntArray(w * h).also { small.getPixels(it, 0, w, 0, 0, w, h) }
                     if (small !== bmp) small.recycle()
-                    com.novacamera.s24.core.BacklightMeter.measure(px, w, h)
+                    com.novacamera.s24.core.BacklightMeter.measure(px, w, h, face)
                 }.getOrNull()
                 bmp.recycle()
                 handler.post {

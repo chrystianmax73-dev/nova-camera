@@ -551,10 +551,11 @@ object ProcessingQueue {
                         note = listOf(note, "sombra do assunto clareada (${"%.0f".format(Locale.US, maps.coverage * 100)}% da cena)").filter { it.isNotEmpty() }.joinToString(" · ")
                     }
                 } }.onFailure { Log.w(TAG, "atenção ao assunto falhou", it) }
-            // Selfie em contraluz: a pessoa clareia, o fundo fica ([BacklitLift]); provado na versão reduzida.
-            if (job.front && (job.kind == JobKind.PHOTO || job.kind == JobKind.HDR || job.kind == JobKind.AUTO))
+            // Pessoa em contraluz (frontal e traseira, pedido do dono 20/10): a pessoa clareia, o fundo fica
+            // ([BacklitLift]); provado na versão reduzida. Sem pessoa grande o bastante, nada muda.
+            if (job.kind == JobKind.PHOTO || job.kind == JobKind.HDR || job.kind == JobKind.AUTO)
                 runCatching { timed(job, "contraluz") { backlit(context, base, session)?.let { ev ->
-                    note = listOf(note, "rosto em contraluz clareado (${"%.1f".format(Locale.US, ev)} EV)").filter { it.isNotEmpty() }.joinToString(" · ")
+                    note = listOf(note, "pessoa em contraluz clareada (${"%.1f".format(Locale.US, ev)} EV)").filter { it.isNotEmpty() }.joinToString(" · ")
                 } } }.onFailure { Log.w(TAG, "contraluz falhou", it) }
             // Redução de ruído por IA em segundo plano, depois que a foto já está na galeria ([AiAutoPolicy]:
             // Noturno, Retrato, zoom e pouca luz; Alta resolução incluída, em faixas). A base sai com mais
