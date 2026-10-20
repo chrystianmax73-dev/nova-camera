@@ -1138,7 +1138,7 @@ class NovaCamera(
         zoomCurve = ZoomCurve(photo = !mode.isVideo)
         zoomCurve.jumpTo(zoomOnLens)
         zoomGate.reset()
-        cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
+        cam.cameraControl.setZoomRatio(cameraZoom(lightZoom(zoomOnLens)))
         listener.onZoom(equivalent(zoomOnLens))
         watchInitialZoom(cam)
         physicalLabels = LensCatalog.physicalLabels(cam.cameraInfo,referenceEquivalentMm)
@@ -1350,7 +1350,7 @@ class NovaCamera(
                 if (camera !== cam) { state.removeObserver(this); return }
                 if (value.type != androidx.camera.core.CameraState.Type.OPEN) return
                 state.removeObserver(this)
-                val wanted = cameraZoom(zoomOnLens)
+                val wanted = cameraZoom(lightZoom(zoomOnLens))
                 cam.cameraControl.setZoomRatio(wanted).addListener({
                     if (camera !== cam) return@addListener
                     val actual = cam.cameraInfo.zoomState.value?.zoomRatio ?: return@addListener
@@ -1436,10 +1436,33 @@ class NovaCamera(
         }
     }
 
+    private val teleLight = com.novacamera.s24.core.VideoTeleLight.State()
+    private var teleLightAnnounced = false
+
+    /** Zoom (na lente atual) a pedir à câmera: no vídeo escuro, 4,9–6× fica em 4,9× na lente 3× ([VideoTeleLight]). */
+    private fun lightZoom(onLens: Float): Float {
+        if (!mode.isVideo || isFront || currentLens?.physicalCameraId != null) return onLens
+        val intrinsic = currentLens?.intrinsic ?: 1f
+        return com.novacamera.s24.core.VideoTeleLight.zoom(onLens * intrinsic, teleLight.holding) / intrinsic
+    }
+
+    private fun onTeleLightChanged(iso: Int, exp: Long) {
+        if (released) return
+        com.novacamera.s24.core.VideoLog.add(activity, (if (teleLight.holding) "Tele com pouca luz: 5× pela lente 3× (4,9×)" else "Luz suficiente: 5× volta à tele") +
+            " · ISO $iso · ${exp / 1_000_000} ms · zoom ${"%.2f".format(Locale.US, equivalent(zoomOnLens))}×")
+        val eq = equivalent(zoomOnLens)
+        if (teleLight.holding && !teleLightAnnounced && eq >= com.novacamera.s24.core.VideoTeleLight.HOLD && eq < com.novacamera.s24.core.VideoTeleLight.UNTIL) {
+            teleLightAnnounced = true
+            listener.onMessage("Pouca luz: o 5× usa a lente 3×, que recebe o dobro de luz")
+        }
+        // Gravando, a troca espera o próximo zoom do usuário (sem salto de enquadramento no meio da cena).
+        if (!isRecording && eq >= com.novacamera.s24.core.VideoTeleLight.HOLD && eq < com.novacamera.s24.core.VideoTeleLight.UNTIL) sendZoom(zoomOnLens)
+    }
+
     private fun sendZoom(value: Float) {
         val cam = camera ?: return zoomGate.reset()
         synchronized(telemetry) { telemetry.command(value, SystemClock.uptimeMillis()) }
-        val future = cam.cameraControl.setZoomRatio(cameraZoom(value))
+        val future = cam.cameraControl.setZoomRatio(cameraZoom(lightZoom(value)))
         val generation = zoomGate.generation
         val sequence = zoomGate.sequence
         future.addListener({
@@ -1960,6 +1983,12 @@ class NovaCamera(
             if (heldFocusDiopters == null) lastAfState = result.get(CaptureResult.CONTROL_AF_STATE)
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
+            // Vídeo na tele com pouca luz ([com.novacamera.s24.core.VideoTeleLight]): mede na 3× ou na 5× ativas.
+            if (mode.isVideo && !isFront && currentLens?.physicalCameraId == null) {
+                val active = lenses.firstOrNull { it.physicalCameraId == physical }?.intrinsic
+                if (active != null && active >= 2.5f && teleLight.update(iso, exp, caps?.isoRange?.upper ?: 3200, active >= 4.5f))
+                    handler.post { onTeleLightChanged(iso, exp) }
+            } else if (teleLight.holding) teleLight.reset()
             if (nightPinned && telePinMode && !capturing) {
                 val route = currentLens?.routeKey
                 if (route != null && nightFocus.failed(SystemClock.uptimeMillis(), result.get(CaptureResult.CONTROL_AF_STATE)))

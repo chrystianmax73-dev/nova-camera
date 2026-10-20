@@ -1,3 +1,35 @@
+# 0.36.2 — Vídeo no 5× com pouca luz usa a lente 3× (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (20/10):** filmando, ao dar zoom para 5× e 10× a imagem fica preta, mesmo com luz; a 3× fica normal. A qualidade das fotos deve continuar exatamente como está.
+- **Diagnóstico 0.36.1:**
+  - Prévia 1× a ISO 1468, 1/30 s: ambiente escuro para a câmera.
+  - A 5× (f/3,4) seriam +2 EV, ou seja, ISO ~5900 contra o teto de 3200.
+  - A 60 fps a exposição ainda fica limitada a 1/60 s.
+  - MP4 saiu a 24 fps (o FPS automático já agiu).
+  - Registro de zoom: a Samsung troca 3×↔5× em ~5,0× (6→7 em 4,995×; 7→6 em 4,817×).
+- **Pesquisa:**
+  - iPhone e S24 Ultra usam a lente mais clara com recorte quando a tele está escura (Notebookcheck, Android Authority; sem documento oficial).
+  - A 5× nativa recolhe mais fótons no mesmo enquadramento, mas só ganha com ganho digital + denoise temporal no GPU.
+  - Esse caminho exige efeito de GL no vídeo, incompatível com o HDR (HLG) que o dono usa. Fica como proposta, não feito.
+  - 60 → 30 fps dá +1 EV; 30 → 24, +0,32 EV.
+- **Feito** (`core/VideoTeleLight.kt`):
+  - **Gatilho:** no vídeo (traseira, câmera lógica), quando a lente ativa está no teto. Na 3×, quando a 5× pediria ≥ 90% do ISO máximo com exposição ≥ 1/40 s; na 5×, quando ela já está nesse ponto.
+  - **Efeito:** a faixa 4,9–6× fica em 4,9× na lente 3×. É o dobro de luz. São ~2190 px de largura (Full HD ok) e 2% de enquadramento a menos que 5×.
+  - **Histerese:** solta a ≤ 55% do teto.
+  - **Gravando:** a troca espera o próximo zoom do usuário, sem salto no meio da cena.
+  - **Registro e aviso:** o diagnóstico de vídeo grava cada troca, e um aviso aparece uma vez.
+- **Limite honesto:**
+  - 10× continua na tele 5×. Pela 3× seriam ~1090 px, pior que a tele escura.
+  - Entre 4,9× e 6× a imagem fica parada em 4,9× (zona morta) e pula ao passar de 6×.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Zoom pedido no vídeo entre 4,9× e 6× com pouca luz | Fotos (todos os modos), vídeo com luz boa, HDR/HLG, FPS automático, estabilização |
+
+- **Testes:** `VideoTeleLightTest` (+4). A suíte completa e o lint passaram aqui. Nada foi testado no aparelho.
+
+---
+
 # 0.36.1 — Retrato: objeto em contraluz clareado; contraluz só com rosto (Claude; branch `claude/nova-interface`; APK de teste build119 entregue)
 - **[Baixar ZIP com app-release.apk — build119 (1119)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39487649489/artifacts/12294842293)**. Artefato 12294842293, 162818906 bytes; fonte 0833f0b (gatilho 1f9fac9, restaurado em efdb79c); sem release. Profundidade, detalhe, mão, cena e detector no APK; o detector só entra se for aprovado.
 - **Retorno do dono (20/10).** As duas fotos enviadas foram feitas na **0.35.0** (EXIF), ou seja, sem as mudanças da 0.36.

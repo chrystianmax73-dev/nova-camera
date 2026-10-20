@@ -1,3 +1,11 @@
+# Etapa 0.36.2 (Claude) — vídeo tele no escuro
+- **Feito:** `VideoTeleLight` segura 4,9× na 3× com pouca luz (via `lightZoom` em `sendZoom`, no bind e em `watchInitialZoom`).
+- **Proposta pendente, a decidir com o dono — "Vídeo noturno":**
+  - Ganho digital +1–2 EV, curva de sombras e denoise temporal recursivo no GPU (kmax 0,6 luma / 0,8 croma, máscara de movimento 4×4, histórico 16F).
+  - Exige desligar HDR/HLG nessa situação.
+  - Resolveria o 10× e o 5× sem perder a tele.
+- **A medir:** `CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE` e `TONEMAP_AVAILABLE_TONE_MAP_MODES` por lente.
+
 # Etapa 0.36.1 (Claude)
 - **Contraluz:** o clareamento de pessoa (`BacklitLift.plan`) exige rosto ≥ 0,3%. O segmentador multiclasse marca pano e sofá como roupa; não tirar essa trava.
 - **Retrato:** objeto em contraluz via `planSubject` + `saveBacklit`, que o `render()` já aplica antes do desfoque. `OBJECT_RATIO` 0,38 foi calibrado em uma garrafa; calibrar com mais fotos reais.
