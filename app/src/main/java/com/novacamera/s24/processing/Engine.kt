@@ -627,18 +627,32 @@ object Engine {
         val map = ToneMap(plan.base, plan.params, region?.fullW ?: bmp.width, region?.fullH ?: bmp.height, plan.mid)
         val ox = region?.x ?: 0; val oy = region?.y ?: 0
         if(!food) {
-            // Faixa curta reutilizável: menos buffers e preparação geométrica repetida.
-            // Mesmas coordenadas/pixels; cancelamento a cada64 linhas, sem JNI tonal.
+            // Faixas de 64 linhas: leitura e gravação em série (o Bitmap não é tocado por duas threads), conta
+            // tonal em paralelo ([Parallel], respeita calor/economia). Cada pixel depende só dele e da
+            // coordenada: resultado idêntico ao de um núcleo (teste pixel a pixel). 49 MP: ~3,5 s por passada
+            // em um núcleo (diagnóstico 19/10), e o acabamento faz até três passadas (tom, pouca luz, perfil).
             val rows=64
-            val buffer=IntArray(bmp.width*min(rows,bmp.height))
-            for(y0 in 0 until bmp.height step rows) {
+            val group=max(1,Parallel.workers)*2
+            val bands=ArrayList<IntArray>(group)
+            var y0=0
+            while(y0<bmp.height) {
                 if(cancel.cancelled)throw CancelledException()
-                val h=min(rows,bmp.height-y0)
-                val band=if(buffer.size==bmp.width*h)buffer else IntArray(bmp.width*h)
-                bmp.getPixels(band,0,bmp.width,0,y0,bmp.width,h)
-                map.applyTile(band,bmp.width,h,ox,oy+y0,s,plan.imaging?.protection ?: 0f)
-                bmp.setPixels(band,0,bmp.width,0,y0,bmp.width,h)
-                progress((y0+h).toFloat()/bmp.height)
+                val starts=(0 until group).map{y0+it*rows}.filter{it<bmp.height}
+                starts.forEachIndexed{k,start->
+                    val h=min(rows,bmp.height-start)
+                    if(bands.size<=k)bands+=IntArray(bmp.width*rows)
+                    bmp.getPixels(bands[k],0,bmp.width,0,start,bmp.width,h)
+                }
+                Parallel.map(starts.size){k->
+                    val start=starts[k]
+                    map.applyTile(bands[k],bmp.width,min(rows,bmp.height-start),ox,oy+start,s,plan.imaging?.protection ?: 0f)
+                }
+                starts.forEachIndexed{k,start->
+                    val h=min(rows,bmp.height-start)
+                    bmp.setPixels(bands[k],0,bmp.width,0,start,bmp.width,h)
+                    progress((start+h).toFloat()/bmp.height)
+                }
+                y0=starts.last()+rows
             }
             return
         }

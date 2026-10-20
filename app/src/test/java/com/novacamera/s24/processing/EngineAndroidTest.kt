@@ -167,6 +167,31 @@ class EngineAndroidTest {
     }
 
     @Test
+    fun tomEmParaleloIgualAUmNucleo() {
+        val px = IntArray(1000 * 700) { i -> val x = i % 1000; val y = i / 1000
+            val v = (20 + (x * 7 + y * 13) % 200).coerceIn(0, 255); (255 shl 24) or (v shl 16) or ((v * 3 / 4) shl 8) or (v / 2) }
+        val src = Bitmap.createBitmap(px, 1000, 700, Bitmap.Config.ARGB_8888)
+        val plan = Engine.planTone(src, com.novacamera.s24.core.imaging.ToneIntent.NIGHT)
+        val before = Parallel.workers
+        try {
+            fun run(workers: Int): Pair<IntArray, Long> {
+                Parallel.workers = workers
+                val bmp = src.copy(Bitmap.Config.ARGB_8888, true)
+                val t = System.nanoTime()
+                Engine.toneInPlace(bmp, plan, 1f, false, CancelToken()) {}
+                Engine.lowLightPlan(bmp, 3200)?.let { Engine.toneInPlace(bmp, it, 1f, false, CancelToken()) {} }
+                Engine.profileInPlace(bmp, CancelToken())
+                val ms = (System.nanoTime() - t) / 1_000_000
+                return IntArray(1000 * 700).also { bmp.getPixels(it, 0, 1000, 0, 0, 1000, 700) } to ms
+            }
+            val (one, t1) = run(1); val (four, t4) = run(4)
+            println("TOM_PARALELO 1 núcleo=${t1}ms · 4 núcleos=${t4}ms (Robolectric/JVM, não S24)")
+            assertTrue("o acabamento não pode mudar com o número de núcleos", one.contentEquals(four))
+            assertTrue("o tom precisa mudar a foto (teste não pode ser vazio)", !one.contentEquals(px))
+        } finally { Parallel.workers = before }
+    }
+
+    @Test
     fun cancelStopsProcessing() {
         val sources = listOf(CapturedFrame(scene(0, 0, 1, 8f), 0, null), CapturedFrame(scene(2, 2, 2, 8f), 0, null)).map(::JpegSource)
         val token = CancelToken().apply { cancelled = true }

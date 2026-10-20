@@ -1,3 +1,11 @@
+# 0.31.1 — Etapa B: acabamento em vários núcleos, foto idêntica (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Medido (diagnóstico 19/10, 49 MP):** tom 3,5–4,1 s, pouca luz 3,5–4,0 s, perfil 3,8–4,3 s — três passadas de `Engine.toneInPlace` em um núcleo, 12–14 s do acabamento.
+- **Mudança:** `toneInPlace` lê e grava faixas de 64 linhas em série (o Bitmap nunca é tocado por duas threads) e faz a conta tonal das faixas em paralelo (`Parallel`, que já respeita calor e economia). Cada pixel depende só dele e da coordenada: resultado idêntico. Esperado ~3× mais rápido com 4 núcleos (não medido no S24).
+- **Prova:** `EngineAndroidTest.tomEmParaleloIgualAUmNucleo` (tom + pouca luz + perfil, 1 × 4 núcleos, pixel a pixel) e o teste de regressão de faixas existente. JVM: 547 → 391 ms.
+- **Mudou × não mexi:** só a distribuição do trabalho do tom. Fórmula, planos e imagem intocados; detalhe e crominância continuam como estavam.
+
+---
+
 # 0.31.0 — Etapa A: estabilidade (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Plano autorizado pelo dono (20/10):** A estabilidade → B acabamento mais rápido → B2 rajada rápida e disparo sem atraso → C atenção ao assunto → D QR sempre ligado na FOTO → E texto → F documento → G foco no escuro → itens extras (lente suja, DNG fundido, palma, localização opcional, galeria própria) e IA de detalhe com trava de consistência. Uma etapa por APK.
 - **Fotos de Alta resolução perdidas (#3/#4 do diagnóstico de 19/10):** a checagem de memória antes da super-resolução usava o heap Java (cheio de temporários do alinhamento: ~320 MB "necessários" × ~310 livres) para uma saída que é Bitmap em memória nativa → desistia e salvava só o original. Agora usa a RAM livre do aparelho com folga 2× e sem pressão de memória (`core/OutputMemory.kt`).
