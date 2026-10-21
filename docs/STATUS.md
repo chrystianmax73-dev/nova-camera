@@ -1,4 +1,5 @@
-# 0.36.3 — Diagnóstico do vídeo noturno: o que o S24 permite (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.3 — Diagnóstico do vídeo noturno: o que o S24 permite (Claude; branch `claude/nova-interface`; APK de teste build121 entregue)
+- **[Baixar ZIP com app-release.apk — build121 (1121)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39519382496/artifacts/12311002734)**. Artefato 12311002734, 162822382 bytes; sha256:8696b5fa9da4e33519c72658a63ecb659770832c171c090ec07749a095a2e7a5; fonte 9b83838 (gatilho 6f4995e, restaurado em c3da167); expira 2026-11-20; sem release.
 - **Pedido do dono (21/10):** pesquisar como implementar o vídeo noturno, agora com o vídeo dele em mãos.
 - **Vídeo do dono** (0.36.1, HLG 10 bits, 23,9 fps), brilho medido quadro a quadro:
   - 1× ≈ 0,35; 3× no escuro ≈ 0,13.
