@@ -1,3 +1,21 @@
+# 0.36.4 — Menos calor: leitores da prévia desaceleram parados; contraluz pausa na gravação (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (21/10):** o celular esquenta sempre que usa o app, principalmente gravando vídeo. Investigar, apontar e remover o que pesa.
+- **Medido nos Diagnósticos de 20/10:**
+  - **FOTO parada:** 43% de um núcleo. Texto 9,4%, prévia/GPU 7,3%, QR 3,2%, mais cena (0.36) e palma. Cada leitor copia a prévia; o QR, a 1920 px a cada 0,4 s.
+  - **Vídeo gravando:** 45%, quase tudo do sistema (CameraX 10,5%, codificador 4,9%). O app em si pouco: a contraluz a cada 0,65 s.
+  - **Fotos de zoom:** a "Alta resolução na tele" (padrão ligada) monta 8 quadros em 48 MP. Mediana de 30 s a 4 núcleos, CPU ~200%: é a maior fonte de calor nas fotos.
+  - **Sessão:** bateria até 42,7 °C, 14,9%/h. No Diagnóstico de 21/10, estado severo (3) porque o celular estava carregando.
+- **Feito (sem mudar qualidade de foto ou vídeo):**
+  - QR, texto, cena e palma passam ao ritmo lento após 20 s sem toque, além de com calor/economia como antes. QR a cada 1 s, texto 3,5 s, cena 2 s, palma 0,7 s. Um toque volta ao normal.
+  - A contraluz automática não mede durante a gravação: fica no valor do início, sem cópias da prévia e sem brilho "bombeando".
+- **Não mexi (decisão do dono):**
+  - Alta resolução na tele (48 MP em 3×/5×).
+  - 60 fps, 4K e HDR do vídeo, que pesam no próprio hardware.
+  - Pedir ao dono para decidir.
+- **Testes:** suíte completa e lint aprovados aqui.
+
+---
+
 # 0.36.3 — Diagnóstico do vídeo noturno: o que o S24 permite (Claude; branch `claude/nova-interface`; APK de teste build121 entregue)
 - **[Baixar ZIP com app-release.apk — build121 (1121)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39519382496/artifacts/12311002734)**. Artefato 12311002734, 162822382 bytes; sha256:8696b5fa9da4e33519c72658a63ecb659770832c171c090ec07749a095a2e7a5; fonte 9b83838 (gatilho 6f4995e, restaurado em c3da167); expira 2026-11-20; sem release.
 - **Pedido do dono (21/10):** pesquisar como implementar o vídeo noturno, agora com o vídeo dele em mãos.

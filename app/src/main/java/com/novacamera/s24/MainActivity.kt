@@ -174,6 +174,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var countdown = 0
     private var evDragStart = 0
     private var lastInteraction = SystemClock.elapsedRealtime()
+
+    /**
+     * Leitores da prévia (QR, texto, cena, palma) em ritmo lento: com calor/economia, como antes, e também
+     * depois de [ANALYZER_IDLE_MS] sem toque (pedido do dono, 21/10: o celular esquenta com o app aberto).
+     * Medido na 0.35: com a FOTO parada, texto 9,4% + QR 3,2% de um núcleo, mais as cópias da prévia na GPU.
+     * Lento ainda responde: QR a cada 1 s, texto a cada 3,5 s, cena a cada 2 s, palma a cada 0,7 s.
+     */
+    private fun analyzersSlow() = lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true ||
+        SystemClock.elapsedRealtime() - lastInteraction > ANALYZER_IDLE_MS
     private var recordingPowerActive = false
     private var recordingDimmed = false
     private var idlePaused = false
@@ -394,6 +403,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private val backlightTick = object : Runnable {
         override fun run() {
             handler.postDelayed(this, BACKLIGHT_EVERY_MS)
+            // Gravando: a compensação fica onde estava (sem cópias da prévia disputando a GPU com o codificador
+            // e sem o brilho "bombear" no meio do vídeo).
+            if (::camera.isInitialized && camera.isRecording) return
             if (!::camera.isInitialized || !settings.autoBacklight || camera.mode.isPro || backlightBusy) {
                 if (::camera.isInitialized && backlightEv > 0f && (!settings.autoBacklight || camera.mode.isPro))
                     backlightEv = camera.setBacklightEv(0f)
@@ -959,7 +971,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         if (!settings.qrScan) { stopQr(); return }
         val scanner = qrScanner ?: com.novacamera.s24.camera.QrScanner(preview,
             enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto && !isFinishing },
-            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            slow = { analyzersSlow() },
             onFound = { content ->
                 qrFound = content
                 codePill.setContent(com.novacamera.s24.ui.LineIcon.Kind.valueOf(content.iconName()), content.headline(), content.action(),
@@ -1024,7 +1036,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val watcher = sceneWatcher ?: com.novacamera.s24.camera.SceneWatcher(this, preview,
             enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.isRecording &&
                 !camera.capturingPhoto && !isFinishing },
-            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            slow = { analyzersSlow() },
             faceArea = {
                 val area = (preview.width * preview.height).toFloat()
                 if (area <= 0f || !::camera.isInitialized) 0f
@@ -1074,7 +1086,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val palm = palmShutter ?: com.novacamera.s24.camera.PalmShutter(this, preview,
             enabled = { ::camera.isInitialized && camera.ready && (camera.mode == CaptureMode.FOTO || camera.mode == CaptureMode.RETRATO) &&
                 !camera.capturingPhoto && countdown == 0 && !isFinishing && ::shutter.isInitialized && !shutter.busy },
-            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            slow = { analyzersSlow() },
             onPalm = {
                 if (countdown == 0 && ::camera.isInitialized && camera.ready && cameraState?.support?.canCapture == true) {
                     Haptics.confirm(shutter)
@@ -1219,7 +1231,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         val spot = textSpotter ?: com.novacamera.s24.camera.TextSpotter(this, preview,
             enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto &&
                 !isFinishing && !readingText && textLens.visibility != View.VISIBLE && qrFound == null },
-            slow = { lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true },
+            slow = { analyzersSlow() },
             onChange = { has -> if (has) showTextButton() else hideTextButton() },
         ).also { textSpotter = it }
         spot.start()
@@ -2512,6 +2524,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private const val AID_EVERY_MS = 500L
         /** Contraluz automática: medição a cada 0,65 s (passos de até 1/3 EV, sem saltos). */
         private const val BACKLIGHT_EVERY_MS = 650L
+        private const val ANALYZER_IDLE_MS = 20_000L
         private const val AID_SLOW_MS = 1_000L
         private const val AID_SLOW_COPY_MS = 30L
         /** Largura da análise (pontos); o estouro e o realce são desenhados nessa grade. */
