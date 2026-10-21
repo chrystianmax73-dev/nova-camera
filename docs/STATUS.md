@@ -1,3 +1,26 @@
+# 0.36.5 — Tela da câmera a 60 Hz; pesquisa de calor registrada (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (21/10, à noite):** "veja e pesquise, para que fique otimizado".
+- **Pesquisa (ADPF, ncnn/OpenMP, CameraX/PreviewView, taxa da tela).** Poucos números públicos de energia; teste Samsung 60 × 30 fps: +25% de bateria.
+- **Já estava certo no código:**
+  - ncnn com `set_kmp_blocktime(0)`, sem threads girando após o trabalho.
+  - Prévia em `PERFORMANCE` (SurfaceView).
+  - Tela a 60 Hz e escurecida sem toque durante a gravação.
+  - Brilho nunca forçado ao máximo.
+  - Sem laços de redesenho contínuos.
+- **Feito:**
+  - A tela da câmera também fica em 60 Hz fora da gravação. A prévia tem 30 quadros e o painel de 120 Hz redesenhava à toa.
+  - Galeria e telas de foto não mudam.
+- **Proposto, aguardando o dono (muda qualidade ou comportamento):**
+  1. Alta resolução na tele (48 MP, ~30 s a 200% CPU) só com temperatura normal, ou só quando pedir.
+  2. Prévia do vídeo a 30 fps até apertar gravar, quando o vídeo for de 60. Custa um pequeno atraso no início da gravação.
+  3. Padrão de vídeo 30 fps.
+  4. Leitores da prévia num único fluxo de análise pequeno, no lugar das cópias da tela (refatoração média).
+  5. Dicas de eficiência de energia (PerformanceHint) nas threads de processamento; sem efeito garantido na Samsung.
+- **Mudou × não mexi:** mudou a taxa de atualização da tela da câmera. Não mexi em foto, vídeo ou processamento.
+- **Testes:** suíte completa e lint aprovados aqui.
+
+---
+
 # 0.36.4 — Menos calor: leitores da prévia desaceleram parados; contraluz pausa na gravação (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
 - **Pedido do dono (21/10):** o celular esquenta sempre que usa o app, principalmente gravando vídeo. Investigar, apontar e remover o que pesa.
 - **Medido nos Diagnósticos de 20/10:**

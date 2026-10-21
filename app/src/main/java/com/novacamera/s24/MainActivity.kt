@@ -331,6 +331,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         com.novacamera.s24.core.ThreadCpu.boundary()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         lastInteraction = SystemClock.elapsedRealtime()
+        window.attributes = window.attributes.also { it.preferredRefreshRate = com.novacamera.s24.core.RecordingPowerPolicy.PREVIEW_REFRESH_HZ }
         handler.removeCallbacks(idleCheck)
         handler.postDelayed(idleCheck, IDLE_CHECK_MS)
         handler.removeCallbacks(energyTick)
@@ -2353,7 +2354,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun setRecordingPower(recording: Boolean) {
         recordingPowerActive = recording
         window.attributes = window.attributes.also {
-            it.preferredRefreshRate = if (recording) com.novacamera.s24.core.RecordingPowerPolicy.REFRESH_HZ else 0f
+            it.preferredRefreshRate = if (recording) com.novacamera.s24.core.RecordingPowerPolicy.REFRESH_HZ
+                else com.novacamera.s24.core.RecordingPowerPolicy.PREVIEW_REFRESH_HZ
             if (!recording) it.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         }
         if (!recording) recordingDimmed = false
