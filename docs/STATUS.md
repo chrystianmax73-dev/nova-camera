@@ -21,7 +21,8 @@
 
 ---
 
-# 0.36.4 — Menos calor: leitores da prévia desaceleram parados; contraluz pausa na gravação (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.4 — Menos calor: leitores da prévia desaceleram parados; contraluz pausa na gravação (Claude; branch `claude/nova-interface`; APK de teste build122 entregue)
+- **[Baixar ZIP com app-release.apk — build122 (1122)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39533488808/artifacts/12316966793)**. Artefato 12316966793, 162822681 bytes; sha256:e0b818735f0319144a0a8b559ef4f3de898fdf31786a1b10c151089208a88b25; fonte 7989deb (gatilho 24a1049, restaurado em 37b6fcc); expira 2026-11-20; sem release.
 - **Pedido do dono (21/10):** o celular esquenta sempre que usa o app, principalmente gravando vídeo. Investigar, apontar e remover o que pesa.
 - **Medido nos Diagnósticos de 20/10:**
   - **FOTO parada:** 43% de um núcleo. Texto 9,4%, prévia/GPU 7,3%, QR 3,2%, mais cena (0.36) e palma. Cada leitor copia a prévia; o QR, a 1920 px a cada 0,4 s.
