@@ -1,4 +1,5 @@
-# 0.36.5 — Tela da câmera a 60 Hz; pesquisa de calor registrada (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+# 0.36.5 — Tela da câmera a 60 Hz; pesquisa de calor registrada (Claude; branch `claude/nova-interface`; APK de teste build123 entregue)
+- **[Baixar ZIP com app-release.apk — build123 (1123)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39534537026/artifacts/12316639339)**. Artefato 12316639339, 162822673 bytes; sha256:531b5b15c2228b9832f6f97916468a01a66711f5805c2bf2f4113a2a2fba38a8; fonte ed9e271 (gatilho b3c7936, restaurado em 04b118c); expira 2026-11-20; sem release.
 - **Pedido do dono (21/10, à noite):** "veja e pesquise, para que fique otimizado".
 - **Pesquisa (ADPF, ncnn/OpenMP, CameraX/PreviewView, taxa da tela).** Poucos números públicos de energia; teste Samsung 60 × 30 fps: +25% de bateria.
 - **Já estava certo no código:**
