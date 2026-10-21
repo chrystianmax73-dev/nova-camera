@@ -129,6 +129,22 @@ object Portrait {
      * desfocado com raio menor e maior; [distance] escolhe entre eles (desfoque gradual).
      * Onde α = 1 (pessoa) o pixel original é copiado sem alteração.
      */
+    /**
+     * Raio do desfoque do fundo (px por 1000 px do lado maior) para a intensidade [s] 0..1. Foto e prévia usam
+     * a mesma conta. 0.36 (garrafa × Samsung, 20/10: textura da parede ainda visível): +33% sobre 5 + 18·s,
+     * no padrão 0,6 ≈ 2,6% da largura, perto do f/1.4–f/2 a 50 mm da pesquisa (raio ≈ 2% da largura).
+     */
+    fun farRadius(s: Float) = 6f + 24f * s
+    fun nearRadius(s: Float) = 4f + 8f * s
+
+    /**
+     * Destaque do assunto: o fundo desfocado desce um pouco (0,96 nos valores sRGB ≈ −0,13 EV em luz linear),
+     * como a vinheta de uma lente aberta. Foto e prévia iguais. Na 0.36 era 0,92; o dono achou o Retrato escuro
+     * (garrafa contra parede clara), e o destaque passou a vir de clarear o assunto em contraluz
+     * ([BacklitLift.planSubject]), não de escurecer o fundo.
+     */
+    const val BACKGROUND_KEEP = 0.96f
+
     /** Fundo escuro: multiplica o fundo por [keep] (0,42 ≈ −1,25 EV), em transição suave pela máscara. */
     const val DARK_BACKGROUND_KEEP = 0.42f
 
@@ -176,8 +192,9 @@ object Portrait {
             val kSharp = if (depthMode) 1f - smoothRange(0.02f, 0.25f, t) else 0f
             // O desfoque apaga o ruído: sem devolver o grão, o fundo fica liso e a pessoa parece recortada.
             val grain = if (grainSigma > 0f) grainSigma * gaussHash(x0 + tx, y0 + ty) * (1f - a) * (1f - kSharp) else 0f
+            val keep = 1f - (1f - BACKGROUND_KEEP) * (1f - kSharp)
             fun mix(o: Int, n: Int, f: Int): Int {
-                val blurred = n + (f - n) * k + grain
+                val blurred = (n + (f - n) * k) * keep + grain
                 val bg = blurred + (o - blurred) * kSharp
                 return (o * a + bg * (1f - a) + 0.5f).toInt()
             }

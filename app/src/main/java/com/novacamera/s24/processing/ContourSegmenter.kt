@@ -30,14 +30,42 @@ object ContourSegmenter {
                 .build()).also { segmenter = it }
         val roi = InteractiveSegmenter.RegionOfInterest.create(NormalizedKeypoint.create(nx.coerceIn(0f, 1f), ny.coerceIn(0f, 1f)))
         return PersonSegmenter.withOwnedInput(frame, INPUT) { image ->
-            val masks = seg.segment(image, roi).confidenceMasks().get()
+            val masks = com.novacamera.s24.core.NativeGate.run("contorno ao toque") { seg.segment(image, roi) }.confidenceMasks().get()
             try {
                 // Uma máscara (assunto) ou duas (fundo, assunto): a última é sempre o assunto.
                 val m = masks.last()
                 val buf = ByteBufferExtractor.extract(m).order(ByteOrder.nativeOrder()).asFloatBuffer()
                 buf.rewind()
                 val data = FloatArray(m.width * m.height) { buf.get() }
-                ContourMask.edges(data, m.width, m.height, color)
+                ContourMask.edges(data, m.width, m.height, color)?.let { r ->
+                    ContourMask.Result(r.w, r.h, r.edge, r.coverage, ContourMask.focusBox(data, m.width, m.height, nx, ny))
+                }
+            } finally { masks.forEach { it.close() } }
+        }
+    }
+
+    /**
+     * Retrato de objeto: máscara (confiança 0..1) do objeto no ponto ([nx],[ny] em frações) da própria foto,
+     * na resolução do modelo. Null se o recorte for minúsculo ou tomar quase a foto (não é um objeto).
+     */
+    @Synchronized
+    fun mask(context: Context, frame: Bitmap, nx: Float, ny: Float): com.novacamera.s24.core.imaging.Plane? {
+        val seg = segmenter ?: InteractiveSegmenter.createFromOptions(context.applicationContext,
+            InteractiveSegmenter.InteractiveSegmenterOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
+                .setOutputConfidenceMasks(true)
+                .setOutputCategoryMask(false)
+                .build()).also { segmenter = it }
+        val roi = InteractiveSegmenter.RegionOfInterest.create(NormalizedKeypoint.create(nx.coerceIn(0f, 1f), ny.coerceIn(0f, 1f)))
+        return PersonSegmenter.withOwnedInput(frame, INPUT) { image ->
+            val masks = com.novacamera.s24.core.NativeGate.run("recorte do objeto") { seg.segment(image, roi) }.confidenceMasks().get()
+            try {
+                val m = masks.last()
+                val buf = ByteBufferExtractor.extract(m).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                buf.rewind()
+                val p = com.novacamera.s24.core.imaging.Plane(m.width, m.height, FloatArray(m.width * m.height) { buf.get().coerceIn(0f, 1f) })
+                val cov = p.data.count { it >= 0.5f }.toFloat() / p.data.size
+                p.takeIf { cov in 0.01f..0.7f }
             } finally { masks.forEach { it.close() } }
         }
     }

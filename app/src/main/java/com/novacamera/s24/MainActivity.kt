@@ -60,6 +60,7 @@ import com.novacamera.s24.processing.ProcessingQueue
 import com.novacamera.s24.settings.VideoQualityOption
 import com.novacamera.s24.ui.Haptics
 import com.novacamera.s24.ui.HintView
+import com.novacamera.s24.ui.LineIcon
 import com.novacamera.s24.ui.ModeGrid
 import com.novacamera.s24.ui.ModeStrip
 import com.novacamera.s24.ui.Nova
@@ -112,6 +113,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var resChip: TextChip
     private lateinit var rawChip: TextChip
     private lateinit var lensChip: TextView
+    /** Cena reconhecida (ícone perto do zoom, [com.novacamera.s24.core.SceneDetect]); toque desliga o ajuste. */
+    private lateinit var sceneChip: TextView
+    private var sceneWatcher: com.novacamera.s24.camera.SceneWatcher? = null
+    private var sceneOff = false
     private lateinit var modeGrid: ModeGrid
     private lateinit var toolsPanel: com.novacamera.s24.ui.ToolsPanel
     private lateinit var toolsButton: NovaIconView
@@ -126,6 +131,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private lateinit var tracking: com.novacamera.s24.camera.SubjectTrackingSession
     private var selectedTrackingEpoch = -1L
     private lateinit var lockChip: TextView
+    private lateinit var qrChip: TextView
+    /** Aviso do código no visor, acima dos controles (entra com animação; toque mostra o conteúdo). */
+    private lateinit var codePill: com.novacamera.s24.ui.CodePill
+    /** Botão T (texto na prévia) e a tela de leitura sobre a imagem congelada. */
+    private lateinit var textButton: TextView
+    private lateinit var textLens: com.novacamera.s24.ui.TextLensView
+    private lateinit var textBar: LinearLayout
+    private lateinit var textClose: android.widget.ImageView
+    private lateinit var textHint: TextView
+    private var textSpotter: com.novacamera.s24.camera.TextSpotter? = null
+    private val closeTextLens = object : androidx.activity.OnBackPressedCallback(false) { override fun handleOnBackPressed() { endTextLens() } }
+    private var qrScanner: com.novacamera.s24.camera.QrScanner? = null
+    private var palmShutter: com.novacamera.s24.camera.PalmShutter? = null
+    private var qrFound: com.novacamera.s24.core.QrContent? = null
+    @Volatile private var lastHeat: DeviceHeat? = null
     private lateinit var evChip: TextView
     private lateinit var heatChip: TextView
     private lateinit var procChip: TextView
@@ -154,6 +174,17 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private var countdown = 0
     private var evDragStart = 0
     private var lastInteraction = SystemClock.elapsedRealtime()
+
+    /**
+     * Leitores da prévia (QR, texto, cena, palma) em ritmo lento: com calor/economia, como antes, e também
+     * depois de [ANALYZER_IDLE_MS] sem toque (pedido do dono, 21/10: o celular esquenta com o app aberto).
+     * Medido na 0.35: com a FOTO parada, texto 9,4% + QR 3,2% de um núcleo, mais as cópias da prévia na GPU.
+     * Lento ainda responde: QR a cada 1 s, texto a cada 3,5 s, cena a cada 2 s, palma a cada 0,7 s.
+     */
+    private fun analyzersSlow() = lastHeat?.let { it.powerSave || it.thermalStatus >= ThermalPolicy.MODERATE } == true ||
+        SystemClock.elapsedRealtime() - lastInteraction > ANALYZER_IDLE_MS
+    private var recordingPowerActive = false
+    private var recordingDimmed = false
     private var idlePaused = false
     private var announcedMode: CaptureMode? = null
     private var settingsSignature = ""
@@ -183,6 +214,49 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             camera.startRecording()
     }
 
+    private val askLocation = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        if (r.values.any { it }) startGeo()
+        else { settings.geoTag = false; hint.show("Localização negada: as fotos ficam sem local (opção desligada)") }
+    }
+    private var geoAsked = false
+    private val geoListener = android.location.LocationListener { l -> onGeo(l) }
+
+    /** "Salvar local": última posição do próprio Android (fused/GPS/rede, sem internet do app) enquanto a câmera está aberta. */
+    private fun startGeo() {
+        com.novacamera.s24.core.GeoTag.enabled = settings.geoTag
+        if (!settings.geoTag) { stopGeo(); com.novacamera.s24.core.GeoTag.clear(); return }
+        val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) {
+            if (!geoAsked) { geoAsked = true; askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
+            return
+        }
+        val lm = getSystemService(android.location.LocationManager::class.java) ?: return
+        val providers = buildList {
+            if (android.os.Build.VERSION.SDK_INT >= 31 && lm.allProviders.contains(android.location.LocationManager.FUSED_PROVIDER))
+                add(android.location.LocationManager.FUSED_PROVIDER)
+            else {
+                if (fine) add(android.location.LocationManager.GPS_PROVIDER)
+                add(android.location.LocationManager.NETWORK_PROVIDER)
+            }
+        }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        if (providers.isEmpty()) { hint.show("Localização do aparelho desligada: fotos sem local"); return }
+        providers.forEach { p ->
+            runCatching { lm.getLastKnownLocation(p)?.let(::onGeo) }
+            runCatching { lm.requestLocationUpdates(p, 30_000L, 25f, geoListener, mainLooper) }
+        }
+    }
+
+    private fun stopGeo() {
+        runCatching { getSystemService(android.location.LocationManager::class.java)?.removeUpdates(geoListener) }
+    }
+
+    private fun onGeo(l: android.location.Location) {
+        val elapsed = l.elapsedRealtimeNanos / 1_000_000
+        com.novacamera.s24.core.GeoTag.update(com.novacamera.s24.core.GeoTag.Fix(l.latitude, l.longitude,
+            if (l.hasAltitude()) l.altitude else null, if (l.hasAccuracy()) l.accuracy else Float.MAX_VALUE, l.time, elapsed))
+    }
+
     private val orientationListener by lazy {
         object : OrientationEventListener(this) {
             override fun onOrientationChanged(degrees: Int) {
@@ -208,11 +282,13 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera = NovaCamera(this, preview, settings, this)
         tracking = com.novacamera.s24.camera.SubjectTrackingSession(preview,
             valid = { camera.ready && camera.subjectTracking && selectedTrackingEpoch == camera.trackingEpoch },
+            faces = { camera.facesInView() },
             onResult = { target ->
                 if (overlay.trackedSubject == null) overlay.hideFocusRing()
                 overlay.trackedSubject = target
                 val uncertain = target.phase == com.novacamera.s24.core.SubjectTracker.Phase.UNCERTAIN
-                trackingChip.text = if (uncertain) "ASSUNTO INCERTO  ✕" else "RASTREANDO · ${camera.trackingControls}  ✕"
+                trackingChip.text = if (uncertain) "ASSUNTO INCERTO  ✕" else if (target.reason == com.novacamera.s24.camera.SubjectTrackingSession.FACE)
+                    "ROSTO TRAVADO · ${camera.trackingControls}  ✕" else "RASTREANDO · ${camera.trackingControls}  ✕"
                 trackingChip.contentDescription = trackingChip.text.toString() + ". Toque para voltar ao automático"
                 trackingChip.visibility = View.VISIBLE
                 if (!uncertain && !camera.meterTrackedSubject(target.x, target.y, target.side))
@@ -255,6 +331,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         com.novacamera.s24.core.ThreadCpu.boundary()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         lastInteraction = SystemClock.elapsedRealtime()
+        window.attributes = window.attributes.also { it.preferredRefreshRate = com.novacamera.s24.core.RecordingPowerPolicy.PREVIEW_REFRESH_HZ }
         handler.removeCallbacks(idleCheck)
         handler.postDelayed(idleCheck, IDLE_CHECK_MS)
         handler.removeCallbacks(energyTick)
@@ -327,6 +404,9 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private val backlightTick = object : Runnable {
         override fun run() {
             handler.postDelayed(this, BACKLIGHT_EVERY_MS)
+            // Gravando: a compensação fica onde estava (sem cópias da prévia disputando a GPU com o codificador
+            // e sem o brilho "bombear" no meio do vídeo).
+            if (::camera.isInitialized && camera.isRecording) return
             if (!::camera.isInitialized || !settings.autoBacklight || camera.mode.isPro || backlightBusy) {
                 if (::camera.isInitialized && backlightEv > 0f && (!settings.autoBacklight || camera.mode.isPro))
                     backlightEv = camera.setBacklightEv(0f)
@@ -338,21 +418,26 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             // Cópia reduzida (≤ 320 px) e assíncrona; antes, preview.bitmap copiava a prévia inteira na
             // thread da interface ~1,5×/s só para medir 64 px.
             backlightBusy = true
+            // Rosto mais forte da prévia (frações do visor): a contraluz passa a medir o rosto contra o fundo.
+            val face = camera.facesInView().maxByOrNull { (it.right - it.left) * (it.bottom - it.top) }?.let { f ->
+                val pw = preview.width.toFloat().coerceAtLeast(1f); val ph = preview.height.toFloat().coerceAtLeast(1f)
+                floatArrayOf(f.left / pw, f.top / ph, f.right / pw, f.bottom / ph).takeIf { (it[2] - it[0]) * (it[3] - it[1]) >= 0.004f }
+            }
             val started = backlightReader.read { bmp, _ ->
                 if (bmp == null) { backlightBusy = false; return@read }
-                measureBacklight(bmp)
+                measureBacklight(bmp, face)
             }
             if (!started) backlightBusy = false
         }
 
-        private fun measureBacklight(bmp: android.graphics.Bitmap) {
+        private fun measureBacklight(bmp: android.graphics.Bitmap, face: FloatArray?) {
             io.execute {
                 val reading = runCatching {
                     val w = 64; val h = (64 * bmp.height / bmp.width.toFloat()).toInt().coerceAtLeast(1)
                     val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
                     val px = IntArray(w * h).also { small.getPixels(it, 0, w, 0, 0, w, h) }
                     if (small !== bmp) small.recycle()
-                    com.novacamera.s24.core.BacklightMeter.measure(px, w, h)
+                    com.novacamera.s24.core.BacklightMeter.measure(px, w, h, face)
                 }.getOrNull()
                 bmp.recycle()
                 handler.post {
@@ -368,10 +453,23 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private val sensors by lazy { getSystemService(android.hardware.SensorManager::class.java) }
     private var levelSmoothed: Float? = null
+    private var levelOk = false
     private val levelListener = object : android.hardware.SensorEventListener {
         override fun onSensorChanged(e: android.hardware.SensorEvent) {
             val a = com.novacamera.s24.core.imaging.ViewfinderAid.horizon(e.values[0], e.values[1], e.values[2])
-            if (a == null) { levelSmoothed = null; overlay.horizon = null; return }
+            // Aparelho deitado (foto de cima, a até ~20° da horizontal): mira dupla em vez da linha.
+            val g = kotlin.math.sqrt(e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2]).coerceAtLeast(0.1f)
+            if (kotlin.math.abs(e.values[2]) / g > 0.94f) {
+                val k = dp(400f)
+                val o = android.graphics.PointF(-e.values[0] / g * k, e.values[1] / g * k)
+                overlay.horizon = null; overlay.topDown = o
+                val ok = kotlin.math.hypot(o.x, o.y) < dp(4f)
+                if (ok && !levelOk) Haptics.threshold(overlay)
+                levelOk = ok; levelSmoothed = null
+                return
+            }
+            overlay.topDown = null
+            if (a == null) { levelSmoothed = null; overlay.horizon = null; levelOk = false; return }
             // Suaviza sem atravessar ±180° pelo caminho longo.
             val prev = levelSmoothed
             val next = if (prev == null) a else {
@@ -380,6 +478,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             }
             levelSmoothed = next
             overlay.horizon = next
+            // Tique firme ao nivelar (uma vez por entrada no nível, como no iPhone).
+            val ok = com.novacamera.s24.core.imaging.ViewfinderAid.levelError(next) < 1f
+            if (ok && !levelOk) Haptics.threshold(overlay)
+            levelOk = ok
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
     }
@@ -394,7 +496,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     private fun stopLevel() {
         sensors?.unregisterListener(levelListener)
         levelSmoothed = null
-        overlay.horizon = null
+        overlay.horizon = null; overlay.topDown = null; levelOk = false
     }
 
     /** Amostra de energia/temperatura por atividade (diagnóstico de sessões longas). */
@@ -444,6 +546,11 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.keepOriginals = settings.keepOriginals
         ProcessingQueue.aiDenoise = settings.aiDenoise
         ProcessingQueue.contrastProfile = settings.contrastProfile
+        startQr()
+        startTextSpot()
+        startPalm()
+        startScene()
+        startGeo()
         val sig = signature()
         val settingsChanged = sig != settingsSignature
         settingsSignature = sig
@@ -457,10 +564,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     /** Sair do app finaliza a gravação de forma íntegra (home, bloqueio, chamada). */
     override fun onStop() {
+        stopQr()
+        textSpotter?.stop(); endTextLens()
+        palmShutter?.stop()
+        sceneWatcher?.stop()
+        stopGeo()
         quickVideoWarmup.cancel()
         cinemaWarmup.cancel()
         contourGeneration++
-        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release() }
+        contourExecutor.execute { com.novacamera.s24.processing.ContourSegmenter.release(); com.novacamera.s24.processing.TextReader.release(); com.novacamera.s24.processing.ObjectDetector.release() }
         newSessionOnResume = true
         audioStartPending = false
         runQuickAction(quickRecording.interrupt())
@@ -507,6 +619,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         ProcessingQueue.removeListener(onProcessing)
         com.novacamera.s24.processing.VideoFinishJob.removeListener(onVideoFinish)
         tracking.close()
+        qrScanner?.close(); qrScanner = null
+        palmShutter?.close(); palmShutter = null
+        sceneWatcher?.close(); sceneWatcher = null
+        textSpotter?.close(); textSpotter = null
         camera.release()
         sound.release()
         io.shutdown()
@@ -599,6 +715,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             add("Iluminação", lightChip)
             add("Nova Live", liveChip)
             add("RAW", rawChip)
+            add("Ler texto", TextChip(this@MainActivity).apply { text = "TEXTO"; contentDescription = "Ler o texto da imagem"
+                setOnClickListener { hideTools(); readText() } })
+            add("Documento", TextChip(this@MainActivity).apply { text = "DOC"; contentDescription = "Digitalizar documento"
+                setOnClickListener { hideTools(); scanDocument() } })
             add("Mais modos", icon(Icon.MODES) { hideTools(); showGrid() })
             add("Ajustes", settingsButton)
         }
@@ -624,6 +744,10 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             setOnClickListener { unlockAll() }
         }
         evChip = statusChip(Nova.TEXT).apply { setOnClickListener { unlockAll() } }
+        qrChip = statusChip(Nova.ACCENT_SOFT).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { qrFound?.let { showQr(it) } }
+        }
         heatChip = statusChip(Nova.WARN).apply { isClickable = false }
         procChip = statusChip(Nova.ACCENT_SOFT).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -639,7 +763,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 else showVideoComparison()
             }
         }
-        listOf(trackingChip, lockChip, evChip, heatChip, procChip, videoFinishChip).forEach {
+        listOf(qrChip, trackingChip, lockChip, evChip, heatChip, procChip, videoFinishChip).forEach {
             it.visibility = View.GONE
             statusRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dpi(4); marginEnd = dpi(4) })
         }
@@ -682,7 +806,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         zoomBar = ZoomBar(this).apply {
             listener = object : ZoomBar.Listener {
                 override fun onStop(value: Float) = camera.zoomTo(value)
-                override fun onDrag(value: Float) = camera.zoomFollow(value)
+                override fun onDrag(value: Float) { userZoomUntil = android.os.SystemClock.uptimeMillis() + 400; camera.zoomFollow(value) }
                 override fun onDragEnd() {}
             }
         }
@@ -697,7 +821,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
         val controls = FrameLayout(this)
         thumbnail = ThumbnailView(this).apply {
-            setOnClickListener { openLastMedia() }
+            // Toque: galeria do próprio app (selo da IA em cada foto); de lá abre o visualizador do aparelho.
+            setOnClickListener { Haptics.tick(this); startActivity(Intent(this@MainActivity, GalleryActivity::class.java)) }
             // Comparação Original × Nova é opcional: toque e segure (o toque simples abre a galeria).
             setOnLongClickListener { openReview(); true }
         }
@@ -746,8 +871,64 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             if (bottomEdge - top != oldBottom - oldTop) cameraState?.let { st -> handler.post { layoutAll(st.mode) } }
         }
         root.addView(zoomBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        codePill = com.novacamera.s24.ui.CodePill(this).apply {
+            visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { qrFound?.let { showQr(it) } }
+        }
+        // Posição absoluta: o aviso fica logo abaixo do código lido (acima dele se faltar espaço), como no iPhone.
+        root.addView(codePill, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
+        textButton = TextView(this).apply {
+            background = Nova.pill(0xE6101B2C.toInt(), dp(26f)); elevation = dp(6f)
+            gravity = Gravity.CENTER; visibility = View.GONE
+            setCompoundDrawablesRelativeWithIntrinsicBounds(com.novacamera.s24.ui.TextScanGlyph(dpi(26), Nova.TEXT), null, null, null)
+            setPadding(dpi(13), dpi(13), dpi(13), dpi(13))
+            contentDescription = "Texto na imagem. Toque para ler e selecionar"
+            setOnClickListener { Haptics.tick(this); readText() }
+        }
+        root.addView(textButton, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dpi(18) })
+        bottom.addOnLayoutChangeListener { _, _, top, _, _, _, _, _, _ ->
+            for (v in listOf<View>(textButton)) (v.layoutParams as FrameLayout.LayoutParams).let { lp ->
+                val want = (root.height - top) + dpi(16)
+                if (lp.bottomMargin != want) { lp.bottomMargin = want; v.layoutParams = lp }
+            }
+        }
+        // Leitura de texto: a prévia congelada ocupa o lugar do visor; ações embaixo, sobre os controles.
+        textLens = com.novacamera.s24.ui.TextLensView(this).apply {
+            visibility = View.GONE
+            onSelection = { n -> updateTextBar(n) }
+        }
+        previewFrame.addView(textLens, FrameLayout.LayoutParams(-1, -1))
+        textLens.onCopyOne = { t -> clipText(t, "Bloco copiado") }
+        val glass = { r: Float -> android.graphics.drawable.GradientDrawable().apply { cornerRadius = r; setColor(0xE6101828.toInt()); setStroke(dpi(1), 0x26FFFFFF) } }
+        textBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            background = glass(dp(30f)); elevation = dp(10f)
+            setPadding(dpi(8), dpi(8), dpi(8), dpi(8)); visibility = View.GONE
+        }
+        root.addView(textBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dpi(72) })
+        textClose = android.widget.ImageView(this).apply {
+            setImageDrawable(com.novacamera.s24.ui.LineIcon(com.novacamera.s24.ui.LineIcon.Kind.CLOSE, dpi(22), Nova.TEXT))
+            background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(0xCC101828.toInt()); setStroke(dpi(1), 0x26FFFFFF) }
+            setPadding(dpi(11), dpi(11), dpi(11), dpi(11)); elevation = dp(8f); visibility = View.GONE
+            contentDescription = "Fechar leitura de texto"
+            setOnClickListener { endTextLens() }
+        }
+        root.addView(textClose, FrameLayout.LayoutParams(dpi(44), dpi(44), Gravity.TOP or Gravity.START))
+        textHint = TextView(this).apply {
+            setTextColor(Nova.TEXT); textSize = 13f; typeface = Nova.MEDIUM
+            background = glass(dp(18f)); setPadding(dpi(14), dpi(8), dpi(14), dpi(8)); elevation = dp(8f); visibility = View.GONE
+        }
+        root.addView(textHint, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        onBackPressedDispatcher.addCallback(this, closeTextLens)
         lensChip = statusChip(Nova.ACCENT_SOFT).apply { visibility = View.GONE; isClickable = false }
         root.addView(lensChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        sceneChip = statusChip(Nova.LOCK).apply {
+            visibility = View.GONE; compoundDrawablePadding = dpi(6)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { toggleSceneOff() }
+        }
+        root.addView(sceneChip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dpi(16) })
         root.addView(modeGrid, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
         root.addView(toolsPanel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { marginStart = dpi(12); marginEnd = dpi(12) })
 
@@ -783,6 +964,446 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     private fun icon(i: Icon, onTap: () -> Unit) = NovaIconView(this, i).apply {
         setOnClickListener { Haptics.tap(this); onTap() }
+    }
+
+    // ------------------------------------------------------------------ QR e códigos de barras
+
+    private fun startQr() {
+        if (!settings.qrScan) { stopQr(); return }
+        val scanner = qrScanner ?: com.novacamera.s24.camera.QrScanner(preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto && !isFinishing },
+            slow = { analyzersSlow() },
+            onFound = { content ->
+                qrFound = content
+                codePill.setContent(com.novacamera.s24.ui.LineIcon.Kind.valueOf(content.iconName()), content.headline(), content.action(),
+                    warn = content is com.novacamera.s24.core.QrContent.Link && !content.secure)
+                codePill.contentDescription = "Código lido: ${content.summary()}. Toque para ver e escolher o que fazer"
+                showCodePill()
+                Haptics.tick(codePill)
+            },
+            onGone = { qrFound = null; hideCodePill(); overlay.hideCode() },
+            onSeen = { quad -> if (qrFound != null) { overlay.showCode(quad); placeCodePill(quad) } },
+            inspect = { bmp -> checkLens(bmp) },
+        ).also { qrScanner = it }
+        scanner.start()
+    }
+
+    private fun stopQr() { qrScanner?.stop(); if (::codePill.isInitialized) { hideCodePill(); overlay.hideCode() } }
+
+    private var codeQuad: FloatArray? = null
+
+    /** Aviso logo abaixo do código (pontos da prévia → raiz); acima dele se faltar espaço; preso dentro do visor. */
+    private fun placeCodePill(quad: FloatArray) {
+        codeQuad = quad
+        val w = codePill.width.takeIf { it > 0 } ?: return
+        val h = codePill.height
+        val left = previewFrame.x; val top = previewFrame.y
+        val cx = (quad[0] + quad[2] + quad[4] + quad[6]) / 4f
+        val qTop = minOf(quad[1], quad[3], quad[5], quad[7]); val qBottom = maxOf(quad[1], quad[3], quad[5], quad[7])
+        val gap = dp(18f)
+        val x = (left + cx - w / 2f).coerceIn(left + dp(12f), left + previewFrame.width - w - dp(12f))
+        var y = top + qBottom + gap
+        if (y + h > top + previewFrame.height - dp(12f)) y = top + qTop - gap - h
+        y = y.coerceIn(top + dp(12f), top + previewFrame.height - h - dp(12f))
+        if (codePill.alpha < 0.05f || codePill.visibility != View.VISIBLE) { codePill.x = x; codePill.y = y }
+        else codePill.animate().x(x).y(y).setDuration(160).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
+    private fun showCodePill() {
+        if (codePill.visibility == View.VISIBLE && codePill.alpha > 0.99f) return
+        codePill.animate().cancel()
+        codePill.visibility = View.VISIBLE
+        codePill.alpha = 0f; codePill.scaleX = 0.86f; codePill.scaleY = 0.86f
+        // Mede antes de posicionar (primeira vez: largura ainda 0).
+        codePill.post { codeQuad?.let(::placeCodePill)
+            codePill.pivotX = codePill.width / 2f; codePill.pivotY = 0f
+            codePill.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f)).start() }
+    }
+
+    private fun hideCodePill() {
+        if (!::codePill.isInitialized || codePill.visibility != View.VISIBLE) return
+        codePill.animate().cancel()
+        codePill.animate().alpha(0f).scaleX(0.92f).scaleY(0.92f).setDuration(180)
+            .withEndAction { codePill.visibility = View.GONE; codeQuad = null }.start()
+    }
+
+    /**
+     * Cena na FOTO (pedido do dono, 20/10): ícone ao lado do zoom quando a foto vai ter ajuste leve de cena
+     * (planta, comida) ou tratamento próprio (pessoa, animal). Aparece com nome, recolhe para só o ícone em
+     * 1,5 s; tocar desliga o ajuste nesta sessão (ícone apagado).
+     */
+    private fun startScene() {
+        val watcher = sceneWatcher ?: com.novacamera.s24.camera.SceneWatcher(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.isRecording &&
+                !camera.capturingPhoto && !isFinishing },
+            slow = { analyzersSlow() },
+            faceArea = {
+                val area = (preview.width * preview.height).toFloat()
+                if (area <= 0f || !::camera.isInitialized) 0f
+                else (camera.facesInView().maxOfOrNull { (it.right - it.left) * (it.bottom - it.top) } ?: 0f) / area
+            },
+            onScene = { showScene(it) },
+        ).also { sceneWatcher = it }
+        watcher.start()
+    }
+
+    private val collapseScene = Runnable { if (sceneChip.visibility == View.VISIBLE) sceneChip.text = "" }
+
+    private fun showScene(scene: com.novacamera.s24.core.SceneDetect.Scene) {
+        handler.removeCallbacks(collapseScene)
+        if (::camera.isInitialized) camera.scene = if (sceneOff) com.novacamera.s24.core.SceneDetect.Scene.NONE else scene
+        if (scene == com.novacamera.s24.core.SceneDetect.Scene.NONE) {
+            sceneChip.animate().alpha(0f).setDuration(200).withEndAction { sceneChip.visibility = View.GONE }.start()
+            return
+        }
+        val kind = when (scene) {
+            com.novacamera.s24.core.SceneDetect.Scene.PERSON -> LineIcon.Kind.PERSON
+            com.novacamera.s24.core.SceneDetect.Scene.PET -> LineIcon.Kind.PET
+            com.novacamera.s24.core.SceneDetect.Scene.FOOD -> LineIcon.Kind.FOOD
+            else -> LineIcon.Kind.PLANT
+        }
+        val color = if (sceneOff) Nova.TEXT_MUTED else Nova.LOCK
+        sceneChip.setTextColor(color)
+        sceneChip.setCompoundDrawablesRelativeWithIntrinsicBounds(LineIcon(kind, dpi(16), color), null, null, null)
+        sceneChip.text = scene.label
+        sceneChip.contentDescription = "Cena: ${scene.label}" + if (sceneOff) ", ajuste desligado" else ". Toque para desligar o ajuste"
+        if (sceneChip.visibility != View.VISIBLE) {
+            sceneChip.alpha = 0f; sceneChip.scaleX = 0.9f; sceneChip.scaleY = 0.9f; sceneChip.visibility = View.VISIBLE
+        }
+        sceneChip.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).setInterpolator(Nova.EASE).start()
+        handler.postDelayed(collapseScene, 1500)
+    }
+
+    private fun toggleSceneOff() {
+        sceneOff = !sceneOff
+        hint.show(if (sceneOff) "Otimização de cena desligada" else "Otimização de cena ligada", 1500)
+        sceneWatcher?.scene?.let { showScene(it) }
+    }
+
+    /** Disparo com a palma: palma aberta por ~0,7 s inicia o contador (3 s, ou o temporizador escolhido, se maior). */
+    private fun startPalm() {
+        if (!settings.palmShutter) { palmShutter?.close(); palmShutter = null; return }
+        val palm = palmShutter ?: com.novacamera.s24.camera.PalmShutter(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && (camera.mode == CaptureMode.FOTO || camera.mode == CaptureMode.RETRATO) &&
+                !camera.capturingPhoto && countdown == 0 && !isFinishing && ::shutter.isInitialized && !shutter.busy },
+            slow = { analyzersSlow() },
+            onPalm = {
+                if (countdown == 0 && ::camera.isInitialized && camera.ready && cameraState?.support?.canCapture == true) {
+                    Haptics.confirm(shutter)
+                    hint.show("Palma vista: foto em ${maxOf(3, settings.timerSeconds)} s", 1500)
+                    startCountdown(maxOf(3, settings.timerSeconds))
+                }
+            },
+        ).also { palmShutter = it }
+        palm.start()
+    }
+
+    private val lensSmudge = com.novacamera.s24.core.LensSmudge()
+
+    /** Thread do leitor: só com luz boa (o véu do escuro é ruído, não gordura). */
+    private fun checkLens(frame: android.graphics.Bitmap) {
+        val st = if (::camera.isInitialized) camera.previewStats else null
+        if (st == null || st.iso > 400 || st.exposureNs > 20_000_000L) return
+        val small = android.graphics.Bitmap.createScaledBitmap(frame, 160, (160f * frame.height / frame.width).toInt().coerceAtLeast(16), true)
+        val px = IntArray(small.width * small.height).also { small.getPixels(it, 0, small.width, 0, 0, small.width, small.height) }
+        val key = com.novacamera.s24.core.LensSmudge.sceneKey(px, small.width, small.height)
+        small.recycle()
+        val (black, contrast) = com.novacamera.s24.core.LensSmudge.measure(px)
+        if (lensSmudge.add(black, contrast, key, SystemClock.elapsedRealtime()))
+            runOnUiThread { if (!isDestroyed) hint.show("A lente parece suja ou engordurada: limpe com um pano macio para fotos mais nítidas", 4500) }
+    }
+
+    // ------------------------------------------------------------------ texto (PP-OCRv5, offline)
+
+    private var readingText = false
+
+    /** Congela a prévia (snapshot de 1600 px, sem nova captura) e lê o texto em segundo plano. */
+    private fun readText() {
+        if (readingText) return
+        if (!com.novacamera.s24.processing.TextReader.available(this)) { hint.show("Leitura de texto indisponível nesta versão", 2000); return }
+        val reader = com.novacamera.s24.camera.PreviewFrameReader(preview, 1600f)
+        readingText = true
+        val accepted = reader.read { bmp, _ ->
+            reader.close()
+            if (bmp == null) { readingText = false; hint.show("Não foi possível ler a prévia", 1600); return@read }
+            // A tela congela na hora (quadro da prévia) e a faixa de luz varre enquanto o leitor trabalha.
+            val frozen = runCatching { bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false) }.getOrNull()
+            if (frozen != null) {
+                textLens.begin(frozen); closeTextLens.isEnabled = true
+                hideTextButton(); enterTextChrome(); showTextHint("Lendo o texto…")
+            } else hint.show("Lendo texto…", 4000)
+            contourExecutor.execute {
+                val lines = runCatching { com.novacamera.s24.processing.TextReader.read(this, bmp) }
+                    .onFailure { com.novacamera.s24.core.CrashLog.record(this, "leitura de texto (não fatal)", it) }.getOrDefault(emptyList())
+                val k = if (bmp.width > 0) textLens.width.toFloat().coerceAtLeast(1f) / bmp.width else 1f
+                bmp.recycle()
+                runOnUiThread {
+                    readingText = false
+                    if (isDestroyed) return@runOnUiThread
+                    if (frozen == null) { showText(lines); return@runOnUiThread }
+                    if (lines.isEmpty()) {
+                        endTextLens(); hint.show("Nenhum texto encontrado. Aproxime ou ilumine melhor.", 2200); return@runOnUiThread
+                    }
+                    textLens.showLines(lines.map { it.text to android.graphics.RectF(it.box.left * k, it.box.top * k, it.box.right * k, it.box.bottom * k) })
+                    showTextHint("Toque para selecionar · segure para copiar o bloco")
+                }
+            }
+        }
+        if (!accepted) { readingText = false; reader.close() }
+    }
+
+    private fun clipText(text: String, label: String = "Texto copiado") {
+        getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Texto", text))
+        hint.show(label, 1400)
+    }
+
+    private class TextAction(val label: String, val icon: com.novacamera.s24.ui.LineIcon.Kind, val run: () -> Unit)
+
+    /** Ações conforme a seleção: nada marcado = vale para tudo. Link na seleção ganha "Abrir". */
+    private fun updateTextBar(selected: Int) {
+        val all = selected == 0
+        val text = textLens.text()
+        val actions = ArrayList<TextAction>()
+        actions += TextAction(if (all) "Copiar tudo" else "Copiar ($selected)", com.novacamera.s24.ui.LineIcon.Kind.COPY) { clipText(textLens.text()); endTextLens() }
+        actions += TextAction(if (all) "Selecionar" else "Limpar", com.novacamera.s24.ui.LineIcon.Kind.SELECT_ALL) { textLens.selectAll(all) }
+        android.util.Patterns.WEB_URL.matcher(text).takeIf { it.find() }?.group()?.let { url ->
+            actions += TextAction("Abrir link", com.novacamera.s24.ui.LineIcon.Kind.LINK) {
+                val u = if (url.startsWith("http", true)) url else "https://$url"
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u))) }; endTextLens()
+            }
+        }
+        actions += TextAction("Compartilhar", com.novacamera.s24.ui.LineIcon.Kind.SHARE) {
+            runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, textLens.text()), null)) }
+        }
+        setTextBar(actions)
+    }
+
+    private fun setTextBar(actions: List<TextAction>) {
+        textBar.removeAllViews()
+        actions.forEach { a ->
+            textBar.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dpi(14), dpi(6), dpi(14), dpi(6)); minimumWidth = dpi(76)
+                background = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x3348BFFF),
+                    null, android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(22f); setColor(0xFFFFFFFF.toInt()) })
+                addView(android.widget.ImageView(context).apply { setImageDrawable(com.novacamera.s24.ui.LineIcon(a.icon, dpi(24), Nova.TEXT)) },
+                    LinearLayout.LayoutParams(dpi(24), dpi(24)))
+                addView(TextView(context).apply { text = a.label; textSize = 11.5f; typeface = Nova.MEDIUM; setTextColor(Nova.TEXT); gravity = Gravity.CENTER
+                    setPadding(0, dpi(4), 0, 0) })
+                setOnClickListener { Haptics.tick(this); a.run() }
+            })
+        }
+        if (textBar.visibility != View.VISIBLE) {
+            textBar.visibility = View.VISIBLE; textBar.alpha = 0f; textBar.translationY = dp(20f)
+            textBar.animate().alpha(1f).translationY(0f).setDuration(300).setInterpolator(android.view.animation.OvershootInterpolator(1.1f)).start()
+        }
+    }
+
+    /** Leitura de texto ocupa a tela: controles da câmera saem com fade; fechar e dica entram. */
+    private fun enterTextChrome() {
+        listOf<View>(bottom, zoomBar).forEach { v -> v.animate().cancel(); v.animate().alpha(0f).setDuration(180).withEndAction { v.visibility = View.INVISIBLE }.start() }
+        hideCodePill()
+        (textClose.layoutParams as FrameLayout.LayoutParams).let { it.topMargin = (previewFrame.y + dp(14f)).toInt(); it.marginStart = dpi(14); textClose.layoutParams = it }
+        (textHint.layoutParams as FrameLayout.LayoutParams).let { it.topMargin = (previewFrame.y + dp(18f)).toInt(); textHint.layoutParams = it }
+        textClose.visibility = View.VISIBLE; textClose.alpha = 0f; textClose.animate().alpha(1f).setDuration(220).start()
+    }
+
+    private fun showTextHint(text: String) {
+        textHint.text = text
+        textHint.animate().cancel()
+        textHint.visibility = View.VISIBLE; textHint.alpha = 0f; textHint.translationY = -dp(8f)
+        textHint.animate().alpha(1f).translationY(0f).setDuration(240).start()
+    }
+
+    private fun endTextLens() {
+        closeTextLens.isEnabled = false
+        if (!::textLens.isInitialized) return
+        textLens.end()
+        if (textBar.visibility == View.VISIBLE)
+            textBar.animate().alpha(0f).translationY(dp(16f)).setDuration(160).withEndAction { textBar.visibility = View.GONE }.start()
+        listOf<View>(textClose, textHint).forEach { v -> if (v.visibility == View.VISIBLE) v.animate().alpha(0f).setDuration(150).withEndAction { v.visibility = View.GONE }.start() }
+        if (bottom.visibility == View.INVISIBLE) { bottom.visibility = View.VISIBLE; bottom.animate().alpha(1f).setDuration(200).start() }
+        zoomBar.animate().cancel(); zoomBar.alpha = 1f; updateZoomVisibility() // a barra de zoom tem regra própria de visibilidade
+    }
+
+    private fun startTextSpot() {
+        if (!settings.textSpot || !com.novacamera.s24.processing.TextReader.available(this)) { textSpotter?.stop(); return }
+        val spot = textSpotter ?: com.novacamera.s24.camera.TextSpotter(this, preview,
+            enabled = { ::camera.isInitialized && camera.ready && camera.mode == CaptureMode.FOTO && !camera.capturingPhoto &&
+                !isFinishing && !readingText && textLens.visibility != View.VISIBLE && qrFound == null },
+            slow = { analyzersSlow() },
+            onChange = { has -> if (has) showTextButton() else hideTextButton() },
+        ).also { textSpotter = it }
+        spot.start()
+    }
+
+    private fun showTextButton() {
+        if (textButton.visibility == View.VISIBLE) return
+        textButton.animate().cancel()
+        textButton.visibility = View.VISIBLE; textButton.alpha = 0f; textButton.scaleX = 0.6f; textButton.scaleY = 0.6f
+        textButton.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(280)
+            .setInterpolator(android.view.animation.OvershootInterpolator(2f)).start()
+    }
+
+    private fun hideTextButton() {
+        if (!::textButton.isInitialized || textButton.visibility != View.VISIBLE) return
+        textButton.animate().cancel()
+        textButton.animate().alpha(0f).scaleX(0.7f).scaleY(0.7f).setDuration(160).withEndAction { textButton.visibility = View.GONE }.start()
+    }
+
+    // ------------------------------------------------------------------ documento
+
+    /**
+     * Folha na prévia (maior resolução da prévia, sem nova captura): acha os 4 cantos ([com.novacamera.s24.core.DocQuad]),
+     * endireita a perspectiva e salva em Pictures/Nova Camera/Documentos; PDF de uma página para compartilhar.
+     */
+    private fun scanDocument() {
+        if (readingText) return
+        val reader = com.novacamera.s24.camera.PreviewFrameReader(preview, 4096f)
+        readingText = true
+        hint.show("Procurando a folha…", 3000)
+        val accepted = reader.read { bmp, _ ->
+            reader.close()
+            if (bmp == null) { readingText = false; hint.show("Não foi possível ler a prévia", 1600); return@read }
+            contourExecutor.execute {
+                val result = runCatching { flattenDocument(bmp) }
+                    .onFailure { com.novacamera.s24.core.CrashLog.record(this, "documento (não fatal)", it) }.getOrNull()
+                bmp.recycle()
+                runOnUiThread {
+                    readingText = false
+                    if (isDestroyed) { result?.second?.recycle(); return@runOnUiThread }
+                    if (result == null) hint.show("Folha não encontrada: papel claro sobre fundo mais escuro, inteiro na tela", 2600)
+                    else showDocument(result.first, result.second)
+                }
+            }
+        }
+        if (!accepted) { readingText = false; reader.close() }
+    }
+
+    /** (uri na galeria, imagem endireitada) ou null se não houver folha. */
+    private fun flattenDocument(src: android.graphics.Bitmap): Pair<android.net.Uri, android.graphics.Bitmap>? {
+        val s = minOf(1f, 400f / maxOf(src.width, src.height))
+        val sw = (src.width * s).toInt().coerceAtLeast(16); val sh = (src.height * s).toInt().coerceAtLeast(16)
+        val small = android.graphics.Bitmap.createScaledBitmap(src, sw, sh, true)
+        val px = IntArray(sw * sh).also { small.getPixels(it, 0, sw, 0, 0, sw, sh) }
+        if (small !== src) small.recycle()
+        val luma = IntArray(px.size) { val p = px[it]; ((p shr 16 and 255) * 77 + (p shr 8 and 255) * 150 + (p and 255) * 29) shr 8 }
+        val q = com.novacamera.s24.core.DocQuad.find(luma, sw, sh) ?: return null
+        val pts = FloatArray(8) { q.pts[it] / s }
+        val k = minOf(1f, 3000f / maxOf(q.widthPx / s, q.heightPx / s))
+        val ow = (q.widthPx / s * k).toInt().coerceAtLeast(64); val oh = (q.heightPx / s * k).toInt().coerceAtLeast(64)
+        val m = android.graphics.Matrix()
+        if (!m.setPolyToPoly(pts, 0, floatArrayOf(0f, 0f, ow.toFloat(), 0f, ow.toFloat(), oh.toFloat(), 0f, oh.toFloat()), 0, 4)) return null
+        val out = android.graphics.Bitmap.createBitmap(ow, oh, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(out).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(src, m, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)) }
+        val name = "NOVA_DOC_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date()) + ".jpg"
+        val uri = com.novacamera.s24.processing.MediaWriter.insert(contentResolver, out, name, "Pictures/Nova Camera/Documentos", emptyMap(), "Nova · documento")
+        return uri to out
+    }
+
+    private fun showDocument(uri: android.net.Uri, page: android.graphics.Bitmap) {
+        val view = android.widget.ImageView(this).apply { setImageBitmap(page); adjustViewBounds = true; setPadding(dpi(12), dpi(12), dpi(12), dpi(12)) }
+        android.app.AlertDialog.Builder(this).setTitle("Documento salvo na galeria").setView(view)
+            .setPositiveButton("Compartilhar PDF") { _, _ -> sharePdf(page) }
+            .setNeutralButton("Abrir") { _, _ -> runCatching { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } }
+            .setNegativeButton("Fechar", null)
+            .setOnDismissListener { view.setImageDrawable(null); page.recycle() }
+            .show()
+    }
+
+    /** PDF de uma página (PdfDocument do Android) em Documents/Nova Camera, compartilhado pelo seletor do sistema. */
+    private fun sharePdf(page: android.graphics.Bitmap) {
+        val uri = runCatching {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "NOVA_DOC_" + System.currentTimeMillis() + ".pdf")
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Documents/Nova Camera")
+            }
+            val u = contentResolver.insert(android.provider.MediaStore.Files.getContentUri("external"), values) ?: error("sem destino")
+            val doc = android.graphics.pdf.PdfDocument()
+            // A4 em pontos, folha ajustada mantendo a proporção.
+            val pw = 595; val ph = 842
+            val p = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(pw, ph, 1).create())
+            val sc = minOf(pw.toFloat() / page.width, ph.toFloat() / page.height)
+            val dw = page.width * sc; val dh = page.height * sc
+            p.canvas.drawBitmap(page, null, android.graphics.RectF((pw - dw) / 2, (ph - dh) / 2, (pw + dw) / 2, (ph + dh) / 2),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+            doc.finishPage(p)
+            contentResolver.openOutputStream(u)?.use { doc.writeTo(it) } ?: error("sem saída")
+            doc.close()
+            u
+        }.getOrNull() ?: return hint.show("Não foi possível gerar o PDF", 1600)
+        runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
+            .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), null)) }
+    }
+
+    /** Texto selecionável (copiar um trecho com o gesto normal do Android); links/telefones/e-mails viram toque. */
+    private fun showText(lines: List<com.novacamera.s24.processing.TextReader.Line>) {
+        if (lines.isEmpty()) { hint.show("Nenhum texto encontrado. Aproxime ou ilumine melhor.", 2200); return }
+        val all = lines.joinToString("\n") { it.text }
+        val view = TextView(this).apply {
+            text = all; textSize = 16f; setTextIsSelectable(true); setTextColor(Nova.TEXT)
+            setPadding(dpi(20), dpi(12), dpi(20), dpi(12))
+            android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS or android.text.util.Linkify.EMAIL_ADDRESSES or android.text.util.Linkify.PHONE_NUMBERS)
+        }
+        android.app.AlertDialog.Builder(this).setTitle("Texto lido (${lines.size} ${if (lines.size == 1) "linha" else "linhas"})")
+            .setView(android.widget.ScrollView(this).apply { addView(view) })
+            .setPositiveButton("Copiar tudo") { _, _ ->
+                getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Texto", all))
+                hint.show("Texto copiado", 1400)
+            }
+            .setNeutralButton("Compartilhar") { _, _ ->
+                runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, all), null)) }
+            }
+            .setNegativeButton("Fechar", null).show()
+    }
+
+    /** Mostra o conteúdo inteiro antes de qualquer ação (link com o domínio em destaque). */
+    private fun showQr(c: com.novacamera.s24.core.QrContent) {
+        val clip = { text: String, label: String ->
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+            hint.show("$label copiado", 1400)
+        }
+        val open = { intent: Intent -> runCatching { startActivity(intent) }.onFailure { hint.show("Nenhum app para abrir isto", 1600) } }
+        val b = android.app.AlertDialog.Builder(this)
+        when (c) {
+            is com.novacamera.s24.core.QrContent.Link -> {
+                b.setTitle(c.host).setMessage((if (c.secure) "" else "⚠ Link sem https: confira o endereço antes de abrir.\n\n") + c.url)
+                b.setPositiveButton("Abrir") { _, _ -> open(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(c.url))) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.url, "Link") }
+            }
+            is com.novacamera.s24.core.QrContent.Wifi -> {
+                b.setTitle("Wi-Fi: ${c.ssid}").setMessage("Segurança: ${c.security}" + (c.password?.let { "\nSenha: $it" } ?: "\nSem senha"))
+                if (android.os.Build.VERSION.SDK_INT >= 30) b.setPositiveButton("Conectar") { _, _ ->
+                    val s = android.net.wifi.WifiNetworkSuggestion.Builder().setSsid(c.ssid).apply {
+                        val p = c.password
+                        if (p != null && c.security.startsWith("WPA")) setWpa2Passphrase(p)
+                        if (c.hidden) setIsHiddenSsid(true)
+                    }.build()
+                    open(Intent(android.provider.Settings.ACTION_WIFI_ADD_NETWORKS)
+                        .putParcelableArrayListExtra(android.provider.Settings.EXTRA_WIFI_NETWORK_LIST, arrayListOf(s)))
+                }
+                c.password?.let { p -> b.setNeutralButton("Copiar senha") { _, _ -> clip(p, "Senha") } }
+            }
+            is com.novacamera.s24.core.QrContent.Phone -> {
+                b.setTitle("Telefone").setMessage(c.number)
+                b.setPositiveButton("Ligar") { _, _ -> open(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:${c.number}"))) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.number, "Número") }
+            }
+            is com.novacamera.s24.core.QrContent.Email -> {
+                b.setTitle("E-mail").setMessage(listOfNotNull(c.address, c.subject, c.body).joinToString("\n"))
+                b.setPositiveButton("Escrever") { _, _ -> open(Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${c.address}"))
+                    .putExtra(Intent.EXTRA_SUBJECT, c.subject).putExtra(Intent.EXTRA_TEXT, c.body)) }
+                b.setNeutralButton("Copiar") { _, _ -> clip(c.address, "Endereço") }
+            }
+            is com.novacamera.s24.core.QrContent.Text -> {
+                b.setTitle("Código lido").setMessage(c.raw)
+                b.setPositiveButton("Copiar") { _, _ -> clip(c.raw, "Texto") }
+                b.setNeutralButton("Compartilhar") { _, _ -> open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, c.raw), null)) }
+            }
+        }
+        b.setNegativeButton("Fechar", null).show()
     }
 
     private fun statusChip(color: Int) = TextView(this).apply {
@@ -844,6 +1465,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         updateZoomVisibility()
         (lensChip.layoutParams as FrameLayout.LayoutParams).topMargin =
             (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin - dpi(36)
+        (sceneChip.layoutParams as FrameLayout.LayoutParams).topMargin =
+            (zoomBar.layoutParams as FrameLayout.LayoutParams).topMargin + (zoomBar.measuredHeight - dpi(28)) / 2
         (modeGrid.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         (toolsPanel.layoutParams as FrameLayout.LayoutParams).bottomMargin = h - bottomTop + dpi(4)
         // Sem sobreposição no 4:3 o fundo já é escuro; em 16:9/tela cheia o degradê protege a legibilidade.
@@ -871,7 +1494,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         preview.scaleType = if (landscape) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
         transitionImage.scaleType = if (landscape) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
         val target = CameraMath.iconRotationFor(deg)
-        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip).forEach { v ->
+        listOf<View>(settingsButton, flashButton, toolsButton, timerButton, ratioChip, resChip, hdrChip, videoHdrChip, lightChip, liveChip, rawChip, qualityChip, fpsChip, thumbnail, flipButton, recChip, statusRow, hint, lensChip, sceneChip).forEach { v ->
             // Caminho mais curto (evita giro de 270° entre 90 e −90+...).
             var delta = (target - v.rotation) % 360f
             if (delta > 180f) delta -= 360f
@@ -1407,7 +2030,24 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     }
 
-    override fun onZoom(equivalentZoom: Float) { zoomBar.zoom = equivalentZoom }
+    /** Até quando o zoom em curso é do dedo do usuário (pinça ou arrastar a barra): só então há degraus táteis. */
+    private var userZoomUntil = 0L
+    private var lastZoomHaptic = 0f
+    private var lastStepHapticAt = 0L
+
+    override fun onZoom(equivalentZoom: Float) {
+        zoomBar.zoom = equivalentZoom
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now < userZoomUntil && lastZoomHaptic > 0f) {
+            when (com.novacamera.s24.core.ZoomDetent.crossed(lastZoomHaptic, equivalentZoom, cameraState?.zoomStops.orEmpty())) {
+                com.novacamera.s24.core.ZoomDetent.Kind.STOP -> { Haptics.threshold(zoomBar); lastStepHapticAt = now }
+                com.novacamera.s24.core.ZoomDetent.Kind.STEP -> if (now - lastStepHapticAt >= com.novacamera.s24.core.ZoomDetent.MIN_STEP_MS) {
+                    Haptics.segment(zoomBar); lastStepHapticAt = now }
+                else -> {}
+            }
+        }
+        lastZoomHaptic = equivalentZoom
+    }
 
     override fun onFaces(faces: List<android.graphics.RectF>) {
         overlay.faces = faces
@@ -1418,7 +2058,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onFocusResult(success: Boolean, locked: Boolean) {
         overlay.setFocusResult(success, locked && camera.exposureLocked)
         if (locked) {
-            Haptics.heavy(overlay)
+            Haptics.threshold(overlay)
             lockChip.text = if (camera.exposureLocked) "AE/AF BLOQUEADO  ✕" else "AF BLOQUEADO  ✕"
             lockChip.visibility = View.VISIBLE
         }
@@ -1454,6 +2094,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onActiveLens(label: String?) {
         if (::tracking.isInitialized) tracking.stop("Lente física mudou; toque novamente no assunto")
         if (label == null) return
+        // Troca de lente sentida na mão (não na primeira lente da sessão).
+        if (lensChip.text.isNotEmpty() && lensChip.text != label) Haptics.threshold(lensChip)
         lensChip.text = label
         lensChip.alpha = 1f
         lensChip.visibility = View.VISIBLE
@@ -1464,7 +2106,41 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
     override fun onCaptureStarted() {
         overlay.flash()
         shutter.busy = true
+        shutter.capturePulse()
+        flyToThumbnail()
         if (settings.shutterSound) sound.play(MediaActionSound.SHUTTER_CLICK)
+    }
+
+    private val flyReader by lazy { com.novacamera.s24.camera.PreviewFrameReader(preview, 480f) }
+
+    /**
+     * A foto "voa" do visor para a miniatura (cantos arredondando, encolhendo em curva), como nas câmeras
+     * de referência. Quadro reduzido da prévia, lido fora da thread da interface; nada muda na captura.
+     */
+    private fun flyToThumbnail() {
+        if (!::thumbnail.isInitialized || camera.mode.isVideo) return
+        flyReader.read { bmp, _ ->
+            if (bmp == null || isDestroyed) { bmp?.recycle(); return@read }
+            val view = android.widget.ImageView(this).apply {
+                setImageBitmap(bmp); scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(18f) / v.scaleX.coerceAtLeast(0.05f)) }
+                }
+                clipToOutline = true; elevation = dp(10f)
+            }
+            val pw = previewFrame.width; val ph = previewFrame.height
+            root.addView(view, FrameLayout.LayoutParams(pw, ph).apply { leftMargin = previewFrame.x.toInt(); topMargin = previewFrame.y.toInt() })
+            val loc = IntArray(2); val rootLoc = IntArray(2)
+            thumbnail.getLocationInWindow(loc); root.getLocationInWindow(rootLoc)
+            val tx = loc[0] - rootLoc[0] + thumbnail.width / 2f; val ty = loc[1] - rootLoc[1] + thumbnail.height / 2f
+            val k = thumbnail.width.toFloat() / maxOf(1, pw)
+            view.pivotX = pw / 2f; view.pivotY = ph / 2f
+            view.animate().scaleX(k).scaleY(k)
+                .translationX(tx - (previewFrame.x + pw / 2f)).translationY(ty - (previewFrame.y + ph / 2f))
+                .setDuration(420).setInterpolator(Nova.EASE)
+                .setUpdateListener { view.invalidateOutline() }
+                .withEndAction { root.removeView(view); bmp.recycle() }.start()
+        }
     }
 
     override fun onPhotoSaved(uri: Uri?) {
@@ -1476,7 +2152,8 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun onProcessingQueued(kind: JobKind) {
         shutter.busy = false
-        hint.show("Foto capturada · processando", 1200)
+        // Aviso breve (pedido do dono, 20/10): some sozinho; o anel da miniatura mostra o andamento.
+        hint.show("Em processamento", PROCESSING_HINT_MS)
     }
 
     private fun onProcessingProgress(p: JobProgress) {
@@ -1495,21 +2172,21 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
                 // Nada foi salvo (ex.: falha sem original): a miniatura volta para a última mídia real.
                 if (p.enhancedUri == null && p.originalUri == null) lastMedia?.let { (u, m) -> showMedia(u, m, animate = false) }
             }
-            if (!auto || p.pending == 0) procChip.visibility = if (p.pending > 0) View.VISIBLE else View.GONE
+            procChip.visibility = View.GONE
             val shown = p.enhancedUri ?: if (auto) null else p.originalUri
             // AUTO regrava a mesma foto: só atualiza a miniatura se ela ainda for a última.
             if (shown != null && (!auto || lastMedia?.first == shown)) {
                 showMedia(shown, "image/jpeg", animate = true)
                 lastSession = if (p.sessionId != null && p.enhancedUri != null) p.sessionId to p.enhancedUri else null
             }
-            p.message?.let { hint.show(it, 3200) }
+            // Um aviso só quando a fila esvazia (10 fotos seguidas não viram 10 avisos); falhas e notas têm prioridade.
+            when {
+                p.message != null -> hint.show(p.message, 3200)
+                p.pending == 0 && shown != null -> hint.show("Concluído · foto pronta na galeria", 2500)
+            }
             return
         }
-        // O ajuste automático da FOTO é rápido e silencioso: sem selo de progresso.
-        if (auto || p.kind==JobKind.PHOTO) return
-        procChip.text = "${p.kind.label} · ${p.stage} ${Math.round(p.fraction * 100)}%  ✕"
-        procChip.contentDescription = "Processando ${p.kind.label}, ${Math.round(p.fraction * 100)} por cento. Toque para cancelar"
-        procChip.visibility = View.VISIBLE
+        // Sem selo fixo com etapa e porcentagem: o andamento fica no anel da miniatura.
     }
 
     override fun onRecording(phase: RecordingPhase, seconds: Long) {
@@ -1533,6 +2210,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             RecordingPhase.IDLE -> Icon.FLIP
         }
         if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (active != recordingPowerActive) setRecordingPower(active)
     }
 
     override fun onRecordingFinished(uri: Uri?, error: String?) {
@@ -1584,7 +2262,7 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
      */
     private var contourGeneration = 0
     private fun showTapContour(x: Float, y: Float) {
-        overlay.clearContour()
+        overlay.clearContour(); overlay.clearObject()
         if (!settings.tapContour || camera.isRecording || camera.mode.isPro || preview.width <= 0) return
         val frame = runCatching { preview.bitmap }.getOrNull() ?: return
         val gen = ++contourGeneration
@@ -1592,13 +2270,28 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         contourExecutor.execute {
             val r = runCatching { com.novacamera.s24.processing.ContourSegmenter.contour(this, frame, nx, ny, Nova.ACCENT_SOFT) }
                 .onFailure { com.novacamera.s24.core.CrashLog.record(this, "contorno (não fatal)", it) }.getOrNull()
+            if (r != null) runOnUiThread {
+                if (gen != contourGeneration || isDestroyed) return@runOnUiThread
+                overlay.showContour(r)
+                // Foto/Retrato: o AF refaz a medição só dentro do objeto contornado.
+                r.focus?.let { camera.focusOnObject(camera.tapFocusToken, it) }
+            }
+            // Toque inteligente: o que é o objeto tocado (caixa + nome). O quadro é o da prévia (pontos do visor).
+            val obj = if (gen == contourGeneration) runCatching {
+                com.novacamera.s24.core.Detections.pickAt(com.novacamera.s24.processing.ObjectDetector.detect(this, frame), x, y, frame.width, frame.height)
+            }.onFailure { com.novacamera.s24.core.CrashLog.record(this, "detector (não fatal)", it) }.getOrNull() else null
             frame.recycle()
-            if (r != null) runOnUiThread { if (gen == contourGeneration && !isDestroyed) overlay.showContour(r) }
+            if (obj != null) runOnUiThread {
+                if (gen != contourGeneration || isDestroyed) return@runOnUiThread
+                overlay.showObject(android.graphics.RectF(obj.l, obj.t, obj.r, obj.b), "")
+                Haptics.tick(overlay)
+            }
         }
     }
 
     override fun onLongPress(x: Float, y: Float) {
         if (!camera.ready) return
+        contourGeneration++ // contorno de um toque anterior não mexe no bloqueio
         tracking.stop()
         overlay.showFocusAt(x, y)
         camera.focusAt(x, y, lock = true)
@@ -1632,13 +2325,14 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         overlay.showExposure(fraction, CameraMath.formatEv(CameraMath.evForIndex(idx, s.evStepNum, s.evStepDen)), keep = false)
     }
 
-    override fun onPinch(scaleFactor: Float) = camera.zoomBy(scaleFactor)
+    override fun onPinch(scaleFactor: Float) { userZoomUntil = android.os.SystemClock.uptimeMillis() + 400; camera.zoomBy(scaleFactor) }
 
     override fun onPinchEnd() {}
 
     // ------------------------------------------------------------------ energia e temperatura
 
     private fun onHeat(h: DeviceHeat) {
+        lastHeat = h
         camera.onHeat(h)
         if (::tracking.isInitialized) {
             tracking.thermal = h.thermalStatus; tracking.powerSave = h.powerSave
@@ -1652,13 +2346,35 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         lastInteraction = SystemClock.elapsedRealtime()
+        if (recordingDimmed) setRecordingDim(false)
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** Gravando: tela a 60 Hz (o vídeo tem 30/60 quadros); fora da gravação, volta ao padrão do sistema. */
+    private fun setRecordingPower(recording: Boolean) {
+        recordingPowerActive = recording
+        window.attributes = window.attributes.also {
+            it.preferredRefreshRate = if (recording) com.novacamera.s24.core.RecordingPowerPolicy.REFRESH_HZ
+                else com.novacamera.s24.core.RecordingPowerPolicy.PREVIEW_REFRESH_HZ
+            if (!recording) it.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        if (!recording) recordingDimmed = false
+    }
+
+    private fun setRecordingDim(dim: Boolean) {
+        recordingDimmed = dim
+        window.attributes = window.attributes.also {
+            it.screenBrightness = if (dim) com.novacamera.s24.core.RecordingPowerPolicy.DIM_BRIGHTNESS else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        if (dim) hint.show("Tela escurecida para poupar bateria · toque para clarear", 2500)
     }
 
     private val idleCheck = object : Runnable {
         override fun run() {
             val timeout = settings.idleTimeoutSeconds
             val idleFor = SystemClock.elapsedRealtime() - lastInteraction
+            if (com.novacamera.s24.core.RecordingPowerPolicy.shouldDim(camera.isRecording, recordingDimmed, idleFor,
+                    ProcessingQueue.heat?.thermalStatus ?: 0)) setRecordingDim(true)
             if (timeout > 0 && !idlePaused && !camera.isRecording && countdown == 0 && idleFor > timeout * 1000L) {
                 idlePaused = true
                 camera.pause()
@@ -1677,18 +2393,44 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         camera.resume()
     }
 
+    /**
+     * Volume como "Camera Control" (pesquisa 20/10, item 6). Volume + dispara no aperto (sem atraso, como antes).
+     * Volume − imita o meio-aperto do iPhone: segurar 0,35 s trava AE/AF no maior rosto (ou no centro) e soltar
+     * não dispara; um toque curto dispara ao soltar. Esperar o soltar só no − mantém o + instantâneo.
+     */
+    private var volumeDownAt = 0L
+    private var volumeDownLocked = false
+    private val volumeHoldLock = Runnable {
+        if (volumeDownAt == 0L || !camera.ready) return@Runnable
+        volumeDownLocked = true
+        val face = camera.facesInView().maxByOrNull { (it.right - it.left) * (it.bottom - it.top) }
+        val x = face?.let { (it.left + it.right) / 2f } ?: (overlay.width / 2f)
+        val y = face?.let { (it.top + it.bottom) / 2f } ?: (overlay.height / 2f)
+        onLongPress(x, y)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
             lastInteraction = SystemClock.elapsedRealtime()
             if (idlePaused) { resumeFromIdle(); return true }
-            if (event.repeatCount == 0) onShutter()
+            if (event.repeatCount != 0) return true
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || camera.isRecording) { onShutter(); return true }
+            volumeDownAt = SystemClock.uptimeMillis(); volumeDownLocked = false
+            overlay.postDelayed(volumeHoldLock, VOLUME_HOLD_MS)
             return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) return true
+        if (settings.volumeKeyShutter && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && volumeDownAt != 0L) {
+                overlay.removeCallbacks(volumeHoldLock)
+                volumeDownAt = 0L
+                if (!volumeDownLocked) onShutter()
+            }
+            return true
+        }
         return super.onKeyUp(keyCode, event)
     }
 
@@ -1754,15 +2496,6 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
             }.setNegativeButton("Fechar",null).show()
     }
 
-    private fun openLastMedia() {
-        // A miniatura já mostra a foto nova, mas a galeria só a recebe ao fim do processamento.
-        if (processingPreview != null) return hint.show("Aprimorando a foto… ela abre na galeria assim que terminar", 2200)
-        val (uri, mime) = lastMedia ?: return hint.show("Nenhuma captura ainda", 1400)
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        }.onFailure { Log.w(TAG, "Sem visualizador para $uri", it); hint.show("Nenhum app de galeria disponível") }
-    }
-
     // ------------------------------------------------------------------ permissões
 
     private fun hasPermission(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
@@ -1793,12 +2526,15 @@ class MainActivity : ComponentActivity(), CameraListener, ViewfinderOverlay.Gest
         private const val AID_EVERY_MS = 500L
         /** Contraluz automática: medição a cada 0,65 s (passos de até 1/3 EV, sem saltos). */
         private const val BACKLIGHT_EVERY_MS = 650L
+        private const val ANALYZER_IDLE_MS = 20_000L
         private const val AID_SLOW_MS = 1_000L
         private const val AID_SLOW_COPY_MS = 30L
         /** Largura da análise (pontos); o estouro e o realce são desenhados nessa grade. */
         private const val AID_WIDTH = 240
         /** Arrastar ~80dp na horizontal = 1 EV. */
         private const val EV_DRAG_DP_PER_EV = 80f
+        private const val VOLUME_HOLD_MS = 350L
+        private const val PROCESSING_HINT_MS = 3500L
     }
 
 }

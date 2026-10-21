@@ -1,3 +1,485 @@
+# 0.36.5 — Tela da câmera a 60 Hz; pesquisa de calor registrada (Claude; branch `claude/nova-interface`; APK de teste build123 entregue)
+- **[Baixar ZIP com app-release.apk — build123 (1123)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39534537026/artifacts/12316639339)**. Artefato 12316639339, 162822673 bytes; sha256:531b5b15c2228b9832f6f97916468a01a66711f5805c2bf2f4113a2a2fba38a8; fonte ed9e271 (gatilho b3c7936, restaurado em 04b118c); expira 2026-11-20; sem release.
+- **Pedido do dono (21/10, à noite):** "veja e pesquise, para que fique otimizado".
+- **Pesquisa (ADPF, ncnn/OpenMP, CameraX/PreviewView, taxa da tela).** Poucos números públicos de energia; teste Samsung 60 × 30 fps: +25% de bateria.
+- **Já estava certo no código:**
+  - ncnn com `set_kmp_blocktime(0)`, sem threads girando após o trabalho.
+  - Prévia em `PERFORMANCE` (SurfaceView).
+  - Tela a 60 Hz e escurecida sem toque durante a gravação.
+  - Brilho nunca forçado ao máximo.
+  - Sem laços de redesenho contínuos.
+- **Feito:**
+  - A tela da câmera também fica em 60 Hz fora da gravação. A prévia tem 30 quadros e o painel de 120 Hz redesenhava à toa.
+  - Galeria e telas de foto não mudam.
+- **Proposto, aguardando o dono (muda qualidade ou comportamento):**
+  1. Alta resolução na tele (48 MP, ~30 s a 200% CPU) só com temperatura normal, ou só quando pedir.
+  2. Prévia do vídeo a 30 fps até apertar gravar, quando o vídeo for de 60. Custa um pequeno atraso no início da gravação.
+  3. Padrão de vídeo 30 fps.
+  4. Leitores da prévia num único fluxo de análise pequeno, no lugar das cópias da tela (refatoração média).
+  5. Dicas de eficiência de energia (PerformanceHint) nas threads de processamento; sem efeito garantido na Samsung.
+- **Mudou × não mexi:** mudou a taxa de atualização da tela da câmera. Não mexi em foto, vídeo ou processamento.
+- **Testes:** suíte completa e lint aprovados aqui.
+
+---
+
+# 0.36.4 — Menos calor: leitores da prévia desaceleram parados; contraluz pausa na gravação (Claude; branch `claude/nova-interface`; APK de teste build122 entregue)
+- **[Baixar ZIP com app-release.apk — build122 (1122)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39533488808/artifacts/12316966793)**. Artefato 12316966793, 162822681 bytes; sha256:e0b818735f0319144a0a8b559ef4f3de898fdf31786a1b10c151089208a88b25; fonte 7989deb (gatilho 24a1049, restaurado em 37b6fcc); expira 2026-11-20; sem release.
+- **Pedido do dono (21/10):** o celular esquenta sempre que usa o app, principalmente gravando vídeo. Investigar, apontar e remover o que pesa.
+- **Medido nos Diagnósticos de 20/10:**
+  - **FOTO parada:** 43% de um núcleo. Texto 9,4%, prévia/GPU 7,3%, QR 3,2%, mais cena (0.36) e palma. Cada leitor copia a prévia; o QR, a 1920 px a cada 0,4 s.
+  - **Vídeo gravando:** 45%, quase tudo do sistema (CameraX 10,5%, codificador 4,9%). O app em si pouco: a contraluz a cada 0,65 s.
+  - **Fotos de zoom:** a "Alta resolução na tele" (padrão ligada) monta 8 quadros em 48 MP. Mediana de 30 s a 4 núcleos, CPU ~200%: é a maior fonte de calor nas fotos.
+  - **Sessão:** bateria até 42,7 °C, 14,9%/h. No Diagnóstico de 21/10, estado severo (3) porque o celular estava carregando.
+- **Feito (sem mudar qualidade de foto ou vídeo):**
+  - QR, texto, cena e palma passam ao ritmo lento após 20 s sem toque, além de com calor/economia como antes. QR a cada 1 s, texto 3,5 s, cena 2 s, palma 0,7 s. Um toque volta ao normal.
+  - A contraluz automática não mede durante a gravação: fica no valor do início, sem cópias da prévia e sem brilho "bombeando".
+- **Não mexi (decisão do dono):**
+  - Alta resolução na tele (48 MP em 3×/5×).
+  - 60 fps, 4K e HDR do vídeo, que pesam no próprio hardware.
+  - Pedir ao dono para decidir.
+- **Testes:** suíte completa e lint aprovados aqui.
+
+---
+
+# 0.36.3 — Diagnóstico do vídeo noturno: o que o S24 permite (Claude; branch `claude/nova-interface`; APK de teste build121 entregue)
+- **[Baixar ZIP com app-release.apk — build121 (1121)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39519382496/artifacts/12311002734)**. Artefato 12311002734, 162822382 bytes; sha256:8696b5fa9da4e33519c72658a63ecb659770832c171c090ec07749a095a2e7a5; fonte 9b83838 (gatilho 6f4995e, restaurado em c3da167); expira 2026-11-20; sem release.
+- **Pedido do dono (21/10):** pesquisar como implementar o vídeo noturno, agora com o vídeo dele em mãos.
+- **Vídeo do dono** (0.36.1, HLG 10 bits, 23,9 fps), brilho medido quadro a quadro:
+  - 1× ≈ 0,35; 3× no escuro ≈ 0,13.
+  - Ao trocar para a tele 5×, cai num degrau para 0,027 (4,6×, ≈ 2,2 EV), fica parado 1,5 s e volta a 0,12 quando a câmera retorna à 3×.
+- **Simulação offline nos quadros de 10 bits:**
+  - Ganho de ~14× linear com ombro: 0,034 → 0,127 (igual à 3×), ruído ~2× o da 3×.
+  - Juntar 12–24 quadros alinhados tira só ~10% do ruído, porque o ISP da Samsung já faz denoise temporal e o grão que sobra é correlacionado.
+- **Pesquisa** (código do CameraX; Low Light Boost do CameraX 1.5; documentação Camera2):
+  - **HLG + efeito:** o CameraX aceita efeito com HLG 10 bits (EGL RGBA1010102, `EGL_EXT_gl_colorspace_bt2020_hlg`, `GL_EXT_YUV_target`). A regra "HLG desliga efeitos" é do app, e dá para manter o HDR.
+  - **Antes do GL, vem a luz física:** faixa de fps [15,30] (+1 EV), ISO manual acima do teto analógico, `POST_RAW_SENSITIVITY_BOOST` e Low Light Boost (`CONTROL_AE_MODE_ON_LOW_LIGHT_BOOST_BRIGHTNESS_PRIORITY`, sem restrição de 10 bits desde o CameraX 1.5.0-rc01). Nenhum dump público do S24 mostra se eles existem.
+- **Feito** (só leitura, nada muda na câmera):
+  - O Diagnóstico mostra por câmera e lente física: ISO total e analógico, boost pós-RAW, modos de AE (Low Light Boost sim/não), modos de NR, curva de tom, relógio do sensor e dados de OIS.
+  - Também mostra as extensões de GPU para HDR: config 10 bits, EGL HLG, YUV_target, float16, timer.
+- **Próximo (depende do Diagnóstico do aparelho):**
+  1. Luz física: fps, ISO acima do teto ou Low Light Boost, o que existir.
+  2. Processador GLES3 em HLG: decodificação BT.2020, ganho em luz linear, ombro, AWB e marca d'água embutida.
+  3. Denoise temporal com giroscópio, só se medir ganho.
+- **Mudou × não mexi:** mudou só o texto do Diagnóstico. Não mexi em foto, vídeo nem câmera.
+
+---
+
+# 0.36.2 — Vídeo no 5× com pouca luz usa a lente 3× (Claude; branch `claude/nova-interface`; APK de teste build120 entregue)
+- **[Baixar ZIP com app-release.apk — build120 (1120)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39504988708/artifacts/12303785864)**. Artefato 12303785864, 162820312 bytes; sha256:050cca26b7735ed5aefb932d41a8a5d4744688dc93d6876e1e45584bd0468bdf; fonte d32f14b (gatilho 3e64f10, restaurado em 6db65af); expira 2026-11-19; sem release.
+- **Pedido do dono (20/10):** filmando, ao dar zoom para 5× e 10× a imagem fica preta, mesmo com luz; a 3× fica normal. A qualidade das fotos deve continuar exatamente como está.
+- **Diagnóstico 0.36.1:**
+  - Prévia 1× a ISO 1468, 1/30 s: ambiente escuro para a câmera.
+  - A 5× (f/3,4) seriam +2 EV, ou seja, ISO ~5900 contra o teto de 3200.
+  - A 60 fps a exposição ainda fica limitada a 1/60 s.
+  - MP4 saiu a 24 fps (o FPS automático já agiu).
+  - Registro de zoom: a Samsung troca 3×↔5× em ~5,0× (6→7 em 4,995×; 7→6 em 4,817×).
+- **Pesquisa:**
+  - iPhone e S24 Ultra usam a lente mais clara com recorte quando a tele está escura (Notebookcheck, Android Authority; sem documento oficial).
+  - A 5× nativa recolhe mais fótons no mesmo enquadramento, mas só ganha com ganho digital + denoise temporal no GPU.
+  - Esse caminho exige efeito de GL no vídeo, incompatível com o HDR (HLG) que o dono usa. Fica como proposta, não feito.
+  - 60 → 30 fps dá +1 EV; 30 → 24, +0,32 EV.
+- **Feito** (`core/VideoTeleLight.kt`):
+  - **Gatilho:** no vídeo (traseira, câmera lógica), quando a lente ativa está no teto. Na 3×, quando a 5× pediria ≥ 90% do ISO máximo com exposição ≥ 1/40 s; na 5×, quando ela já está nesse ponto.
+  - **Efeito:** a faixa 4,9–6× fica em 4,9× na lente 3×. É o dobro de luz. São ~2190 px de largura (Full HD ok) e 2% de enquadramento a menos que 5×.
+  - **Histerese:** solta a ≤ 55% do teto.
+  - **Gravando:** a troca espera o próximo zoom do usuário, sem salto no meio da cena.
+  - **Registro e aviso:** o diagnóstico de vídeo grava cada troca, e um aviso aparece uma vez.
+- **Limite honesto:**
+  - 10× continua na tele 5×. Pela 3× seriam ~1090 px, pior que a tele escura.
+  - Entre 4,9× e 6× a imagem fica parada em 4,9× (zona morta) e pula ao passar de 6×.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Zoom pedido no vídeo entre 4,9× e 6× com pouca luz | Fotos (todos os modos), vídeo com luz boa, HDR/HLG, FPS automático, estabilização |
+
+- **Testes:** `VideoTeleLightTest` (+4). A suíte completa e o lint passaram aqui. Nada foi testado no aparelho.
+
+---
+
+# 0.36.1 — Retrato: objeto em contraluz clareado; contraluz só com rosto (Claude; branch `claude/nova-interface`; APK de teste build119 entregue)
+- **[Baixar ZIP com app-release.apk — build119 (1119)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39487649489/artifacts/12294842293)**. Artefato 12294842293, 162818906 bytes; fonte 0833f0b (gatilho 1f9fac9, restaurado em efdb79c); sem release. Profundidade, detalhe, mão, cena e detector no APK; o detector só entra se for aprovado.
+- **Retorno do dono (20/10).** As duas fotos enviadas foram feitas na **0.35.0** (EXIF), ou seja, sem as mudanças da 0.36.
+  - **Pano verde:** gravou "pessoa em contraluz clareada (0,6 EV)" sem nenhuma pessoa.
+  - **Retrato da garrafa:** ainda escuro; o dono pediu clareamento natural.
+- **Bug do pano (`BacklitLift.plan`):**
+  - **Causa:** o segmentador multiclasse leu pano e sofá como "roupa/corpo" (59% da cena, rosto 0%), e o clareamento rodou.
+  - **Correção:** agora exige rosto em pelo menos 0,3% da cena (pessoa longe ainda entra).
+  - As manchas escuras no pano podem ser do próprio pano. Pedir o original (Originais) ao dono para comparar.
+- **Retrato de objeto em contraluz** (`BacklitLift.planSubject`, mesma conta e mapas do contraluz da pessoa, guiados pelo recorte do Retrato):
+  - **Gatilho:** assunto abaixo de 0,35, fundo pelo menos 0,25 mais claro.
+  - **Alvo:** 0,38 × o fundo, no máximo 1 EV em sRGB.
+  - **Proteção:** só tons abaixo da faixa sobem; brancos e amarelos do rótulo ficam. A pesquisa usada é a semântica tipo Smart HDR/HDR+, com ganho guiado por máscara e o assunto continuando abaixo do fundo.
+  - **Medido na garrafa do dono:** Nova 0.35, rótulo 0,09 × parede 0,68; Samsung, rótulo 0,149.
+  - **Simulado:** rótulo 0,09 → 0,142, sem halo e com o fundo intacto.
+- **Fundo do Retrato:** de ×0,92 (0.36.0) para ×0,96. O destaque passa a vir de subir o assunto, não de escurecer o fundo; o dono achou o Retrato escuro.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Contraluz da pessoa exige rosto | Força do contraluz da 0.36.0 |
+| Objeto do Retrato em contraluz clareado | Recorte, profundidade, desfoque (+33% da 0.36.0) |
+| Escurecimento do fundo do Retrato mais leve | Tudo o mais da 0.36.0 |
+
+- **Testes:** `BacklitLiftTest` (+2: sem rosto não é pessoa; objeto do Retrato). A suíte completa e o lint passaram aqui.
+
+---
+
+# 0.36.0 — Tele com pouca luz, Retrato com mais destaque, selfie contraluz, mensagens e ícone de cena (Claude; branch `claude/nova-interface`; APK de teste build118 entregue)
+- **[Baixar ZIP com app-release.apk — build118 (1118)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39462378228/artifacts/12283428444)**. Artefato 12283428444, 162818524 bytes; fonte 983f5c5 (gatilho 4db851a, restaurado em ecdafb6); sem release. Detector APROVADO; profundidade, detalhe, mão, cena e detector no APK.
+- **Pedido do dono (20/10, testes da 0.35):** "pode fazer tudo que você disse", com pesquisa antes e resultados excelentes. Mensagens: "Em processamento" breve, sem ficar fixa, e "Concluído" ao terminar. Tela da foto: só o resultado final. Objeto tocado sem o nome; cena ao lado do zoom, como Samsung/iPhone.
+- **Pesquisa (3 frentes):**
+  - Night Sight/HDR+ e Smart HDR para pouca luz e contraluz.
+  - Pixel/BokehMe/Filament para Retrato.
+  - Scene Optimizer e licenças de classificadores.
+  - Valores e fontes estão no handoff.
+- **Medição nas fotos do dono antes de mexer:**
+  - **Cama 5×:** "Noturno · 3 de 3 quadros" de 1/24 s, ISO 2056. Preto correto (p0,5 = 1/255), ou seja, sem véu. Ruído de luma 4,2 (TV 3×: 2,8) e saturação 0,22 (TV: 0,33).
+  - **Garrafa:** a Samsung tem mais nitidez medida (6,6 × 4,0, com halo de nitidez); o Nova é mais limpo e sem halo.
+  - **Selfie contraluz:** rosto 0,38 × parede 0,80, e o clareamento não entrou (limite de 0,40).
+- **Tele com pouca luz:** o Noturno na tele (3×/5×/10×) agora funde até **8 quadros**; antes eram 3 (FOTO no escuro) ou 5. O ruído cai ~√(8/3) ≈ 1,6× sem aumentar o tremido por quadro. Os quadros são lidos em faixas: custa tempo, não memória. O tom do Noturno não foi mexido (decisão anterior do dono), e por isso a saturação não foi aumentada.
+- **Selfie contraluz** (`BacklitLift`):
+  - Alvo do rosto 0,46 → 0,52 e limite 0,75 → 1 EV, em sRGB (≈ 2,2 EV em luz linear).
+  - Rosto entre 0,40 e 0,46 também entra quando o fundo está ≥ 0,30 mais claro.
+  - Simulado na foto do dono (segmentador do app em Python): rosto 0,38 → 0,52, parede intacta, sem halo.
+- **Retrato** (foto e prévia, mesma conta):
+  - Desfoque +33%: raio 6 + 24·s; no padrão, ~2,6% da largura (pesquisa: ~2%).
+  - Fundo desfocado ×0,92 em sRGB (≈ −0,27 EV linear), para o assunto "saltar" como na Samsung.
+  - Opção "Fundo escuro" e recorte não mudaram.
+- **Mensagens:**
+  - "Em processamento" aparece por 3,5 s e some. O selo fixo com etapa e porcentagem saiu; o anel da miniatura mostra o andamento.
+  - "Concluído · foto pronta na galeria" aparece uma vez, quando a fila esvazia. Falhas e notas continuam com prioridade.
+- **Tela da foto** (a da galeria do app):
+  - Abre só com o resultado, sem linha nem rótulos.
+  - Tocar e segurar mostra o original.
+  - Botão "Comparar com o original" liga a linha.
+- **Ícone de cena ao lado do zoom** (`core/SceneDetect.kt`, `camera/SceneWatcher.kt`, `core/imaging/SceneTone.kt`):
+  - **Fontes:** classificador EfficientNet-Lite0 int8 (Apache-2.0, 5,4 MB) a ~1×/s sobre um quadro de 320 px da prévia, para animal e comida. Planta pela cobertura de verde mais o grupo de planta. Pessoa pelos rostos.
+  - **Calibração da folhagem:** fotos de planta do dono deram 0,06–0,24; garrafa, cama, TV e selfies ≤ 0,006. A planta entra a partir de ~0,14.
+  - **Histerese:** entra com 0,6 estável por 0,7 s; sai abaixo de 0,45 por 1 s; no máximo uma troca a cada 2 s.
+  - **Comportamento do ícone:** aparece com nome e recolhe para só o ícone em 1,5 s. Tocar desliga o ajuste (ícone apagado).
+  - **Ajuste na foto, leve e sem tocar pele:** planta com vibrance +8% só nos verdes; comida com vibrance +8% e +2% de calor. Pessoa e animal: só o ícone (sem mudar cor).
+- **Toque no objeto:** fica só a caixa, sem o nome.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Quantos quadros o Noturno funde na tele (até 8) | Tom, preto e brilho do Noturno; Noturno na 1× |
+| Força do clareamento da pessoa em contraluz | Medição na captura (`BacklightMeter`) |
+| Raio do desfoque e leve escurecimento do fundo no Retrato (foto e prévia) | Recorte/máscara do Retrato, "Fundo escuro", profundidade |
+| Mensagens de processamento e aviso de concluído | Captura, disparo, anel da miniatura |
+| Tela da foto abre só no resultado (comparação vira botão) | Ajustes de intensidade/desfoque e IA na tela da foto |
+| Ícone de cena + ajuste leve em planta/comida (FOTO) | Vídeo, Pro, Retrato, Noturno não recebem ajuste de cena |
+| Objeto tocado sem nome | Contorno e caixa do toque |
+
+- **Testes:**
+  - `SceneDetectTest` (+5) e `BacklitLiftTest` (+1, mais o caso 0,38 × 0,80).
+  - A suíte completa e o lint passaram aqui.
+  - Nada foi testado no aparelho. O ganho real de ruído na tele depende de a fusão aceitar os 8 quadros (o Diagnóstico mostra "N de 8").
+
+---
+
+# 0.35.0 — Bug dos controles ao vivo + zoom tátil, obturador, nível iPhone, AE/AF e volume (Claude; branch `claude/nova-interface`; APK de teste build117 entregue)
+- **[Baixar ZIP com app-release.apk — build117 (1117)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39452275118/artifacts/12278424518)**. Artefato 12278424518, 158376911 bytes; fonte b38122f (gatilho 1c81fdb, restaurado em 2401d8b); sem release.
+  - **Detector no build117:** APROVADO, ncnn × ONNX com dif. 0,018 (era 0,91 no 116), classe mais forte = pessoa, sha256 do ONNX conferido.
+  - Isso confirma que a reprovação do 116 vinha do teste, não do modelo.
+- **Pedido do dono (20/10):** "pode fazer principalmente o bug" e as 10 sugestões da pesquisa. Este pacote traz o bug e os itens 1, 2, 3 e 6. Os itens 4, 5, 10 (0.36) e 7, 8, 9 (0.37) vêm depois, cada um validado.
+- **Bug dos controles ao vivo** (Desfoque, Tom, Temperatura sumiam até sair e entrar no app):
+  - **Causa:** uma única falha do efeito da prévia, ou duas travadas, ligava `portraitPreviewFailed` para sempre na sessão.
+  - **Agora** (`core/EffectBreaker.kt`): um disjuntor com espera de 4 s, depois 20 s, depois 120 s. Passada a espera, a câmera religa o efeito sozinha, se não estiver gravando nem fotografando. Sessão nova zera tudo.
+- **Detector (CI):** o build116 reprovou o PicoDet (dif. 0,91) mas copiou os arquivos antes da checagem, então o modelo entrou na 0.34.0 mesmo assim. Agora só entra aprovado. A dif. 0,91 provavelmente veio do próprio teste (memória do binding Python liberada cedo, reproduzido aqui), não do modelo. O build da 0.35 confirma. Tenta fp16 e fp32; se reprovar, o log mostra o primeiro nó divergente. sha256 do ONNX fixado.
+- **Item 1, zoom tátil** (`core/ZoomDetent.kt`):
+  - Tique leve a cada passo: 0,1× até 3×, 0,5× até 10×, 1× acima, no máximo um a cada 35 ms.
+  - Tique forte ao passar por 0,6/1/3/5/10…, nos dois sentidos.
+  - Tique de limiar ao trocar de lente.
+  - Só durante o gesto do usuário (pinça ou régua), não em zoom automático.
+- **Item 2, identidade:**
+  - O obturador encolhe 12% com mola e solta um anel.
+  - A miniatura da foto "voa" até o canto da galeria (420 ms).
+  - Números do zoom com algarismos tabulares, que não "dançam".
+- **Item 3, nível iPhone:**
+  - Duas marcas fixas e uma linha central que gira.
+  - Abaixo de 1° tudo fica amarelo, se junta, e vem um tique.
+  - Celular deitado (foto de cima): cruz amarela fixa e um círculo que se move até centralizar.
+- **Item 6, AE/AF e volume:**
+  - Ao travar, o retículo pulsa duas vezes e assenta em amarelo, com tique de limiar.
+  - A régua de exposição se interrompe em volta do sol.
+  - **Volume +:** dispara na hora, como antes.
+  - **Volume −:** toque curto dispara ao soltar; segurar 0,35 s trava AE/AF no maior rosto (ou no centro) sem disparar.
+  - **Custo:** o Volume − dispara ~0,1 s mais tarde que o +, porque precisa esperar o soltar. Por isso o + continua instantâneo.
+- **Mudou × não mexi:**
+
+| Mudou | Não mexi |
+|---|---|
+| Religar do efeito da prévia (controles ao vivo) | Noturno, HDR, tom, IA de ruído e de detalhe |
+| Tiques do zoom e da troca de lente | Curva e velocidade do zoom |
+| Animação do obturador, miniatura voando, números do zoom | Disparo e captura em si (sem atraso novo no botão nem no Volume +) |
+| Desenho do nível e mira de cima | QR, texto, contraluz, toque inteligente, Retrato |
+| Pulso do AE/AF, régua do sol, Volume − | Vídeo e Cinema |
+| CI do detector (só entra aprovado) | Assinatura e keystore |
+
+- **Testes:** `EffectBreakerTest`, `ZoomDetentTest` (+3). A suíte completa e o lint passaram aqui.
+
+---
+
+# 0.34.0 — Contraluz nas duas câmeras, toque inteligente e Retrato de objeto (Claude; branch `claude/nova-interface`; APK de teste build116 entregue)
+- **[Baixar ZIP com app-release.apk — build116 (1116)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39447653695/artifacts/12277308920)**. Artefato 12277308920, 158374155 bytes; sha256:a1ac2670bcc1ec02944650a7dbe2ebbe1fd21a83b81654098db09cb49bf71911; expira 2026-11-19T15:30:27Z; sem release.
+- **Ressalva do build116:** a checagem do detector reprovou (dif. 0,91) e mesmo assim o modelo entrou no APK. O build117 mostrou que o erro era do teste (dif. 0,018 com o mesmo ONNX), então o detector da 0.34 provavelmente estava certo.
+- **Pedido do dono (20/10):** fazer as quatro sugestões da pesquisa, inclusive na traseira. O bug dos controles ao vivo fica registrado (handoff) para o próximo pacote, junto com as próximas sugestões.
+- **Contraluz A, medição na captura** (`core/BacklightMeter.kt`): com rosto na prévia, a compensação compara o rosto com o resto da cena. Rosto abaixo de 0,42 e pelo menos 0,16 mais escuro que o resto = contraluz, mesmo sem nada estourado. Antes exigia 2% estourado, e a selfie de 20/10 tinha 0,24%. A compensação leva o rosto a ~0,42, em luz linear (gama 2,2): ex. +0,77 EV para rosto 84/255. Com mais de 25% estourado, não sobe mais. Frontal e traseira.
+- **Contraluz B, HDR:** os quadros do HDR partem da exposição já corrigida pelo rosto; o quadro curto continua protegendo o céu.
+- **Contraluz C, pessoa clareada no processamento** (`BacklitLift`): agora também na traseira (antes só selfie). Sem pessoa grande o bastante, nada muda.
+- **Toque inteligente** (`processing/ObjectDetector.kt`, `cpp/detect.cpp`, `core/Detections.kt`):
+  - **O que faz:** o toque, além do contorno (MagicTouch), mostra uma caixa com cantos arredondados e o nome do objeto num chip de vidro ("Planta", "Garrafa", "Pessoa"…, 80 classes COCO em português), e some em ~3 s.
+  - **Modelo:** PP-PicoDet-S 416 (Apache-2.0), CPU, ~1,2 GFLOP por toque, convertido no CI (`tools/picodet/export_ncnn.py`). O exportador corrige o `roi` do Resize que o ncnn não aceitava.
+  - **Validação local**, com o PicoDet v1 de mesmo formato do espelho, só para validar o código; o APK usa o LCNet oficial baixado no CI: ncnn × ONNX com notas a 0,008 de diferença. Garrafa da Coca 0,81, cama 0,92, selfie = pessoa 0,98, foto de exemplo do COCO = pessoas e pipa.
+  - **Limite:** só as 80 classes COCO ("vaso de planta" sim; árvore e planta no chão não). Fora delas, fica só o contorno.
+- **Retrato de objeto:** tocou fora da pessoa, o recorte do objeto (MagicTouch na própria foto, 768 px) vira o assunto e a profundidade só completa o recorte. Nota da foto: "Assunto: objeto tocado (recorte + profundidade)". Antes o assunto do toque vinha só da profundidade.
+- **Mudou × não mexi:** mudaram a medição de contraluz (rosto), o clareamento de pessoa (também traseira), a caixa e o nome do objeto ao tocar, e o assunto do Retrato quando se toca num objeto. Não mexi em Noturno, vídeo, tom geral, IA de ruído e de detalhe, QR nem texto.
+- Testes: `BacklightMeterTest` (+3), `DetectionsTest`; 447 no total.
+
+---
+
+# 0.33.0 — QR e texto com visual premium + selfie em contraluz (Claude; branch `claude/nova-interface`; APK de teste build115 entregue)
+- **[Baixar ZIP com app-release.apk — build115 (1115)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39444011567/artifacts/12275751060)**. Artefato 12275751060, 156122445 bytes; sha256:0f6a0687d7570de9996df0935785bcb6f492eb0c1ceeebae729afb6110c907cb; expira 2026-11-19T15:06:40Z; sem release.
+- **Pedido do dono (20/10, prints da 0.32.1):** QR e texto funcionam, mas "muito genérico; tem que ter cara de premium (referência iPhone)". A selfie em contraluz precisa ficar melhor. "O resto está perfeito: não mexer em mais nada."
+- **QR:**
+  - **Aviso ancorado no código** (`ui/CodePill.kt`): logo abaixo do código, ou acima se faltar espaço, preso dentro do visor e deslizando quando o código se move. Antes ficava em cima da barra de zoom.
+  - **Visual:** ícone num círculo com o degradê do app (link, Wi-Fi, telefone, e-mail, texto), o essencial em destaque (domínio/rede/número), a ação embaixo ("Abrir link"; link sem https vem em laranja) e uma seta. Vidro escuro com borda de 1 px.
+  - **Moldura:** cantos arredondados e traço de 4,5 dp com brilho azul, mais uma "respiração" de ±2,5% enquanto o código está na tela.
+- **Texto** (`ui/TextLensView.kt`, `core/TextBlocks.kt`):
+  - **Blocos:** caixas repetidas (≥ 60% dentro de outra) saem, e linhas do mesmo parágrafo viram um bloco.
+  - **Destaque:** sem bordas; o texto acende e o resto escurece. Na entrada, um brilho diagonal atravessa cada bloco.
+  - **Seleção:** azul suave com contorno fino. Toque e segure copia só aquele bloco.
+  - **Moldura da tela:** durante a leitura os controles da câmera saem com fade. Entram um botão de fechar redondo no topo, uma dica ("Toque para selecionar · segure para copiar o bloco") e uma barra de vidro com ícones e rótulos: Copiar, Selecionar/Limpar, Abrir link (se houver), Compartilhar. O botão voltar fecha.
+- **Selfie em contraluz** (`core/imaging/BacklitLift.kt`): só na câmera frontal (Foto/HDR).
+  - **Como funciona:** o segmentador do Retrato (pessoa + pele do rosto) mede o rosto contra o fundo. Se o rosto estiver abaixo de 0,40, com 0,18 de diferença para o fundo, a pessoa clareia até o rosto chegar a ~0,46 (no máximo 70% do fundo e 1,68× nos valores).
+  - **Sem halo:** só sobem os tons mais escuros que o fundo; a borda da máscara é curta.
+  - **Validação na versão reduzida:** a pessoa precisa clarear ≥ 8% sem estourar mais que 0,5%. A revisão reaplica igual, com os mapas gravados na sessão.
+  - **Selfie do dono (20/10, simulada no servidor com o mesmo modelo):** rosto 84 → 133 de 255; estouro igual (0,24%); halo removido na segunda versão da regra.
+- **Mudou × não mexi:** mudaram só o visual do QR, a tela de texto e a contraluz da selfie (câmera frontal). Não mexi em câmera traseira, Noturno, Retrato, vídeo nem no tom de nenhuma outra foto.
+- Testes: `BacklitLiftTest`, `TextBlocksTest` (+ anteriores; 439 no total).
+
+---
+
+# 0.32.1 — Galeria atualizada, QR da garrafa, texto automático (Claude; branch `claude/nova-interface`; APK de teste build114 entregue)
+- **[Baixar ZIP com app-release.apk — build114 (1114)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39359607009/artifacts/12236309889)**. Artefato 12236309889, 156108582 bytes; sha256:29ec010c31c32e1bc4fd03f47ad5f915b1646c11b47d40d2b63351aebcce4379; expira 2026-11-19T02:42:55Z; sem release. Fonte dc6ec59; gatilho restaurado em 0d5689c.
+- **Retorno do dono (20/10, noite):**
+  - "Na revisão a foto sai perfeita e na galeria não."
+  - "QR da garrafa não lê."
+  - "Texto e QR precisam de animação, como na Samsung."
+  - O app fechou uma vez.
+- **Galeria × revisão, medido:** o arquivo que o dono mandou (6000×8000, "Nova Zoom", 0.31.6) tem as mesmas cores do lado "Nova" da revisão (até 0,3/255 de diferença em 4 regiões). Nesse par, a Nova foi para a galeria. Em relação ao original ela muda pouco (~5/255 na parede): o processamento já é gentil.
+  - **O defeito real:** na FOTO comum, na IA em segundo plano e no "Ajuste salvo", o app regrava o mesmo arquivo da galeria e não avisava o Android. A galeria da Samsung podia continuar mostrando a versão guardada antes.
+  - **Correção:** `MediaWriter.refresh` (notifyChange + MediaScanner) depois de toda regravação.
+  - **Diagnóstico:** a última etapa da foto agora diz "galeria conferida: versão Nova / SEM marca Nova", relendo o arquivo gravado.
+  - **Revisão:** toque e segure mostra o original inteiro no mesmo lugar e soltar volta à Nova. A linha compara partes diferentes da cena e enganava o olho.
+- **QR:**
+  - **Leitura:** além da prévia inteira a 960 px, o app lê o centro (metade da largura e da altura) na resolução da tela, e também códigos invertidos. Testado com a foto do dono: a garrafa não saía na inteira a 960 px e sai no centro (`cokeurl.com/q/BR-OOH-2000`). Custo: ~2 leituras de ~20 ms por passada; ler a prévia cheia custaria ~70 ms.
+  - **Visual:** moldura animada nos 4 cantos do código, que entra com um "encaixe" e segue o código entre as leituras (`core/CodeFrame.kt`, `ViewfinderOverlay.showCode`). O aviso arredondado com ícone de QR fica acima do disparador ("Link · instagram.com") e entra e sai com animação.
+- **Texto (`camera/TextSpotter.kt`, `core/TextSpot.kt`, `ui/TextLensView.kt`):**
+  - **Botão automático:** na FOTO, a cada ~1,5 s (3,5 s com calor ou economia) só o detector olha a prévia a 480 px. Com texto em 2 leituras seguidas, aparece o botão "T" no canto; sem texto em 2, ele some.
+  - **Validação no servidor com o mesmo modelo:** garrafa = sim (o texto "RECICLE-ME" é vertical, por isso linhas em pé contam); cama estampada, parede e as fotos de 10× = não.
+  - **Leitura:** o toque congela a imagem, uma faixa de luz varre enquanto o leitor trabalha, e as linhas acendem uma a uma (o resto escurece). Toque numa linha marca ou desmarca. Ações: Tudo, Copiar, Abrir link (se houver), Compartilhar, ✕; o botão voltar fecha.
+  - **Opção:** "Detectar texto na Foto" (ligada).
+- **Fechamento do app:** SIGABRT na `libnovadenoise.so`, thread do leitor de texto, 19/10 22:11 (horário local). O leitor de texto passou para a CPU (não disputa a GPU com NAFNet e profundidade) e a carga e liberação passam pelo `NativeGate`. O diagnóstico de fechamento agora mostra o deslocamento de cada quadro (`? +0x…`), para achar a função na próxima vez. Não posso afirmar que a causa era essa sem o deslocamento.
+- **IA de detalhe:** o aparelho não informa o sensor da tele (`sensor=null×null`). A lente agora vem da focal real do JPEG cruzada com as lentes do aparelho (`CaptureOptics`: ex. 7,9 mm → 2,74×). Na foto da cama: 3,0 ÷ 2,74 = 1,09×, então não entra, e está correto.
+- **Mudou × não mexi:** mudaram o aviso à galeria, a revisão (segurar), o QR (leitura e visual) e o texto (botão automático e tela de leitura); o leitor de texto foi para a CPU. Não mexi em processamento, tom, Noturno, Retrato nem vídeo.
+- Testes: `CodeFrameTest`, `TextSpotTest`, `QrContent.label`.
+
+---
+
+# 0.32.0 — Galeria no app, disparo com a palma e IA de detalhe no zoom (Claude; branch `claude/nova-interface`; APK de teste build113 entregue)
+- **[Baixar ZIP com app-release.apk — build113 (1113)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39356816098/artifacts/12235058659)**. Artefato 12235058659, 156086536 bytes; sha256:369405794c2a92918134248749e2c261755644c7981f3fa2e989cc43b72f8987; expira 2026-11-19T02:12:26Z; sem release. A verificação do CI confirmou no APK os modelos de detalhe, de mão e de profundidade (NAFNet obrigatório). Fonte 25b1fae; gatilho restaurado em 96bc27a.
+- **Pedido do dono (20/10):** fazer os extras que faltavam; DNG fundido fica de fora (a fusão é em JPEG, então não seria RAW de verdade).
+- **Galeria no app (`GalleryActivity`, `core/GalleryBadge.kt`):** o toque na miniatura agora abre uma grade com as fotos e vídeos da Nova (sem originais e sem rajadas de diagnóstico). Cada foto tem um selo:
+  - **IA:** ruído reduzido ou detalhe aplicado. Vem da descrição EXIF, então vale para qualquer foto.
+  - **IA…** ou **IA na fila:** a IA está trabalhando; o selo é relido a cada 3 s.
+  - **IA recusada** ou **sem ruído:** só nas últimas 4 sessões de revisão.
+  - **NOVA:** ajustada sem IA.
+
+  Tocar numa foto abre a comparação quando ela ainda tem sessão de revisão; senão abre o visualizador do aparelho. Toque e segure: abrir fora, compartilhar, apagar. Não precisa de permissão de leitura, porque o Android mostra ao app só os arquivos que ele criou. Depois de reinstalar, as fotos antigas somem da grade, mas continuam na galeria do aparelho. A comparação, que antes ficava no toque e segure da miniatura, continua lá.
+- **Disparo com a palma (`camera/PalmShutter.kt`, `core/PalmPose.kt`), desligado por padrão:** na Foto e no Retrato, a palma aberta por ~0,7 s inicia o contador de 3 s (ou o temporizador, se for maior). Depois do disparo, espera 5 s antes de aceitar outra palma.
+  - **Modelo:** detector de mão do MediaPipe (Apache-2.0 pelo model card; 7,8 MB baixados no build com sha256 fixo). O classificador de gestos pronto da Google não entra porque não tem licença publicada.
+  - **Regra da palma, feita pelo app:** quatro dedos esticados (ponta ≥ 1,15× mais longe do pulso que a junta), polegar afastado, mão com pelo menos 6% da imagem.
+  - **Validação:** com o modelo real no servidor, nas imagens de teste do próprio MediaPipe, acertou 9 de 9 (2 mãos abertas sim; punho, polegar para cima e para baixo, indicador e "V" não). O conjunto é pequeno, então falta ver no aparelho como se comporta a mão de lado ou com pouca luz.
+  - **Custo:** lê a prévia em 480 px ~4×/s (~1,5×/s com calor ou economia) e pula a leitura se outra IA nativa estiver ocupada. O custo por leitura não foi medido no S24.
+- **IA de detalhe (`processing/DetailRestorer.kt`, `core/imaging/DetailGate.kt`, `core/DetailPolicy.kt`):** Real-ESRGAN compacto (`realesr-general-x4v3` misturado com o `wdn` a 0,3) no ncnn que já existe, convertido no CI (`tools/realesr/export_ncnn.py`, ncnn × PyTorch 68 dB no servidor).
+  - **Quando:** só na foto ampliada digitalmente sobre a tele (super-resolução ≥ 1,8×, ou zoom ÷ lente ≥ 1,8 com lente ≥ 2,5×; por exemplo 10× na lente 5×). Fica fora na principal, onde o 2× é recorte real do sensor de 200 MP, e também no Noturno, Retrato, Food e em fotos acima de 16,5 MP.
+  - **Como:** a foto vai à metade (a escala que o sensor viu), a rede devolve o dobro e cada bloco de 32 px passa pela checagem de volta: a saída reduzida precisa bater com a entrada (erro ≤ 0,010 aceita, ≥ 0,016 recusa). Blocos recusados crescem um bloco para os lados; a transição é suavizada. Se menos de 15% da foto for aceita, a foto fica como está.
+  - **Calibração nas fotos de 10× do dono (15/10, fora do Git):** a checagem acendeu exatamente nas letras pequenas deformadas ("ÁGUA E PÓ") e na parede de reboco "pintada". Cimento aceito em 75% (desenho e grade bem mais nítidos), aspirador em 91% (mangueira mais nítida, letras mantidas do original), parede em 12% (foto mantida). Sem costura entre blocos.
+  - **Limite visto:** o chão liso de cimento perde um pouco de grão fino.
+  - **Ordem:** roda no mesmo refino em segundo plano do NAFNet, depois dele. Se o NAFNet recusar ou dispensar, o detalhe ainda pode entrar sozinho. O tom é reaplicado depois, então não muda.
+  - **Custo:** ~9 TFLOP numa foto de 12 MP; não medido no S24 (o diagnóstico mostra "IA de detalhe … N blocos em X ms").
+  - **Licença:** repositório BSD-3, com a ressalva de que os pesos não têm declaração separada (`docs/THIRD_PARTY.md`).
+- **Mudou × não mexi:** mudaram o toque na miniatura (agora abre a galeria do app), uma opção nova (palma) e a IA de detalhe só no zoom digital da tele. Não mexi em Noturno, tom, Retrato, vídeo, foto na principal nem na IA de ruído (o NAFNet não mudou; só o fluxo deixou de parar quando ele é dispensado).
+- Testes: `GalleryBadgeTest`, `PalmPoseTest` (pontos reais do detector), `DetailGateTest` (checagem, recusa com margem, mistura, política).
+
+---
+
+# 0.31.6 — Etapas F (documento), G (foco no escuro), aviso de lente suja e local opcional (Claude; branch `claude/nova-interface`; APK de teste build112 entregue)
+- **[Baixar ZIP com app-release.apk — build112 (1112)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39350868586/artifacts/12233283362)**. Artefato 12233283362, 147922395 bytes; sha256:13e5e23d208a297141d17c57788ef4d0adc22b4545dd15cb15bb38550cf87185; expira 2026-11-19T01:07:44Z; sem release. Fonte 527ead4; gatilho restaurado em 0e381d5.
+- **F — Documento (Ferramentas › "DOC"):** prévia na maior resolução disponível (sem nova captura) → `core/DocQuad.kt` acha a folha (maior região clara pelo limiar de Otsu, sem as que encostam em 3+ bordas; cantos pelos extremos de x+y e x−y; recusa se a área do quadrilátero não bate com a da região ou < 15% da cena) → perspectiva endireitada (`Matrix.setPolyToPoly`, até 3000 px) → `Pictures/Nova Camera/Documentos`. "Compartilhar PDF": uma página A4 pelo `PdfDocument` do Android em `Documents/Nova Camera`. Limites: folha clara sobre fundo mais escuro, inteira na tela; resolução da prévia (não da foto).
+- **G — Foco no escuro (`FocusPolicy.DARK_WAIT_MS`):** fora do Noturno, com ISO ≥ 1600 ou ≥ 33 ms, o refoco antes da rajada (ponto tocado ou centro) espera até 1,5 s em vez de 0,7 s. Noturno inalterado (1,2 s).
+- **Extra 1 — Aviso de lente suja (`core/LensSmudge.kt`):** reaproveita o quadro que o leitor de QR já lê, então o custo é quase zero. Só roda com luz boa (ISO ≤ 400 e ≤ 20 ms). O aviso "A lente parece suja" aparece quando o ponto preto fica ≥ 12% e o contraste ≤ 45% em ≥ 80% das amostras de 30 s, em ≥ 3 cenas diferentes. No máximo uma vez a cada 30 min. Os limiares vêm da teoria e não foram calibrados no S24 Ultra; se avisar sem motivo, subir `VEIL_BLACK`.
+- **Extra 4 — Salvar local (`core/GeoTag.kt`), desligado por padrão:** ao ligar, a câmera pede localização (precisa ou aproximada, a pessoa escolhe). Com a câmera aberta, usa a última posição do Android (provedor fused no Android 12+, senão GPS/rede; a cada 30 s ou 25 m). O app continua sem internet. A posição é copiada **no disparo** (`Job.geo`), não ao fim do processamento, e vai para o EXIF GPS da foto final, do original, da selfie espelhada e da gravação direta do CameraX. Posição com mais de 10 min ou imprecisão acima de 500 m não entra. Negar a permissão desliga a opção. Vídeo não leva local.
+- **Mudou × não mexi:** novo botão DOC; só o tempo de espera do foco no escuro; aviso de lente (só texto na tela). Local só com a opção ligada. Processamento, tom, QR, texto, vídeo intocados.
+- Testes: `GeoTagTest` (graus/min/seg e hemisfério; desligado, velho ou impreciso fica fora), `LensSmudgeTest`, `DocQuadTest` (cantos de uma folha inclinada ±3 px; mesa sem folha e parede clara recusadas), `FocusPolicyTest` (+1).
+
+---
+
+# 0.31.5 — Etapa E: ler texto (offline) + build resistente à falha do Google Drive (Claude; branch `claude/nova-interface`; APK de teste build111 entregue)
+- **[Baixar ZIP com app-release.apk — build111 (1111)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39349567047/artifacts/12233500190)**. Artefato 12233500190, 147905968 bytes; sha256:d86b38acd3d523add65253718830f9a2fcc868a1896a5b43fb495b00fa5bec4b; expira 2026-11-19T00:53:26Z; sem release. Inclui 0.31.1–0.31.4 (B, B2, C, D). Gatilho restaurado em d7dfb0e.
+- **Ler texto:** Ferramentas › "TEXTO" congela a prévia (snapshot de 1600 px, sem nova captura) e lê com PP-OCRv5 mobile (detector DB + reconhecedor CTC, 18.383 caracteres, inclui acentos do português) no ncnn que o app já tem (Vulkan quando disponível; uma IA nativa por vez). Resultado: texto selecionável (copiar um trecho com o gesto normal), "Copiar tudo", "Compartilhar"; links, e-mails e telefones viram toque (o Android pergunta o app). Sem internet.
+- **Pós-processamento sem OpenCV (`core/OcrPost.kt`):** componentes conectados do mapa do detector (limiar 0,3; caixa ≥ 0,6), expansão pela altura da linha (×1,95, como o exemplo oficial do ncnn), CTC (vazio, repetição, espaço), ordem de leitura por linha. Texto inclinado/vertical fica fora nesta versão. Linhas com confiança média < 0,5 descartadas.
+- **Validação real (no servidor, mesmo modelo e mesmo pós-processamento, ncnn Python):** imagem limpa com "Máscara descartável INFANTIL / Cuidando com carinho / das crianças do Brasil / Contém 50 unidades · R$ 19,90" → 4/4 linhas corretas (confiança 0,96–0,99). Recorte escuro da caixa na foto Samsung de 19/10 → "INFANTIL", "Contem", "50" e parte das linhas (cena no limite do sensor).
+- **Licença:** pesos PaddleOCR Apache-2.0; conversão ncnn do autor do ncnn (nihui/ncnn-assets), baixada no build com sha256 fixo; dicionário e pré/pós-processamento adaptados do exemplo oficial do ncnn (BSD-3). `docs/THIRD_PARTY.md`. APK +~10,7 MB.
+- **CI:** o build 110 (0.31.3) caiu porque o Google Drive dos pesos oficiais do NAFNet recusou o download ("acessos demais") e o APK saiu sem a IA (a verificação final barrou, como deve). Agora o modelo convertido fica em cache do Actions e o download tenta 3 vezes.
+- **Mudou × não mexi:** novo botão e leitor sob demanda; nada roda sozinho. Captura, processamento, QR, vídeo intocados.
+- Testes: `OcrPostTest`.
+
+---
+
+# 0.31.4 — Etapa D: QR e códigos de barras sempre ligados na FOTO (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
+- **Pedido do dono (20/10):** leitura de QR como a câmera nativa, sempre ligada na FOTO.
+- **Como:** zxing-cpp 3.0.2 (Apache-2.0, conferido no POM oficial; `docs/THIRD_PARTY.md`) lendo a própria prévia (snapshot de 960 px pelo `PreviewFrameReader`, sem stream novo da câmera) ~2,5×/s; com calor ≥ moderado ou economia, 1×/s; pausa durante a captura; só no modo FOTO (`camera/QrScanner.kt`).
+- **Na tela:** chip "QR · domínio ›" (vibração curta); some 4 s depois de o código sair da imagem. Toque mostra o conteúdo inteiro antes de qualquer ação: link (domínio no título; sem https leva aviso) → Abrir/Copiar; Wi-Fi → Conectar (painel do próprio Android, API 30+) / Copiar senha; telefone → Ligar (abre o discador); e-mail → Escrever; texto/código de produto → Copiar/Compartilhar. **Nada abre sozinho.** Sem permissão nova (o app continua sem internet).
+- **Classificação testável (`core/QrContent.kt`):** link (https/http/www), WIFI: com escapes, tel:, mailto:, MATMSG:, texto; repetição do mesmo código suprimida (`QrDedupe`).
+- **Opção:** "Ler QR e códigos de barras na Foto" (ligada).
+- **Mudou × não mexi:** só a leitura da prévia na FOTO e o chip. Captura, processamento, foco, vídeo intocados.
+- **Não medido no aparelho:** custo por leitura (o diagnóstico ainda não mostra; `QrScanner.lastReadMs` disponível para a próxima versão).
+
+---
+
+# 0.31.3 — Etapa C: atenção ao assunto na FOTO no escuro (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
+- **Pedido do dono (19–20/10):** sem toque, achar sozinho onde há informação na sombra (a caixa com a criança e as letras embaixo do frasco) e dar prioridade a ela; com toque, o objeto tocado; o resto não muda. Nada de deixar a foto inteira clara como no Noturno.
+- **Detector de objetos adiado por licença:** o EfficientDet-Lite0 do MediaPipe não tem licença publicada pela Google (nem no arquivo nem em model card; só um pacote de terceiros diz Apache-2.0). A regra do projeto exige licença confirmada. Alternativa com licença clara para depois, se precisar: NanoDet (Apache-2.0, roda no ncnn que já temos).
+- **Como acha o assunto (`core/imaging/SubjectAttention.kt`):** na foto reduzida (~512 px) e suavizada (o ruído some, contorno real fica): densidade de contornos acima do piso de ruído da própria cena × escuridão local (média abaixo de ~30%); mais o ponto tocado (círculo de 12% do menor lado). Bordas suavizadas para não haver recorte visível.
+- **O que faz:** só nessas áreas, sombra sobe até +0,8 EV pela luminância suavizada (como o tom local), preto profundo (< ~3%) e meio-tom/alta luz intocados, sem estourar (teto 250).
+- **Validação antes de valer:** cobertura de assunto entre 0,5% e 40% da cena (senão não é "atenção"), a área clareia ≥ 8% e não estoura mais que 0,5%. Recusada: nada muda. Rastro: "atenção: cobertura=…% toque=… aceita=…"; nota da foto: "sombra do assunto clareada (N% da cena)".
+- **Onde vale:** FOTO (um quadro, multiquadro, zoom, HDR) com ISO ≥ 800. Fora: Noturno, Retrato, Food, vídeo, foto com luz. A revisão (inclusive a prévia da IA por região) reaplica o mesmo mapa gravado na sessão.
+- Testes: `SubjectAttentionTest` (acha as letras na sombra e deixa a parede; cena sem assunto recusada; toque na sombra vira assunto; recorte = mesmo trecho da foto inteira).
+
+---
+
+# 0.31.2 — Etapa B2: rajada rápida na tele da FOTO (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
+- **Medido (diagnóstico 19/10, FOTO 3×/5× no escuro):** 960–1040 ms entre quadros da rajada (solicitação ~260 ms + entrega ~700 ms por JPEG); 8 quadros da Alta resolução = 8 s na mão. No Noturno, desde a 0.29.5, a tele fica fixada na lente física e a rajada caiu para ~250 ms/quadro.
+- **Causa:** a FOTO só fixava a tele nativa com luz boa (ISO < 800 e < 20 ms); no escuro ficava na câmera lógica, onde o firmware processa cada JPEG por ~1 s (e pode trocar a 5× pela 3× recortada).
+- **Mudança:** FOTO fixa a tele nativa a partir de 2,5× também no escuro, igual ao Noturno, com o mesmo resgate: foco que não fecha por 2,5 s (perto demais/escuro) devolve à lente automática com aviso. Fora de FOTO/Noturno, nada muda.
+- **Disparo sem atraso (parcial):** o "toque→captura 968 ms" medido vinha do refoco no ponto antes da rajada (espera até 700 ms) + ~260 ms de início; o refoco continua (foto nítida > 0,7 s), o ganho aqui é na rajada.
+- **Mudou × não mexi:** só a escolha da lente na tele da FOTO no escuro. Intocados: processamento, tom, IA, Noturno, vídeo, Retrato.
+- **Não medido no aparelho:** confirmar no diagnóstico "timestamp bufferN: intervalo" ~250 ms na FOTO 3×/5× no escuro.
+
+---
+
+# 0.31.1 — Etapa B: acabamento em vários núcleos, foto idêntica (Claude; branch `claude/nova-interface`; no APK build111 (0.31.5))
+- **Medido (diagnóstico 19/10, 49 MP):** tom 3,5–4,1 s, pouca luz 3,5–4,0 s, perfil 3,8–4,3 s — três passadas de `Engine.toneInPlace` em um núcleo, 12–14 s do acabamento.
+- **Mudança:** `toneInPlace` lê e grava faixas de 64 linhas em série (o Bitmap nunca é tocado por duas threads) e faz a conta tonal das faixas em paralelo (`Parallel`, que já respeita calor e economia). Cada pixel depende só dele e da coordenada: resultado idêntico. Esperado ~3× mais rápido com 4 núcleos (não medido no S24).
+- **Prova:** `EngineAndroidTest.tomEmParaleloIgualAUmNucleo` (tom + pouca luz + perfil, 1 × 4 núcleos, pixel a pixel) e o teste de regressão de faixas existente. JVM: 547 → 391 ms.
+- **Mudou × não mexi:** só a distribuição do trabalho do tom. Fórmula, planos e imagem intocados; detalhe e crominância continuam como estavam.
+
+---
+
+# 0.31.0 — Etapa A: estabilidade (Claude; branch `claude/nova-interface`; APK de teste build109 entregue)
+- **[Baixar ZIP com app-release.apk — build109 (1109)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39347132376/artifacts/12231662706)**. Artefato 12231662706, 138720298 bytes; sha256:dea6ec5b08e1f4189d10411d9470b180776bdf834c290f54e7e0b2d0acde3677; expira 2026-11-19T00:31:06Z; sem release. Gatilho restaurado em e0eff22.
+- **Plano autorizado pelo dono (20/10):** A estabilidade → B acabamento mais rápido → B2 rajada rápida e disparo sem atraso → C atenção ao assunto → D QR sempre ligado na FOTO → E texto → F documento → G foco no escuro → itens extras (lente suja, DNG fundido, palma, localização opcional, galeria própria) e IA de detalhe com trava de consistência. Uma etapa por APK.
+- **Fotos de Alta resolução perdidas (#3/#4 do diagnóstico de 19/10):** a checagem de memória antes da super-resolução usava o heap Java (cheio de temporários do alinhamento: ~320 MB "necessários" × ~310 livres) para uma saída que é Bitmap em memória nativa → desistia e salvava só o original. Agora usa a RAM livre do aparelho com folga 2× e sem pressão de memória (`core/OutputMemory.kt`).
+- **Fechamentos nativos (MediaPipe/ncnn):** causa ainda desconhecida. (1) Diagnóstico novo (`core/NativeTombstone.kt`): lê o tombstone (protobuf do AOSP) e mostra sinal, mensagem do abort, **a thread que caiu** com o topo da pilha e as últimas linhas de log de erro (antes: textos soltos de todas as threads). (2) Proteção (`core/NativeGate.kt`): uma inferência nativa por vez; trabalho de foto (NAFNet por bloco, profundidade e segmentação da foto, contorno ao toque) espera a vez; análise ao vivo (Retrato/Cinema) pula o quadro se ocupado, e a IA em segundo plano cede 120 ms quando a prévia pulou quadro.
+- **Mudou × não mexi:** mudou só a checagem de memória da Alta resolução, o diagnóstico de falha nativa e a ordem de execução das IAs nativas. Intocados: imagem (fusão, tom, Noturno, IA), foco, vídeo, interface.
+- **Não medido no aparelho.** Testes: `StabilityTest`, `NativeGateTest`.
+
+---
+
+# 0.30.7 — IA que mede, age na medida e prova que melhorou; Noturno automático da FOTO desligado por padrão (Claude; branch `claude/nova-interface`; APK de teste build108 entregue)
+- **[Baixar ZIP com app-release.apk — build108 (1108)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39344782935/artifacts/12230218836)**. Artefato 12230218836, 138719432 bytes; sha256:cf4eff57c76519dff8e6c927ec11fabfaf03eb7c39ca408a05f5e5a91e09710a; expira 2026-11-19T00:06:39Z; sem release. Gatilho restaurado em 2391d82.
+- **Pedido do dono (19/10):** IA com identificação e validação (aprovada); **não** entrar no Noturno sozinho na FOTO.
+- **Pesquisa (resumo):** Night Sight (Liba et al., SIGGRAPH Asia 2019) tira o ganho da captura adaptada ao movimento + fusão robusta + balanço de branco aprendido (FFCC) + tom; redes de clarear (Zero-DCE/SCI) erram cor/fidelidade (~15 dB no LOL); NAFNet generaliza bem para ruído de outros celulares (~38,4 dB fora do SIDD); avaliação sem referência no aparelho é prática com medidas por defeito (ruído, nitidez).
+- **Medir (`core/imaging/AiQuality.kt`):** ruído = mediana do σ de 9 blocos em resolução cheia; bordas = média dos 5% maiores gradientes (Sobel) na foto reduzida 4× (o ruído some, o contorno real fica).
+- **Agir na medida:** força da rede pelo ruído: σ < 1,2 nada (foto já limpa), < 3 → 55%, < 6 → 75% (antes fixo), ≥ 6 → 90%.
+- **Validar:** a foto só é trocada se o ruído caiu ≥ 10% e as bordas perderam ≤ 8%; senão fica a da galeria e o diagnóstico registra "IA recusada pela validação (ruído σ a→b, bordas x→y, força z%)". Aceita: "IA aceita (…)". Testes: limpeza real aceita, limpeza que borra o texto recusada, sem ganho recusada.
+- **Noturno automático da FOTO (0.30.6):** continua no código, **desligado por padrão** (opção em Ajustes).
+- **Escopo:** mudou só a decisão de força/aceite da IA e o padrão da opção. Intocados: Noturno, tom, fusão, foco, vídeo, Retrato.
+
+---
+
+# 0.30.6 — Noturno automático na FOTO (Claude; branch `claude/nova-interface`; APK de teste build107 entregue)
+- **[Baixar ZIP com app-release.apk — build107 (1107)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39343446835/artifacts/12230131842)**. Artefato 12230131842, 138719617 bytes; sha256:a87c7668b7331bd2c5e4afdc14bc94cea0ab797cdc371762018240cb3b5780f5; expira 2026-11-18T23:53:01Z; sem release. Gatilho restaurado em e4f9eb3.
+- **Retorno do dono (19/10):** a FOTO comum no 5×/10× no escuro sai fraca, enquanto o modo Noturno na mesma cena está "perfeito". Pediu resolver, não desligar opção, e não mexer no que funciona.
+- **Raiz:** na FOTO, a tele no escuro ia para a Alta resolução (8 quadros com o tempo/ISO do automático — ISO 2056 1/24 s — ampliados para 49 MP) ou para 3 quadros iguais; nunca usava o plano de exposição do Noturno (tempo mais longo por quadro pelo giroscópio, ISO menor, fusão e tom do Noturno).
+- **Mudança (`core/AutoNightPolicy.kt`):** FOTO, antes do disparo: tempo do automático ≥ 25 ms e ISO ≥ 800 na tele (≥ 2,5×) ou ≥ 2400 na principal → a captura e o processamento usam o motor do Noturno, **sem mudar o Noturno**. Nesses casos não há Alta resolução (com ISO alto ela só ampliava ruído). 10× com recorte usa a super-resolução do Noturno (0.29.6). Foco: o da FOTO (ponto tocado ou AF contínuo mantido), não o centro do modo Noturno. Quente/economia: não entra. Opção "Noturno automático na Foto" (ligada). Legenda "Noturno automático: …".
+- **Contrato de escopo (pedido do dono):** mudou só a decisão da FOTO no escuro. Intocados: modo Noturno (exposição, fusão, tom, lente), FOTO com luz, Retrato, vídeo, IA (0.30.4/0.30.5), foco (0.30.2/0.30.3).
+- **Não medido no aparelho.** Testes: `AutoNightPolicyTest` (usa as fotos reais de 19/10 como casos).
+
+---
+
+# 0.30.5 — IA na Alta resolução em meia resolução (Claude; branch `claude/nova-interface`; APK de teste build106 entregue)
+- **[Baixar ZIP com app-release.apk — build106 (1106)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39342682636/artifacts/12229917609)**. Artefato 12229917609, 138717859 bytes; sha256:ce8449cc117fd39f32de0b4462321755239953850d0c68f7470ff62f61200b29; expira 2026-11-18T23:43:48Z; sem release. Gatilho restaurado em 369a11b.
+- **Retorno do dono (19/10 20:22, 0.30.4, 5× Alta resolução 49 MP):** a IA não entrou. Diagnóstico: "IA dispensada sem carregar: a última projeção para 6120×8160 excedeu o orçamento" — 768 blocos × ~0,35–0,45 s não cabem em 300 s, e a projeção passa a pular a foto por 30 min.
+- **Correção (`core/imaging/HalfResidual.kt`, `NcnnDenoiser.denoiseHalf/denoiseAuto`):** acima de 16,5 MP a foto é reduzida 2× (média 2×2, em faixas), a rede limpa a reduzida (¼ dos blocos, custo de ~12 MP) e só a diferença que ela fez volta ampliada (bilinear) para a foto cheia. O detalhe da foto grande não passa pela rede. A prévia por região da revisão usa o mesmo caminho (recorte mínimo 576 px) para mostrar o que a foto inteira vai receber.
+- **Limite conhecido (teste `HalfResidualTest`):** ruído de grão ~2 px (o da super-resolução, vindo dos quadros de 12 MP) cai bem; ruído de 1 pixel isolado cai pouco (~10%).
+- **Também neste diagnóstico (sem correção, a confirmar):** (1) **cor**: tampa branca do frasco saiu (120,130,91) RGB — verde-amarelada — contra neutra (104,98,102) na foto 5× das 19:08; nenhum passo da Nova mexe em balanço de branco, então veio do AWB da captura ou da luz da sala; falta foto da Samsung no mesmo momento. (2) **foco**: a captura com toque registrou "AF solicitado POINT … AF limite de espera" (700 ms sem confirmar), e a sem toque "AF mantido onde o contínuo focou: 0.58 D" — o HOLD funciona. (3) duas rajadas (#3/#4) pararam depois do alinhamento, sem resultado no rastro — causa não identificada.
+- Testes: `HalfResidualTest`.
+
+---
+
+# 0.30.4 — IA automática em zoom e pouca luz, inclusive Alta resolução (Claude; branch `claude/nova-interface`; APK de teste build105 entregue)
+- **[Baixar ZIP com app-release.apk — build105 (1105)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39339531555/artifacts/12228572728)**. Artefato 12228572728, 138714343 bytes; sha256:4981141b0b60b68a246c2de887674a93d50367bc1cc2929742e9af384b894c3b; expira 2026-11-18T23:15:16Z; sem release. Gatilho restaurado em dc70ce4.
+- **Pedido do dono (19/10):** IA em toda foto em que ajude (zoom 3×/5×/10× ou recorte digital, foto ruim/escura), nunca na foto boa de dia; aprovado o critério proposto.
+- **Critério (`core/AiAutoPolicy.kt`):** Noturno e Retrato (como antes) + zoom ≥ 1,3× + ISO ≥ 800, até ~52 MP (200 MP fora). Food fora. Vale também para a FOTO comum de um quadro (antes a IA nunca entrava nela): nesse caso, sem tom/assinatura/estilo, a foto da galeria fica intacta até a IA terminar, e o original vai para Originais se "manter originais" estiver ligado.
+- **Padrão:** "Redução de ruído por IA" agora vem ligada (quem desligou antes continua desligado).
+- **Alta resolução (49 MP):** a IA processa em faixas no próprio bitmap (`core/DenoiseBands.kt`): memória extra ~3 faixas (≈19 MB) em vez de uma cópia (≈196 MB). Teste prova que nenhuma faixa é gravada antes de a última leitura das linhas dela.
+- **Orçamento:** automático passa a usar o mesmo teto do pedido manual (300 s; antes 60 s, que fazia o 12 MP desistir sempre). Projeção do custo conta os blocos limpos já pulados. Temperatura ≥ moderada, economia de bateria, bateria ≤ 15% fora do carregador e foto nova continuam interrompendo.
+- **Revisão:** quando a IA não está disponível, a tela agora diz por quê (antes simplesmente não aparecia nada).
+- **Limite (dito ao dono):** a rede tira ruído; não recupera foco nem detalhe. O realce de detalhe da tele (já existente, depois da IA) aproveita a base mais limpa.
+- **Não medido:** tempo real em 12/49 MP, calor em sequência de fotos, quanto pula. Diagnóstico: linha "NAFNet …" com blocos/limpos pulados/tempo/térmico.
+- Testes: `AiAutoPolicyTest` (inclui faixas).
+
+---
+
+# 0.30.3 — Toque no objeto: exposição volta à região normal (Claude; branch `claude/nova-interface`; APK de teste build104 entregue)
+- **[Baixar ZIP com app-release.apk — build104 (1104)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39338267955/artifacts/12228546256)**. Artefato 12228546256, 138712317 bytes; sha256:b96e18657abf48b2d0b8ada21701efa98daeac6ba387223d85204e9436f763ec; expira 2026-11-18T23:05:07Z; sem release. Gatilho restaurado em a2d2a51.
+- **Retorno do dono (19/10, 3×, Alta resolução 49 MP, 0.30.2):** foto "mais clara, esbranquiçada". Medido: os mesmos frascos saíram ~40% mais claros que na foto 5× da 0.30.1 (lado do frasco 83→117), com exposição 1,55× maior na captura (ISO 2056→3196, 1/24 s) — a diferença veio da exposição do sensor, não do tom (pipeline de tom inalterado desde 0.30.0).
+- **Causa provável (minha, 0.30.2):** o refino do toque no objeto movia AF **e AE** para dentro do objeto; tocar a caixa na sombra fazia a exposição medir só a sombra e clarear a foto inteira.
+- **Correção:** só o AF vai para o objeto; a AE fica na região normal do toque (15% em volta do dedo, como até a 0.30.1), também no refoco antes da rajada e no retorno ao automático (`NovaCamera.meterAction`).
+- **IA na revisão "não aparece":** sem print/diagnóstico não dá para saber se a linha da IA nem aparece (modelo/biblioteca não carregados) ou se a prévia falhou. Pedido ao dono. Limite reafirmado: NAFNet tira ruído, não recupera foco/detalhe (caixa 3× no escuro, 574×344 px reais).
+
+---
+
+# 0.30.2 — Foco no objeto tocado e foco sem toque no assunto da câmera (Foto e Retrato) (Claude; branch `claude/nova-interface`; APK de teste build103 entregue)
+- **[Baixar ZIP com app-release.apk — build103 (1103)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39335098544/artifacts/12225573802)**. Artefato 12225573802, 138712103 bytes; sha256:a2bc5b6deb5a35c641d49f11010a9f09353e3b570454aca46247b38061145b27; expira 2026-11-18T22:36:21Z; sem release. Gatilho restaurado em db27c00.
+- **Retorno do dono (19/10, 5× à noite, Foto, Alta resolução 49 MP, ISO 2056 1/24 s × 8):** caixa com a criança na prateleira de baixo borrada na Nova e nítida na Samsung (mesma lente 115 mm f/3.4, ISO 2000 1/15 s). Frascos nítidos (até mais limpos) na Nova. O borrão é uniforme, sem contorno duplo: **profundidade de campo/foco**, não fusão nem IA — e não se recupera com IA de ruído (só uma IA generativa "inventaria" o desenho). Queixa junto: "toco e não acontece nada, só marca".
+- **Sem diagnóstico desta foto:** não dá para afirmar se houve toque. Sem toque, a rajada multiquadro da tele travava o AF no **centro** (parede/prateleira); a Samsung deixa o próprio AF escolher.
+- **Toque no objeto (Foto e Retrato):** o contorno MagicTouch que já aparecia ao toque agora define a região do AF: o maior retângulo dentro do objeto em volta do dedo (até 20% do menor lado; mín. 3%) — o AF refaz a medição só no objeto, sem o fundo que a região padrão (15% em volta do dedo) pegava. Dedo na borda: usa o ponto do objeto mais próximo. Toque no fundo/cena inteira: fica a região normal. Bloqueio (toque longo), rastreio e vídeo inalterados. Depende do "Contorno ao toque" ligado (padrão).
+- **Sem toque, rajada na tele (Foto/Retrato):** se o AF contínuo do aparelho já assentou (`PASSIVE_FOCUSED`) e a lente aceita foco manual, a lente fica exatamente onde ele focou durante a rajada (AF desligado na mesma distância; liberado ao terminar) — a escolha de assunto da própria câmera. AF ainda procurando: centro, como antes. Noturno inalterado.
+- **Diagnóstico:** o rastro da foto agora tem "AF antes: estado/foco D/ponto" e "AF mantido onde o contínuo focou: X D".
+- **Não medido no aparelho.** Testes: `FocusPolicyTest` (+1), `ContourFocusTest`.
+
+---
+
+# 0.30.1 — Vídeo travado no rosto/assunto + IA na região ampliada e na foto inteira (Claude; branch `claude/nova-interface`; APK de teste build102 entregue)
+- **[Baixar ZIP com app-release.apk — build102 (1102)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39288075407/artifacts/12203164450)**. Artefato 12203164450, 138706096 bytes; sha256:7cad63e2b47ab67863aef88713f99406072bea18b37d7a1341da99e4f71a1f08; expira 2026-11-18T16:53:45Z; sem release. Gatilho restaurado em 17d74b5.
+- **Responsabilidade:** o dono pediu os dois ao Claude em 19/10 ("pode fazer a IA e o vídeo travado no rosto ou tá nas pessoas também, objetos"), com o plano do Codex pausado. A rede (NAFNet), a força (75%) e o acabamento não mudaram; o que é novo é onde e quando ela roda.
+- **Vídeo — rosto travado (`core/FaceLock.kt`, `camera/SubjectTrackingSession.kt`):** com "acompanhar assunto" ligado, Vídeo e Retrato pedem os rostos do próprio sensor (modo simples, sem CPU do app). Toque num rosto (com 35% de folga: queixo/testa) segue aquele rosto pelo sensor a cada 100 ms (250 ms quente/economia) — sem ler a prévia. Recusa trocar de pessoa (distância ≤ 1 rosto, tamanho 0,6–1,7×). Rosto sumido por 0,8 s (virou de costas, mão na frente) passa ao rastreio por aparência na última posição, com o tamanho do rosto; quando o rosto reaparece no alvo, volta ao sensor. Chip: "ROSTO TRAVADO". Vídeo Pro e Noturno não pedem rostos (como antes).
+- **Pessoas sem rosto e objetos (`core/SubjectTracker.kt`):** o modelo de aparência agora se adapta devagar (12% por leitura) só com leitura inequívoca (correlação ≥ 0,9 e margem ≥ 0,1), preso ao modelo do toque (correlação ≥ 0,6) para não derivar para o fundo; incerto, procura numa área 2× maior (passo 4 px) e só desiste após 1,0 s (era 0,6 s). Testes: aparência que muda até 60% (falha sem a adaptação), salto de 54 px (falha sem a busca ampla), oclusão, rosto→aparência.
+- **IA na região ampliada (revisão):** dois dedos ampliam/movem o comparador (até 8×, toque duplo volta). A partir de 2×, o recorte visível em resolução cheia (até 992×992, 16 blocos) passa pela rede e aparece com o mesmo acabamento da foto inteira; a linha compara "Sem IA × Com IA" ali. Nada é gravado. O tom do recorte usa os planos da foto inteira (`ProcessingQueue.RenderPlans` + `Engine.Region`); `RegionRenderTest` prova recorte = mesmo trecho da foto inteira (±2 níveis) e que o tom calculado só do recorte divergiria. Retrato com pessoa: sem prévia por região (o desfoque depende da foto inteira).
+- **IA na foto inteira (revisão → "Refinar foto inteira com IA"):** entra na fila de refino existente (0.9.2) com orçamento próprio de 300 s (o automático segue 60 s); roda mesmo com a IA automática desligada; espera foto em processamento, aquecimento ≥ moderado, economia de bateria e bateria ≤ 15% fora do carregador, e recomeça sozinho quando a temperatura/bateria permitirem (antes só depois da próxima foto). Ao terminar troca a mesma entrada da galeria; o original continua em Originais. Progresso na revisão.
+- **Blocos limpos pulados (`core/imaging/TileNoise.kt`):** antes de cada bloco, σ do ruído pela mediana do laplaciano da luminância; σ < 1,2 (8 bits) não passa pela rede. Contorno/textura só aumentam a estimativa (bloco detalhado nunca é pulado). Vale para região, foto inteira e refino automático. O relatório da IA no diagnóstico mostra "limpos pulados=N".
+- **Não medido no aparelho:** tempo da região (estimativa 16 × ~0,35–0,45 s ≈ 6–7 s), quantos blocos uma foto real pula, tempo da foto inteira (~190 blocos em 12 MP sem pulos ≈ 70–90 s), economia e qualidade da passagem rosto→aparência. Calibrar `CLEAN_SIGMA` pelo diagnóstico.
+- Testes: `FaceLockTest`, `SubjectTrackerTest` (+3), `SubjectTrackingSessionTest` (+1), `RegionRefineTest`, `TileNoiseTest`, `RegionRenderTest`.
+
+---
+
+# 0.30.0 — 4K60/8K: resposta definitiva no diagnóstico + tela poupando energia na gravação (Claude; branch `claude/nova-interface`; APK de teste build101 entregue)
+- **[Baixar ZIP com app-release.apk — build101 (1101)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39283541235/artifacts/12201559572)**. Artefato 12201559572, 138687599 bytes; sha256:af1777465f1fccc7e5f5dc2f5bdca8e31a12e93371af23b15d29d0587b4082ec; expira 2026-11-18T16:24:03Z; sem release. Gatilho restaurado em 6475691.
+- **Pedido do dono:** 4K/60 e 8K/30 como na câmera Samsung; filmar até uma hora sem esquentar.
+- **8K:** o diagnóstico já mostrava saída máxima 4080×3060 (12,5 MP) para apps de terceiros em JPEG, YUV e RAW, e "ultra-alta resolução: false"; 8K (7680×4320, 33 MP) não é possível sem a Samsung liberar. Nova linha no diagnóstico: "Maior gravação anunciada a apps (Camera2)" (tamanhos do `MediaRecorder`).
+- **4K/60:** a sessão UHD só listava fps até 30. Nova linha "Combinações de vídeo (consulta oficial do CameraX)": `CameraInfo.isSessionConfigSupported` com feature groups (CameraX 1.5+) para 4K/60, 4K/60 HLG, 4K/30 HLG e FHD/60 — só consulta, nada é vinculado.
+- **Gravação longa (`core/RecordingPowerPolicy.kt`):** gravando, a janela pede 60 Hz (vídeo tem 30/60 quadros; a tela chega a 120 Hz); sem toque por 20 s (5 s com térmico ≥ moderado) a tela escurece para 15% e o primeiro toque devolve o brilho. Vídeo gravado inalterado. Medir no diagnóstico: "VÍDEO (gravando)" (corrente, temperatura, térmico) antes × depois.
+- **Não medido ainda:** quanto isso economiza no S24 (o ganho real depende de quanto a tela pesa frente ao codificador e ao sensor).
+- Testes: `RecordingPowerPolicyTest`.
+
+---
+
 # 0.29.7 — Auditoria do Noturno em zoom + fusão em paralelo (Claude; branch `claude/nova-interface`; APK de teste build100 entregue)
 - **[Baixar ZIP com app-release.apk — build100 (1100)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39263835515/artifacts/12193100411)**. Artefato 12193100411, 138682920 bytes; sha256:b1d0d29bbec35f1e3c3f0a4132970edb8f2dda7958beff9a0276e25fd0edda88; expira 2026-11-18T13:57:52Z; sem release. Gatilho restaurado em 97c5ed5.
 - **Auditoria completa:** `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md` (caminho real da captura com números do diagnóstico, causas confirmadas × hipóteses, perdas de informação, propostas A–D para o Codex, conjunto de validação).

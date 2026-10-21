@@ -305,7 +305,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
         val blurAt=System.nanoTime()
         if (work.blur) {
             // 2) Desfoque separável (duas iterações), raio proporcional à intensidade e na escala da foto final.
-            val radius = (5f + 18f * s) * maxOf(smallW, smallH) / 1000f
+            val radius = com.novacamera.s24.core.imaging.Portrait.farRadius(s) * maxOf(smallW, smallH) / 1000f
             repeat(2) {
                 blurPass(fboTex[0], fbo[1], radius / 4f, 0f)
                 blurPass(fboTex[1], fbo[2], 0f, radius / 4f)
@@ -517,7 +517,7 @@ internal class PortraitGlProcessor(private val onFatal: (Throwable) -> Unit) : S
                 if (uOn > 0.001) {
                     vec4 m = texture2D(uMask, mix(b, vec2(1.0) - b, uFlip));
                     float w = (1.0 - m.r) * smoothstep(0.0, 0.35, m.a) * uOn;
-                    c = mix(sharp, texture2D(uBlur, b), w);
+                    c = mix(sharp, vec4(texture2D(uBlur, b).rgb * ${com.novacamera.s24.core.imaging.Portrait.BACKGROUND_KEEP}, 1.0), w);
                 }
                 vec3 rgb=applyStyle(c.rgb);
                 if(uLogoOn>0.5) {

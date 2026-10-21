@@ -9,7 +9,11 @@ import kotlin.math.min
  * - quando o zoom muda depois do toque, o ponto tocado deixa de existir na imagem.
  */
 object FocusPolicy {
-    enum class Target { NONE, CENTER, POINT }
+    /**
+     * HOLD: a lente fica onde o AF contínuo do aparelho já tinha focado (foco manual na mesma distância)
+     * durante a rajada — mantém a escolha de assunto da própria câmera em vez de impor o centro.
+     */
+    enum class Target { NONE, CENTER, POINT, HOLD }
 
     class BeforeBurst(val target: Target, val waitMs: Long)
 
@@ -17,6 +21,11 @@ object FocusPolicy {
     const val TELE_FROM = 2.5f
     const val NIGHT_WAIT_MS = 1200L
     const val BURST_WAIT_MS = 700L
+    /**
+     * Escuro fora do Noturno (ISO ≥ 1600 ou ≥ 33 ms): o AF da tele leva mais para fechar. Diagnóstico 19/10
+     * (5×, ISO 2056): "AF solicitado POINT limite700ms → AF limite de espera" e a rajada saiu sem foco confirmado.
+     */
+    const val DARK_WAIT_MS = 1500L
     /** Mudança de zoom (razão) a partir da qual o ponto tocado é descartado. */
     const val ZOOM_DROP_RATIO = 1.15f
 
@@ -29,14 +38,20 @@ object FocusPolicy {
     fun beforeBurst(
         night: Boolean, frames: Int, equivalentZoom: Float, superRes: Boolean,
         userPoint: Boolean, afAtPoint: Boolean, locked: Boolean, manualFocus: Boolean, vendorExtension: Boolean,
+        /** AF contínuo parado e confirmado (PASSIVE_FOCUSED) e a lente aceita foco manual. Nunca no Noturno. */
+        continuousSettled: Boolean = false,
+        dark: Boolean = false,
     ): BeforeBurst {
         val none = BeforeBurst(Target.NONE, 0)
         if (locked || manualFocus || vendorExtension) return none
-        val wait = if (night) NIGHT_WAIT_MS else BURST_WAIT_MS
+        val wait = if (night) NIGHT_WAIT_MS else if (dark) DARK_WAIT_MS else BURST_WAIT_MS
         // Ponto escolhido: se o AF já voltou ao contínuo, foca de novo nele antes de disparar.
         if (userPoint) return if (afAtPoint) none else BeforeBurst(Target.POINT, wait)
         val needsLock = night || superRes || (frames > 1 && equivalentZoom >= TELE_FROM)
-        return if (needsLock) BeforeBurst(Target.CENTER, wait) else none
+        if (!needsLock) return none
+        // Foto/Retrato sem toque: o centro pode ser a parede atrás do assunto (foto real 19/10, 5×: caixa
+        // fora de foco, frascos no foco). Se o AF contínuo já assentou num assunto, mantém a lente ali.
+        return if (!night && continuousSettled) BeforeBurst(Target.HOLD, 0) else BeforeBurst(Target.CENTER, wait)
     }
 
     /** O enquadramento mudou o bastante para o ponto tocado não corresponder mais ao mesmo objeto. */

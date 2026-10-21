@@ -161,18 +161,31 @@ class NovaCamera(
     private var focusToken = 0
     /** Ponto tocado (para focar de novo nele antes de uma rajada) e o zoom no momento do toque. */
     private var userPoint: MeteringPoint? = null
+    /** Exposição do toque: a região normal em volta do dedo, mesmo quando o AF mede só o objeto. */
+    private var userAePoint: MeteringPoint? = null
     private var userPointFlags = 0
     private var zoomAtTap = 0f
     /** O AF ainda está parado no ponto tocado (falso depois que volta ao contínuo). */
     private var afAtPoint = false
+    /** Último estado do AF (CaptureResult) e a distância de foco em que a rajada fica presa ([FocusPolicy.Target.HOLD]). */
+    @Volatile private var lastAfState: Int? = null
+    private var heldFocusDiopters: Float? = null
+    /** Toque ativo: o contorno do objeto que chegar depois só vale para ele. */
+    val tapFocusToken get() = focusToken
     private var evIndex = 0
     /** Compensação automática de contraluz (passos de EV), somada ao EV do usuário só quando ele está em 0. */
     private var backlightBoost = 0
     private fun appliedEv() = evIndex + backlightBoost
     /** Captura em andamento (rajada/bracketing): a contraluz automática não mexe no EV no meio. */
     @Volatile private var capturing = false
+    /** Captura de foto em andamento (o leitor de QR pausa). */
+    val capturingPhoto get() = capturing
+    /** Cena reconhecida na prévia ([com.novacamera.s24.core.SceneDetect]); vai junto com a foto para o ajuste leve. */
+    @Volatile var scene = com.novacamera.s24.core.SceneDetect.Scene.NONE
     var manual = ManualControls(); private set
     @Volatile private var latestStats: AutoStats? = null
+    /** ISO/exposição/foco da prévia (aviso de lente suja só com luz boa). */
+    val previewStats get() = latestStats
     /** Giroscópio: só no Noturno do motor Nova, e só com o app em primeiro plano. */
     private val motion = MotionMeter(activity)
     private var motionWanted = false
@@ -318,8 +331,8 @@ class NovaCamera(
             }
             // Segunda parada em 1 min: sem o efeito da prévia nesta sessão (evita reabrir em ciclo).
             recentStalls.size >= 2 && portraitEffect != null -> {
-                portraitPreviewFailed = true
-                listener.onMessage("Tom e Temperatura ao vivo pausados nesta sessão para a câmera não travar")
+                val wait = pauseEffect()
+                listener.onMessage("Tom e Temperatura ao vivo pausados por ${wait / 1000} s para a câmera não travar; voltam sozinhos")
             }
             else -> listener.onMessage("A imagem parou; reabrindo a câmera")
         }
@@ -597,6 +610,7 @@ class NovaCamera(
         if (freshSessionRequested) {
             freshSessionRequested = false
             liveBlurBlocked = false
+            effectBreaker.reset()
             cinematicFailed=false; commonVideoChosen=false; cinematicTap=null
             referenceEquivalentMm=null;referenceMeasured=false
             refreshLenses()
@@ -617,10 +631,11 @@ class NovaCamera(
             currentLensId=child.cameraId
         }
 
-        // Noturno na tele: lente nativa fixa (ver NightLensPolicy). Ao sair do Noturno, volta à lógica
-        // para não mudar a Foto (que só fixa com luz boa).
+        // Noturno e FOTO na tele: lente nativa fixa (ver NightLensPolicy). Na câmera lógica cada JPEG da rajada
+        // levava ~1 s (diagnóstico 19/10: 960–1040 ms entre quadros, 8 quadros = 8 s na mão); fixada, ~250 ms
+        // (Noturno 0.29.5). Fora desses modos volta à lógica.
         val routeLens = lenses.firstOrNull { it.routeKey == currentLensId }
-        if (mode == CaptureMode.NOITE && routeLens != null && routeLens.physicalCameraId == null) {
+        if (telePinMode && routeLens != null && routeLens.physicalCameraId == null) {
             val eq = routeLens.intrinsic * (pendingZoomOnLens ?: zoomOnLens)
             if (com.novacamera.s24.core.NightLensPolicy.pinNative(true, isFront, eq))
                 LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes && it.routeKey !in nightFocusFailed },
@@ -628,7 +643,7 @@ class NovaCamera(
                     ?.takeIf { c -> c.cameraId != currentLensId && lenses.any { it.routeKey == c.cameraId && it.physicalCameraId != null &&
                         it.intrinsic >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM } }
                     ?.let { c -> currentLensId = c.cameraId; pendingZoomOnLens = c.zoomOnLens; nightPinned = true; nightFocus.reset() }
-        } else if (mode != CaptureMode.NOITE) {
+        } else if (!telePinMode) {
             nightFocusFailed.clear()
             if (nightPinned) {
                 nightPinned = false
@@ -1123,7 +1138,7 @@ class NovaCamera(
         zoomCurve = ZoomCurve(photo = !mode.isVideo)
         zoomCurve.jumpTo(zoomOnLens)
         zoomGate.reset()
-        cam.cameraControl.setZoomRatio(cameraZoom(zoomOnLens))
+        cam.cameraControl.setZoomRatio(cameraZoom(lightZoom(zoomOnLens)))
         listener.onZoom(equivalent(zoomOnLens))
         watchInitialZoom(cam)
         physicalLabels = LensCatalog.physicalLabels(cam.cameraInfo,referenceEquivalentMm)
@@ -1135,7 +1150,7 @@ class NovaCamera(
 
         val exposure = cam.cameraInfo.exposureState
         evIndex = evIndex.coerceIn(exposure.exposureCompensationRange.lower, exposure.exposureCompensationRange.upper)
-        capturing = false; stillLease.end(); activePhotoTrace=null
+        capturing = false; stillLease.end(); activePhotoTrace=null; heldFocusDiopters = null
         backlightBoost = backlightBoost.coerceIn(0, maxOf(0, exposure.exposureCompensationRange.upper - evIndex))
         if (exposure.isExposureCompensationSupported) cam.cameraControl.setExposureCompensationIndex(appliedEv())
         applyInterop()
@@ -1276,8 +1291,8 @@ class NovaCamera(
         if (allowLensSwitch && !isRecording && activeExtension == ExtensionMode.NONE) {
             val st = latestStats
             val enoughLight = st != null && st.iso < 800 && st.exposureNs < 20_000_000L
-            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(mode == CaptureMode.NOITE, isFront, equivalentZoom)
-            if (mode == CaptureMode.NOITE) nightFocusFailed.clear()
+            val nightTele = com.novacamera.s24.core.NightLensPolicy.pinNative(telePinMode, isFront, equivalentZoom)
+            if (telePinMode) nightFocusFailed.clear()
             val choice = LensSelection.choose(lenses.filter { it.routeKey !in failedPhysicalRoutes &&
                     ((!mode.isVideo && mode != CaptureMode.RETRATO) || it.physicalCameraId==null) }, currentLensId, defaultLensId, equivalentZoom,
                 preferNative = !mode.isVideo && !isFront && (enoughLight || nightTele))
@@ -1335,7 +1350,7 @@ class NovaCamera(
                 if (camera !== cam) { state.removeObserver(this); return }
                 if (value.type != androidx.camera.core.CameraState.Type.OPEN) return
                 state.removeObserver(this)
-                val wanted = cameraZoom(zoomOnLens)
+                val wanted = cameraZoom(lightZoom(zoomOnLens))
                 cam.cameraControl.setZoomRatio(wanted).addListener({
                     if (camera !== cam) return@addListener
                     val actual = cam.cameraInfo.zoomState.value?.zoomRatio ?: return@addListener
@@ -1376,15 +1391,18 @@ class NovaCamera(
         }, PINNED_STALL_MS)
     }
 
+    /** Noturno e FOTO fixam a tele nativa (rajada rápida, sem troca de lente no escuro). */
+    private val telePinMode get() = mode == CaptureMode.NOITE || mode == CaptureMode.FOTO
+
     /** Tele fixada pelo Noturno sem foco: volta à lógica (o firmware pode usar outra lente com recorte). */
     private fun nightFocusFallback(route: String) {
-        if (released || paused || !nightPinned || mode != CaptureMode.NOITE || isRecording || capturing) return
+        if (released || paused || !nightPinned || !telePinMode || isRecording || capturing) return
         val child = currentLens?.takeIf { it.routeKey == route && it.physicalCameraId != null } ?: return
         val parent = lenses.firstOrNull { it.cameraId == child.cameraId && it.physicalCameraId == null } ?: return
         nightFocusFailed.add(route); nightPinned = false; nightFocus.reset()
         pendingZoomOnLens = child.intrinsic * zoomOnLens / parent.intrinsic
         currentLensId = parent.routeKey
-        listener.onMessage("A tele não focou (perto ou escuro demais); o Noturno usa a lente automática")
+        listener.onMessage("A tele não focou (perto ou escuro demais); a câmera usa a lente automática")
         bind()
     }
 
@@ -1418,10 +1436,33 @@ class NovaCamera(
         }
     }
 
+    private val teleLight = com.novacamera.s24.core.VideoTeleLight.State()
+    private var teleLightAnnounced = false
+
+    /** Zoom (na lente atual) a pedir à câmera: no vídeo escuro, 4,9–6× fica em 4,9× na lente 3× ([VideoTeleLight]). */
+    private fun lightZoom(onLens: Float): Float {
+        if (!mode.isVideo || isFront || currentLens?.physicalCameraId != null) return onLens
+        val intrinsic = currentLens?.intrinsic ?: 1f
+        return com.novacamera.s24.core.VideoTeleLight.zoom(onLens * intrinsic, teleLight.holding) / intrinsic
+    }
+
+    private fun onTeleLightChanged(iso: Int, exp: Long) {
+        if (released) return
+        com.novacamera.s24.core.VideoLog.add(activity, (if (teleLight.holding) "Tele com pouca luz: 5× pela lente 3× (4,9×)" else "Luz suficiente: 5× volta à tele") +
+            " · ISO $iso · ${exp / 1_000_000} ms · zoom ${"%.2f".format(Locale.US, equivalent(zoomOnLens))}×")
+        val eq = equivalent(zoomOnLens)
+        if (teleLight.holding && !teleLightAnnounced && eq >= com.novacamera.s24.core.VideoTeleLight.HOLD && eq < com.novacamera.s24.core.VideoTeleLight.UNTIL) {
+            teleLightAnnounced = true
+            listener.onMessage("Pouca luz: o 5× usa a lente 3×, que recebe o dobro de luz")
+        }
+        // Gravando, a troca espera o próximo zoom do usuário (sem salto de enquadramento no meio da cena).
+        if (!isRecording && eq >= com.novacamera.s24.core.VideoTeleLight.HOLD && eq < com.novacamera.s24.core.VideoTeleLight.UNTIL) sendZoom(zoomOnLens)
+    }
+
     private fun sendZoom(value: Float) {
         val cam = camera ?: return zoomGate.reset()
         synchronized(telemetry) { telemetry.command(value, SystemClock.uptimeMillis()) }
-        val future = cam.cameraControl.setZoomRatio(cameraZoom(value))
+        val future = cam.cameraControl.setZoomRatio(cameraZoom(lightZoom(value)))
         val generation = zoomGate.generation
         val sequence = zoomGate.sequence
         future.addListener({
@@ -1521,7 +1562,7 @@ class NovaCamera(
         userPointActive = false
         aeLocked = false
         nativeMeterPoint = null
-        userPoint = null
+        userPoint = null; userAePoint = null
         afAtPoint = false
     }
 
@@ -1551,7 +1592,31 @@ class NovaCamera(
         }
     }
 
-    fun focusAt(x: Float, y: Float, lock: Boolean) {
+    /**
+     * Contorno do objeto tocado chegou (MagicTouch, ~0,1–0,3 s depois do toque): Foto e Retrato refazem o
+     * AF numa região só dentro do objeto ([box] l,t,r,b normalizados da prévia), em vez dos 15% em volta do
+     * dedo que pegam o fundo junto. Toque mais novo, bloqueio, rastreio ou zoom diferente: ignora.
+     */
+    fun focusOnObject(token: Int, box: FloatArray) {
+        if (token != focusToken || !userPointActive || aeLocked || subjectTracking || capturing) return
+        if (mode != CaptureMode.FOTO && mode != CaptureMode.RETRATO) return
+        val w = previewView.width.toFloat(); val h = previewView.height.toFloat()
+        if (w <= 0f || h <= 0f || box.size < 4) return
+        val size = maxOf(box[2] - box[0], box[3] - box[1]).coerceIn(com.novacamera.s24.core.ContourMask.FOCUS_MIN, com.novacamera.s24.core.ContourMask.FOCUS_MAX)
+        // Só o AF vai para o objeto. A exposição continua na região do toque: medir só o objeto (caixa na
+        // sombra) clareava a foto inteira (0.30.2, foto real 19/10).
+        focusAt((box[0] + box[2]) / 2f * w, (box[1] + box[3]) / 2f * h, lock = false, size = size, aePoint = userAePoint ?: userPoint)
+    }
+
+    /** AF e AE no mesmo ponto, ou AF em [af] e AE em [ae] quando diferentes. */
+    private fun meterAction(af: MeteringPoint, ae: MeteringPoint, flags: Int): FocusMeteringAction {
+        val wantsAf = flags and FocusMeteringAction.FLAG_AF != 0
+        val wantsAe = flags and FocusMeteringAction.FLAG_AE != 0
+        if (af === ae || !wantsAf || !wantsAe) return FocusMeteringAction.Builder(if (wantsAf) af else ae, flags).disableAutoCancel().build()
+        return FocusMeteringAction.Builder(af, FocusMeteringAction.FLAG_AF).addPoint(ae, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
+    }
+
+    fun focusAt(x: Float, y: Float, lock: Boolean, size: Float? = null, aePoint: MeteringPoint? = null) {
         endSubjectTracking()
         selectCinematicSubject(x,y)
         val cam = camera ?: return
@@ -1561,7 +1626,7 @@ class NovaCamera(
             tapOnView = (x / previewView.width).coerceIn(0f, 1f) to (y / previewView.height).coerceIn(0f, 1f)
         aeLocked = false
         applyInterop()
-        val point = previewView.meteringPointFactory.createPoint(x, y)
+        val point = if (size != null) previewView.meteringPointFactory.createPoint(x, y, size) else previewView.meteringPointFactory.createPoint(x, y)
         // Transformação pública: respeita rotação, recorte e escala da prévia.
         // MeteringPoint.x/y são API interna do CameraX e não devem ser lidos aqui.
         nativeMeterPoint = runCatching {
@@ -1577,9 +1642,10 @@ class NovaCamera(
         val manualFocus = mode.isPro && manual.focusDiopters != null
         val flags = if (manualFocus) FocusMeteringAction.FLAG_AE
                     else FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-        val action = FocusMeteringAction.Builder(point, flags).disableAutoCancel().build()
+        val ae = aePoint ?: point
+        val action = meterAction(point, ae, flags)
         val chosen = if (cam.cameraInfo.isFocusMeteringSupported(action)) action else {
-            val exposureOnly = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
+            val exposureOnly = FocusMeteringAction.Builder(ae, FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
             if (!cam.cameraInfo.isFocusMeteringSupported(exposureOnly)) {
                 userPointActive = false
                 applyInterop()
@@ -1589,6 +1655,7 @@ class NovaCamera(
             exposureOnly
         }
         userPoint = point
+        userAePoint = ae
         userPointFlags = if (chosen === action) flags else FocusMeteringAction.FLAG_AE
         zoomAtTap = zoomTarget
         afAtPoint = false
@@ -1608,7 +1675,7 @@ class NovaCamera(
                 aeLocked = true
                 applyInterop()
                 if (activeExtension != ExtensionMode.NONE) listener.onMessage("Bloqueio de exposição indisponível neste modo do fabricante; foco travado")
-            } else scheduleFocusRelease(token, point)
+            } else scheduleFocusRelease(token, ae)
             listener.onFocusResult(ok, lock)
         }, main)
     }
@@ -1739,6 +1806,11 @@ class NovaCamera(
         if (m.focusDiopters != null && c.manualFocus) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
             b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, m.focusDiopters.coerceIn(0f, c.minFocusDistance))
+        } else {
+            heldFocusDiopters?.takeIf { c.manualFocus }?.let { d ->
+                b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, d.coerceIn(0f, c.minFocusDistance))
+            }
         }
         if (subjectTracking) {
             trackedAfMode?.let { b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, it) }
@@ -1754,7 +1826,9 @@ class NovaCamera(
         val facePriority = settings.facePriority && c.facePriorityScene && !userPointActive && !normalVideoMode &&
             !mode.isPro && !m.manualExposure && night == null
         // Rostos do próprio sensor (modo simples, sem custo de CPU do app): só para desenhar onde estão.
-        if ((settings.showFaces || cinematicRequested) && facesSupported && !mode.isPro && night == null)
+        // Também no vídeo com acompanhamento: o toque num rosto trava o foco nele (FaceLock).
+        val faceLockMode = settings.videoSubjectTracking && (mode == CaptureMode.VIDEO || mode == CaptureMode.RETRATO)
+        if ((settings.showFaces || cinematicRequested || faceLockMode) && facesSupported && !mode.isPro && night == null)
             b.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
         if (facePriority) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
@@ -1862,12 +1936,24 @@ class NovaCamera(
     @Volatile private var cinemaFaceAt = 0L
     private val cinemaFaceTarget get() = cinemaFace?.takeIf { SystemClock.uptimeMillis() - cinemaFaceAt < 600L }
 
+    @Volatile private var trackFaces: List<android.graphics.Rect> = emptyList()
+    @Volatile private var trackFacesAt = 0L
+
+    /** Rostos recentes do sensor nas coordenadas da prévia (thread principal), para travar o foco no vídeo. */
+    fun facesInView(maxAgeMs: Long = 400L): List<com.novacamera.s24.core.FaceLock.Box> {
+        if (SystemClock.uptimeMillis() - trackFacesAt > maxAgeMs) return emptyList()
+        val t = previewView.sensorToViewTransform ?: return emptyList()
+        return trackFaces.map { r -> android.graphics.RectF(r).also { t.mapRect(it) }.let { com.novacamera.s24.core.FaceLock.Box(it.left, it.top, it.right, it.bottom) } }
+    }
+
     private fun publishFaces(result: TotalCaptureResult) {
         val faces = result.get(CaptureResult.STATISTICS_FACES) ?: return
         if (cinematicRequested) faces.filter { it.score >= 75 && it.bounds.width() >= 80 && it.bounds.height() >= 80 }
             .maxByOrNull { it.bounds.width() * it.bounds.height() }?.let {
             cinemaFace = it.bounds.exactCenterX() to it.bounds.exactCenterY(); cinemaFaceAt = SystemClock.uptimeMillis()
         }
+        trackFaces = if (faces.isEmpty()) emptyList() else faces.filter { it.score >= 50 }.take(6).map { android.graphics.Rect(it.bounds) }
+        trackFacesAt = SystemClock.uptimeMillis()
         if (!settings.showFaces) return
         val now = SystemClock.uptimeMillis()
         if (faces.isEmpty() && !hadFaces) return
@@ -1894,9 +1980,16 @@ class NovaCamera(
             val iso = opticalResult.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
             val exp = opticalResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
             val focus = opticalResult.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
+            if (heldFocusDiopters == null) lastAfState = result.get(CaptureResult.CONTROL_AF_STATE)
             val stats = AutoStats(iso, exp, focus)
             latestStats = stats
-            if (nightPinned && mode == CaptureMode.NOITE && !capturing) {
+            // Vídeo na tele com pouca luz ([com.novacamera.s24.core.VideoTeleLight]): mede na 3× ou na 5× ativas.
+            if (mode.isVideo && !isFront && currentLens?.physicalCameraId == null) {
+                val active = lenses.firstOrNull { it.physicalCameraId == physical }?.intrinsic
+                if (active != null && active >= 2.5f && teleLight.update(iso, exp, caps?.isoRange?.upper ?: 3200, active >= 4.5f))
+                    handler.post { onTeleLightChanged(iso, exp) }
+            } else if (teleLight.holding) teleLight.reset()
+            if (nightPinned && telePinMode && !capturing) {
                 val route = currentLens?.routeKey
                 if (route != null && nightFocus.failed(SystemClock.uptimeMillis(), result.get(CaptureResult.CONTROL_AF_STATE)))
                     handler.post { nightFocusFallback(route) }
@@ -1969,6 +2062,11 @@ class NovaCamera(
             return if (settings.collectBursts) captureRawBurst(ic, RAW_BURST_FRAMES) else captureRawPlusJpeg(ic, values)
         }
         val metadata = ImageCapture.Metadata()
+        com.novacamera.s24.core.GeoTag.current(android.os.SystemClock.elapsedRealtime())?.let { f ->
+            metadata.location = android.location.Location("nova").apply {
+                latitude = f.lat; longitude = f.lon; time = f.utcMs; accuracy = f.accuracyM; f.altitude?.let { altitude = it }
+            }
+        }
         val output = ImageCapture.OutputFileOptions.Builder(
             activity.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
         ).setMetadata(metadata).build()
@@ -2123,7 +2221,7 @@ class NovaCamera(
                 val uri = try {
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
-                    MirroredPhotoSaver.save(activity.contentResolver, bytes, image.cropRect, image.imageInfo.rotationDegrees, values)
+                    MirroredPhotoSaver.save(activity.contentResolver, bytes, image.cropRect, image.imageInfo.rotationDegrees, values, geo = com.novacamera.s24.core.GeoTag.tagsNow())
                 } catch (e: Exception) {
                     Log.e(TAG, "Falha ao salvar selfie espelhada", e)
                     null
@@ -2164,12 +2262,18 @@ class NovaCamera(
         val exposure = cam.cameraInfo.exposureState
         var captureNote: String? = null
         var nightPlan: com.novacamera.s24.core.NightExposure.Plan? = null
+        // FOTO no escuro de verdade: captura e processa com o motor do Noturno (que não muda).
+        val autoNight = kind == JobKind.PHOTO && mode == CaptureMode.FOTO && activeExtension == ExtensionMode.NONE &&
+            caps?.manualSensor == true && com.novacamera.s24.core.AutoNightPolicy.wanted(settings.autoNightPhoto,
+                latestStats?.iso, latestStats?.exposureNs, equivalent(zoomOnLens),
+                h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE))
+        if (autoNight) kind = JobKind.NIGHT
         var steps: List<Int> = when (kind) {
             JobKind.NIGHT -> {
                 val max = when {
                     h != null && h.thermalStatus >= ThermalPolicy.SEVERE -> 1
                     h != null && (h.powerSave || h.thermalStatus >= ThermalPolicy.MODERATE) -> 3
-                    else -> ModeResolver.NIGHT_FRAMES
+                    else -> ModeResolver.nightFrames(equivalent(zoomOnLens))
                 }
                 val st = latestStats
                 val c = caps
@@ -2183,7 +2287,7 @@ class NovaCamera(
                 }
                 val plan = nightPlan
                 if (plan != null) {
-                    captureNote = "Noturno: ${plan.label}"
+                    captureNote = (if (autoNight) "Noturno automático: " else "Noturno: ") + plan.label
                     List(plan.frames) { 0 }
                 } else {
                     val (n, note) = CaptureDecision.nightFrames(stIso, stExp, max)
@@ -2259,7 +2363,8 @@ class NovaCamera(
                 zoom = captureZoom, srFactor = srFactor, outScale = outScale, signature = signatureStyle(), captureNote = captureNote, imagingFacts=captureFacts,
                 portraitBlur = settings.portraitBlur, portraitDarkBackground = settings.portraitDarkBackground, style = currentStyle(),
                 liveClip = takeLiveClip(),
-                subjectPoint = if (kind == JobKind.PORTRAIT) subjectPointForPhoto(mirror) else null, trace=trace))
+                subjectPoint = if (kind == JobKind.PORTRAIT || kind == JobKind.PHOTO || kind == JobKind.ZOOM || kind == JobKind.HDR) subjectPointForPhoto(mirror) else null, trace=trace,
+                front = isFront, scene = if (mode == CaptureMode.FOTO) scene else com.novacamera.s24.core.SceneDetect.Scene.NONE))
             frames.clear() // Job e coleta já possuem listas próprias.
             if(ownsCapture) listener.onProcessingQueued(kind)
         }
@@ -2313,7 +2418,7 @@ class NovaCamera(
                                     captureVerified=audit.confirmed,
                                     iso=audit.iso,exposureNs=audit.exposureNs)
                             }
-                            if(i==0 && initialKind==JobKind.PHOTO && srFactor <= 1f && outScale <= 1f) {
+                            if(i==0 && initialKind==JobKind.PHOTO && !autoNight && srFactor <= 1f && outScale <= 1f) {
                                 val (clip,deep)=frameStats(bytes)
                                 val st=latestStats
                                 // Testes de super-resolução: rajada da tele também com luz boa, e mais longa.
@@ -2334,7 +2439,8 @@ class NovaCamera(
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.NIGHT -> {
                                         kind=JobKind.NIGHT
-                                        val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,3)
+                                        val (n,note)=CaptureDecision.nightFrames(captureFacts.iso ?: st?.iso,captureFacts.exposureNs ?: st?.exposureNs,
+                                            if (equivalent(zoomOnLens) >= com.novacamera.s24.core.NightLensPolicy.MIN_ZOOM) ModeResolver.NIGHT_TELE_FRAMES else 3)
                                         steps=List(n){0};captureNote=note ?: "Pouca luz: redução de ruído adaptativa"
                                     }
                                     com.novacamera.s24.core.AutoPhotoPolicy.Path.HDR -> if(exposure.isExposureCompensationSupported && aeAdjustable()) {
@@ -2420,9 +2526,14 @@ class NovaCamera(
         // AF já tinha voltado ao contínuo) ou no centro (Noturno, super-resolução, tele multiquadro —
         // o AF contínuo "caça" no escuro e na tele, e um quadro fora de foco borra a fusão).
         val plan = com.novacamera.s24.core.FocusPolicy.beforeBurst(
-            night = kind == JobKind.NIGHT, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
+            // Noturno automático da FOTO mantém o foco da FOTO (assunto do AF contínuo); o modo Noturno não muda.
+            night = kind == JobKind.NIGHT && !autoNight, frames = steps.size, equivalentZoom = equivalent(zoomOnLens), superRes = srFactor > 1f,
             userPoint = userPointActive, afAtPoint = afAtPoint, locked = aeLocked,
-            manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE)
+            manualFocus = mode.isPro && manual.focusDiopters != null, vendorExtension = activeExtension != ExtensionMode.NONE,
+            continuousSettled = (mode == CaptureMode.FOTO || mode == CaptureMode.RETRATO) && caps?.manualFocus == true &&
+                lastAfState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED && (latestStats?.focusDiopters ?: 0f) > 0f,
+            dark = latestStats?.let { it.iso >= 1600 || it.exposureNs >= 33_000_000L } == true)
+        trace.mark("AF antes: estado=${lastAfState} foco=${latestStats?.focusDiopters} D ponto=${userPointActive}/${afAtPoint}")
         trace.mark("AF solicitado ${plan.target} limite${plan.waitMs}ms")
         focusBeforeBurst(cam, plan,trace) { trace.mark("AF liberou aquisição"); zoomOut() }
     }
@@ -2432,8 +2543,19 @@ class NovaCamera(
     private fun focusBeforeBurst(cam: Camera, plan: com.novacamera.s24.core.FocusPolicy.BeforeBurst, trace:com.novacamera.s24.core.PhotoTrace, then: () -> Unit) {
         val action = when (plan.target) {
             com.novacamera.s24.core.FocusPolicy.Target.NONE -> null
+            com.novacamera.s24.core.FocusPolicy.Target.HOLD -> {
+                heldFocusDiopters = latestStats?.focusDiopters
+                burstFocusHeld = true
+                val future = applyInterop()
+                if (future == null) { heldFocusDiopters = null; burstFocusHeld = false; trace.mark("AF mantido indisponível"); return then() }
+                var done = false
+                val go = { reason: String -> if (!done) { done = true; trace.mark(reason); if (activePhotoTrace === trace) then() else trace.publish("AF interrompido pela troca de sessão") } }
+                future.addListener({ go("AF mantido onde o contínuo focou: ${"%.2f".format(Locale.US, heldFocusDiopters ?: 0f)} D") }, main)
+                handler.postDelayed({ go("AF mantido: limite de espera") }, 300L)
+                return
+            }
             com.novacamera.s24.core.FocusPolicy.Target.POINT -> userPoint?.let {
-                FocusMeteringAction.Builder(it, userPointFlags or FocusMeteringAction.FLAG_AF).disableAutoCancel().build() }
+                meterAction(it, userAePoint ?: it, userPointFlags or FocusMeteringAction.FLAG_AF) }
             com.novacamera.s24.core.FocusPolicy.Target.CENTER -> FocusMeteringAction.Builder(
                 previewView.meteringPointFactory.createPoint(previewView.width / 2f, previewView.height / 2f),
                 FocusMeteringAction.FLAG_AF).disableAutoCancel().build()
@@ -2457,7 +2579,7 @@ class NovaCamera(
             if (plan.target == com.novacamera.s24.core.FocusPolicy.Target.POINT && token == focusToken) {
                 afAtPoint = result == true
                 // O ponto volta a ficar parado pelo tempo escolhido, como num toque novo.
-                if(afAtPoint) userPoint?.let { scheduleFocusRelease(token, it) }
+                if(afAtPoint) (userAePoint ?: userPoint)?.let { scheduleFocusRelease(token, it) }
             }
             go("AF callback: sucesso=$result")
         }, main)
@@ -2468,6 +2590,7 @@ class NovaCamera(
     private fun releaseBurstFocus() {
         if (!burstFocusHeld) return
         burstFocusHeld = false
+        if (heldFocusDiopters != null) { heldFocusDiopters = null; applyInterop(); return }
         if (!userPointActive) camera?.cameraControl?.cancelFocusAndMetering()
     }
 
@@ -2548,7 +2671,17 @@ class NovaCamera(
     private var portraitAnalyzer: PortraitMaskAnalyzer? = null
     private val portraitExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "nova-portrait-mask") }
     /** GL falhou nesta execução do app: sem nova tentativa até reabrir (a foto final não muda). */
-    private var portraitPreviewFailed = false
+    /** Falha do efeito da prévia: pausa com volta automática, não "desligado até reabrir o app" ([EffectBreaker]). */
+    private val effectBreaker = com.novacamera.s24.core.EffectBreaker()
+    private val portraitPreviewFailed get() = effectBreaker.blocked(SystemClock.uptimeMillis())
+    /** Ao fim da pausa, reabre a sessão para o efeito (e os controles ao vivo) voltarem sem sair do app. */
+    private fun pauseEffect(): Long {
+        val wait = effectBreaker.fail(SystemClock.uptimeMillis())
+        handler.postDelayed({
+            if (!released && !paused && !isRecording && !capturing && !effectBreaker.blocked(SystemClock.uptimeMillis()) && portraitEffect == null) bind()
+        }, wait + 50L)
+        return wait
+    }
 
     /** Tom e temperatura ao vivo: a prévia muda na hora e a foto usa a mesma conta. */
     fun setStyle(style: com.novacamera.s24.core.imaging.PhotoStyle) {
@@ -2614,9 +2747,10 @@ class NovaCamera(
             (mode in listOf(CaptureMode.RETRATO, CaptureMode.NOITE, CaptureMode.FOOD) && processingKind(support) != null))
         if (!portrait && !styleMode) return null
         val effect = PortraitPreviewEffect.create { e ->
-            Log.w(TAG, "prévia do retrato desligada", e)
-            portraitPreviewFailed = true
-            listener.onMessage("Prévia do desfoque indisponível neste aparelho; a foto continua com o desfoque")
+            Log.w(TAG, "prévia do retrato pausada", e)
+            val wait = pauseEffect()
+            if (wait > com.novacamera.s24.core.EffectBreaker.FIRST_MS)
+                listener.onMessage("Controles ao vivo pausados por ${wait / 1000} s; a foto continua com o desfoque e o tom")
             listener.onPortraitPreview(null)
             handler.post { bind() }
         }.apply {

@@ -106,3 +106,25 @@ Java_com_novacamera_s24_processing_NcnnDenoiser_nativeRelease(JNIEnv*, jclass, j
     delete reinterpret_cast<Model*>(handle);
 }
 
+
+// IA de detalhe (Real-ESRGAN compacto, mesma mecânica: bloco ARGB → bloco ARGB; aqui a saída tem 2× o lado).
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_novacamera_s24_processing_DetailRestorer_nativeLoad(JNIEnv* env, jclass c, jobject assets,
+                                                            jstring param, jstring bin, jboolean useGpu) {
+    return Java_com_novacamera_s24_processing_NcnnDenoiser_nativeLoad(env, c, assets, param, bin, useGpu);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_novacamera_s24_processing_DetailRestorer_nativeUsesGpu(JNIEnv* env, jclass c, jlong handle) {
+    return Java_com_novacamera_s24_processing_NcnnDenoiser_nativeUsesGpu(env, c, handle);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_novacamera_s24_processing_DetailRestorer_nativeRun(JNIEnv* env, jclass c, jlong handle, jobject in, jobject out) {
+    return Java_com_novacamera_s24_processing_NcnnDenoiser_nativeRun(env, c, handle, in, out);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_novacamera_s24_processing_DetailRestorer_nativeRelease(JNIEnv* env, jclass c, jlong handle) {
+    Java_com_novacamera_s24_processing_NcnnDenoiser_nativeRelease(env, c, handle);
+}

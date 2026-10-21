@@ -99,7 +99,7 @@ class SettingsActivity : NovaScreen() {
         switch("Realce de foco no foco manual", "Contorna em verde o que está nítido enquanto o foco manual estiver em uso.",
             { settings.focusPeaking }, { settings.focusPeaking = it })
         switch("Som do obturador", null, { settings.shutterSound }, { settings.shutterSound = it })
-        switch("Tecla de volume fotografa", "Também inicia e para a gravação no modo Vídeo.",
+        switch("Tecla de volume fotografa", "Volume + dispara na hora. Volume −: toque dispara; segure para travar foco e exposição. Também grava vídeo.",
             { settings.volumeKeyShutter }, { settings.volumeKeyShutter = it })
 
         section("Foto Nova")
@@ -120,6 +120,24 @@ class SettingsActivity : NovaScreen() {
         switch("Alta resolução na tele", "No 3× e 5× (Foto e Retrato), junta 8 quadros numa foto 2× maior (~48 MP): mais " +
             "detalhe real no zoom de pinça. Arquivos de 15–20 MB e alguns segundos a mais; segure firme durante a rajada.",
             { settings.teleHighRes }, { settings.teleHighRes = it })
+        switch("Ler QR e códigos de barras na Foto", "Lê a própria prévia, sem internet (zxing-cpp). Mostra o conteúdo " +
+            "num aviso; nada abre sem você tocar, e o link aparece inteiro antes. Com calor ou economia, lê mais devagar.",
+            { settings.qrScan }, { settings.qrScan = it })
+        switch("Detectar texto na Foto", "Quando há texto na prévia, aparece o botão T no canto: toque para ler, selecionar " +
+            "e copiar as linhas sobre a própria imagem. Sem internet; com calor ou economia, verifica mais devagar.",
+            { settings.textSpot }, { settings.textSpot = it })
+        switch("Salvar local nas fotos", "Desligado por padrão. Grava a posição do disparo no EXIF (GPS), como a câmera do " +
+            "aparelho. A permissão de localização é pedida ao voltar para a câmera; o app continua sem internet. Atenção: " +
+            "quem receber a foto vê onde ela foi tirada. Vídeo não leva local.",
+            { settings.geoTag }, { settings.geoTag = it })
+        switch("Disparo com a palma", "Desligado por padrão. Na Foto e no Retrato, mostre a palma aberta para a câmera " +
+            "por menos de 1 s: começa o contador de 3 s (ou o temporizador, se for maior). Serve para selfie e foto de longe. " +
+            "Lê a prévia ~4 vezes por segundo, sem internet; com calor ou economia, mais devagar.",
+            { settings.palmShutter }, { settings.palmShutter = it })
+        switch("Noturno automático na Foto", "Desligado por padrão. No escuro de verdade (tempo longo e ISO alto: na principal a partir de ISO 2400, na tele a partir de 800), " +
+            "a Foto usa o motor do Noturno: exposição mais longa por quadro, menos ruído e o tom do Noturno. Segure firme " +
+            "por 1–3 s. Nesses casos a Alta resolução não é usada (com ISO alto ela só amplia o ruído).",
+            { settings.autoNightPhoto }, { settings.autoNightPhoto = it })
         switch("Super-resolução no zoom da tele", "Acima do zoom óptico (ex.: 10× na lente 5×), junta 8 quadros feitos na lente " +
             "sem recorte: detalhe real na ampliação, em vez do recorte de um quadro só. A prévia mostra a lente sem recorte " +
             "por um instante durante a rajada.", { settings.superRes }, { settings.superRes = it })
@@ -150,9 +168,10 @@ class SettingsActivity : NovaScreen() {
         section("Avançado")
         val aiOk = com.novacamera.s24.processing.NcnnDenoiser.available(this)
         switch("Redução de ruído por IA", if (aiOk)
-            "Noturno e Retrato: a foto sai na hora e a IA limpa o ruído em segundo plano, trocando a " +
-                "mesma foto na galeria quando termina. Para ao tirar outra foto, com o aparelho quente ou " +
-                "em economia de bateria; aí a foto fica como saiu. Compare pelo toque longo na miniatura."
+            "Noturno, Retrato, zoom (a partir de 1,3×, tele 3×/5×/10×) e pouca luz: a foto sai na hora e a IA " +
+                "limpa o ruído em segundo plano, pulando o que já está limpo, e troca a mesma foto na galeria " +
+                "quando termina (12 MP ~1 min; Alta resolução, alguns minutos). Pausa ao tirar outra foto, com o " +
+                "aparelho quente ou em economia de bateria. Compare pelo toque longo na miniatura."
             else "Indisponível nesta versão: o modelo não foi incluído no APK.",
             { settings.aiDenoise && aiOk }, { settings.aiDenoise = it && aiOk })
         choice("HDR da FOTO", "Automático: só captura exposições extras quando a cena tem altas luzes estouradas ou " +
@@ -380,11 +399,38 @@ class DiagnosticsActivity : NovaScreen() {
             appendLine("  Vídeo SDR: ${qualities.joinToString().ifEmpty { "?" }} · estabilização de vídeo: ${video?.isStabilizationSupported}" +
                 " · de pré-visualização: ${runCatching { Preview.getPreviewCapabilities(info).isStabilizationSupported }.getOrNull()}")
             appendLine("  Faixas de fps (CameraX): ${info.supportedFrameRateRanges.joinToString()}")
+            appendLine("  Combinações de vídeo (consulta oficial do CameraX): ${videoCombos(info)}")
+            appendLine("  Maior gravação anunciada a apps (Camera2): ${maxRecorderSize(info)}")
             appendLine("  Zoom: ${info.zoomState.value?.let { "${it.minZoomRatio}–${it.maxZoomRatio}" } ?: "(lido ao abrir a câmera)"}")
         }
         val all = provider.availableCameraInfos
         appendLine("Câmeras acessíveis ao CameraX: ${all.size}")
+        appendLine(com.novacamera.s24.gpuVideoSupport())
     }
+
+    /**
+     * O aparelho responde se a combinação é garantida (CameraX 1.5+, feature groups). Só consulta; nada é
+     * vinculado. "não" aqui é a resposta definitiva para 4K60 neste app.
+     */
+    private fun videoCombos(info: androidx.camera.core.CameraInfo): String = runCatching {
+        val preview = Preview.Builder().build()
+        val video = androidx.camera.video.VideoCapture.withOutput(Recorder.Builder().build())
+        fun ask(vararg f: androidx.camera.core.featuregroup.GroupableFeature) = runCatching {
+            info.isSessionConfigSupported(androidx.camera.core.SessionConfig.Builder(preview, video).setRequiredFeatureGroup(*f).build())
+        }.fold({ if (it) "sim" else "não" }, { "erro ${it.javaClass.simpleName}" })
+        val g = androidx.camera.video.GroupableFeatures
+        val f = androidx.camera.core.featuregroup.GroupableFeature
+        "4K/60=${ask(g.UHD_RECORDING, f.FPS_60)} · 4K/60 HLG=${ask(g.UHD_RECORDING, f.FPS_60, f.HDR_HLG10)} · " +
+            "4K/30 HLG=${ask(g.UHD_RECORDING, f.HDR_HLG10)} · FHD/60=${ask(g.FHD_RECORDING, f.FPS_60)}"
+    }.getOrElse { "consulta indisponível (${it.javaClass.simpleName})" }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun maxRecorderSize(info: androidx.camera.core.CameraInfo): String = runCatching {
+        val map = androidx.camera.camera2.interop.Camera2CameraInfo.from(info)
+            .getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val s = map?.getOutputSizes(android.media.MediaRecorder::class.java)?.maxByOrNull { it.width.toLong() * it.height } ?: return@runCatching "?"
+        "${s.width}×${s.height} · 8K (7680×4320): " + if (s.width.toLong() * s.height >= 7680L * 4320) "anunciado" else "não anunciado para apps de terceiros"
+    }.getOrElse { "?" }
 
     private fun shareReport() {
         if (report.isEmpty()) return

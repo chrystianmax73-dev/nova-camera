@@ -35,7 +35,7 @@ class ZoomBar(context: Context) : View(context) {
     private val pad = dp(4f)
     private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 }
     private val activeBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6142338.toInt() }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Nova.MEDIUM }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { fontFeatureSettings = "tnum"; textAlign = Paint.Align.CENTER; typeface = Nova.MEDIUM }
     private val rect = RectF()
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
@@ -96,7 +96,7 @@ class ZoomBar(context: Context) : View(context) {
                     val z = CameraMath.zoomForFraction(stops, f)
                     zoom = z
                     val idx = activeIndex()
-                    if (idx != lastStopIndex) { lastStopIndex = idx; Haptics.tick(this) }
+                    if (idx != lastStopIndex) lastStopIndex = idx // o tique da parada vem do zoom real (MainActivity.onZoom)
                     listener?.onDrag(z)
                 }
             }

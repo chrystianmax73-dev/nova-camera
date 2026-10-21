@@ -120,27 +120,42 @@ class ViewfinderOverlay(context: Context) : View(context) {
             }
         }
         horizon?.let { a ->
+            // Nível no estilo do iPhone: dois traços fixos nas pontas (referência do aparelho) e o traço do meio
+            // girando com o horizonte; nivelado (< 1°), tudo fica amarelo e vira uma linha só.
             val err = com.novacamera.s24.core.imaging.ViewfinderAid.levelError(a)
             val ok = err < 1f
-            levelPaint.color = if (ok) 0xFF00E676.toInt() else 0xCCFFFFFF.toInt()
-            levelPaint.strokeWidth = dp(if (ok) 2f else 1.4f)
             val cx = width / 2f; val cy = height / 2f
-            val half = dp(70f)
-            canvas.save()
-            canvas.rotate(a, cx, cy)
-            canvas.drawLine(cx - half, cy, cx - dp(14f), cy, levelPaint)
-            canvas.drawLine(cx + dp(14f), cy, cx + half, cy, levelPaint)
+            val ref = Math.round(a / 90f) * 90f
+            val color = if (ok) LEVEL_YELLOW else 0xE6FFFFFF.toInt()
+            levelPaint.color = color; levelPaint.strokeWidth = dp(2f)
+            levelPaint.setShadowLayer(dp(3f), 0f, 0f, 0x66000000)
+            canvas.save(); canvas.rotate(ref, cx, cy)
+            canvas.drawLine(cx - dp(80f), cy, cx - dp(52f), cy, levelPaint)
+            canvas.drawLine(cx + dp(52f), cy, cx + dp(80f), cy, levelPaint)
             canvas.restore()
-            // Referência fixa (nível do aparelho) curta, para ver a diferença.
-            if (!ok) {
-                levelPaint.color = 0x80FFFFFF.toInt(); levelPaint.strokeWidth = dp(1f)
-                val ref = Math.round(a / 90f) * 90f
-                canvas.save(); canvas.rotate(ref, cx, cy)
-                canvas.drawLine(cx - dp(10f), cy, cx + dp(10f), cy, levelPaint)
-                canvas.restore()
-            }
+            val half = if (ok) dp(52f) else dp(40f)
+            canvas.save(); canvas.rotate(if (ok) ref else a, cx, cy)
+            canvas.drawLine(cx - half, cy, cx + half, cy, levelPaint)
+            canvas.restore()
+            levelPaint.clearShadowLayer()
+        }
+        topDown?.let { o ->
+            // Foto de cima: mira fixa (alvo) e mira que acompanha a inclinação; alinhadas, ficam amarelas.
+            val cx = width / 2f; val cy = height / 2f
+            val ok = kotlin.math.hypot(o.x, o.y) < dp(4f)
+            levelPaint.strokeWidth = dp(2f)
+            levelPaint.color = LEVEL_YELLOW
+            val r = dp(14f)
+            canvas.drawLine(cx - r, cy, cx + r, cy, levelPaint); canvas.drawLine(cx, cy - r, cx, cy + r, levelPaint)
+            levelPaint.color = if (ok) LEVEL_YELLOW else 0xE6FFFFFF.toInt()
+            canvas.drawCircle(cx + o.x, cy + o.y, dp(10f), levelPaint.apply { style = Paint.Style.STROKE })
+            levelPaint.style = Paint.Style.FILL_AND_STROKE
         }
     }
+
+    /** Deslocamento da mira de "foto de cima" (px), ou null fora dessa posição. */
+    var topDown: android.graphics.PointF? = null
+        set(v) { field = v; invalidate() }
 
     /** Desliga gestos de foco/exposição (ex.: modo indisponível ou câmera pausada). */
     var focusEnabled = true
@@ -263,6 +278,14 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     fun setFocusResult(success: Boolean, isLocked: Boolean) {
         if (ringX < 0) return
+        if (isLocked && !locked) {
+            // Trava: o retículo "pulsa" duas vezes (como o iPhone) antes de assentar em amarelo.
+            fadeAnimator?.cancel(); ringAlpha = 1f
+            ValueAnimator.ofFloat(1f, 1.16f, 0.94f, 1.08f, 1f).apply {
+                duration = 520; interpolator = Nova.EASE
+                addUpdateListener { ringScale = it.animatedValue as Float; invalidate() }
+            }.start()
+        }
         locked = isLocked
         ringColor = when {
             isLocked -> Nova.LOCK
@@ -299,6 +322,158 @@ class ViewfinderOverlay(context: Context) : View(context) {
 
     fun setBigCountdown(n: Int) { bigCountdown = n; invalidate() }
 
+    // Toque inteligente: caixa do objeto reconhecido + nome (PP-PicoDet), entra com encaixe e some sozinha.
+    private val objRect = android.graphics.RectF()
+    private var objLabel: String? = null
+    private var objAlpha = 0f
+    private var objAnim: ValueAnimator? = null
+    private val objStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f * resources.displayMetrics.density
+        setShadowLayer(6f * resources.displayMetrics.density, 0f, 0f, 0x88000000.toInt())
+    }
+    private val objCorner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 4f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND; setShadowLayer(8f * resources.displayMetrics.density, 0f, 0f, 0xAA48BFFF.toInt())
+    }
+    private val objChip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6101828.toInt() }
+    private val objDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF48BFFF.toInt() }
+    private val objText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textSize = 13f * resources.displayMetrics.scaledDensity
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }
+    private val objTmp = android.graphics.RectF()
+
+    /** Objeto tocado (pontos deste overlay = prévia). Some em ~3 s. */
+    fun showObject(rect: android.graphics.RectF, label: String) {
+        objRect.set(rect); objLabel = label
+        objAnim?.cancel()
+        objAnim = ValueAnimator.ofFloat(0f, 1f, 1f, 0f).apply {
+            duration = 3200
+            setInterpolator { t -> t }
+            addUpdateListener {
+                val f = it.animatedFraction
+                objAlpha = when { f < 0.08f -> f / 0.08f; f > 0.9f -> (1f - f) / 0.1f; else -> 1f }
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { objLabel = null; invalidate() } })
+            start()
+        }
+    }
+
+    fun clearObject() { objAnim?.cancel(); objLabel = null; invalidate() }
+
+    private fun drawObject(canvas: Canvas) {
+        val label = objLabel ?: return
+        if (objAlpha <= 0.01f) return
+        val d = resources.displayMetrics.density
+        // Entrada: a caixa "assenta" de 6% maior para o tamanho real.
+        val k = 1f + 0.06f * (1f - kotlin.math.min(1f, objAlpha))
+        val cx = objRect.centerX(); val cy = objRect.centerY()
+        objTmp.set(cx - objRect.width() / 2 * k, cy - objRect.height() / 2 * k, cx + objRect.width() / 2 * k, cy + objRect.height() / 2 * k)
+        val a = (255 * objAlpha).toInt()
+        objStroke.alpha = (a * 0.55f).toInt()
+        canvas.drawRoundRect(objTmp, 14f * d, 14f * d, objStroke)
+        objCorner.alpha = a
+        val arm = kotlin.math.min(objTmp.width(), objTmp.height()) * 0.18f
+        val r = 14f * d
+        with(objTmp) {
+            canvas.drawArc(left, top, left + 2 * r, top + 2 * r, 180f, 90f, false, objCorner)
+            canvas.drawLine(left + r, top, left + r + arm, top, objCorner); canvas.drawLine(left, top + r, left, top + r + arm, objCorner)
+            canvas.drawArc(right - 2 * r, top, right, top + 2 * r, 270f, 90f, false, objCorner)
+            canvas.drawLine(right - r, top, right - r - arm, top, objCorner); canvas.drawLine(right, top + r, right, top + r + arm, objCorner)
+            canvas.drawArc(right - 2 * r, bottom - 2 * r, right, bottom, 0f, 90f, false, objCorner)
+            canvas.drawLine(right - r, bottom, right - r - arm, bottom, objCorner); canvas.drawLine(right, bottom - r, right, bottom - r - arm, objCorner)
+            canvas.drawArc(left, bottom - 2 * r, left + 2 * r, bottom, 90f, 90f, false, objCorner)
+            canvas.drawLine(left + r, bottom, left + r + arm, bottom, objCorner); canvas.drawLine(left, bottom - r, left, bottom - r - arm, objCorner)
+        }
+        // Nome num chip de vidro acima da caixa (abaixo, se não couber), com ponto azul. Sem nome (padrão desde
+        // a 0.36, pedido do dono): só a caixa; a cena aparece no ícone ao lado do zoom.
+        if (label.isEmpty()) return
+        val tw = objText.measureText(label)
+        val ch = 28f * d; val cw = tw + 34f * d
+        var top = objTmp.top - ch - 8f * d
+        if (top < 8f * d) top = objTmp.bottom + 8f * d
+        val left = (objTmp.centerX() - cw / 2).coerceIn(8f * d, width - cw - 8f * d)
+        objChip.alpha = (230 * objAlpha).toInt(); objDot.alpha = a; objText.alpha = a
+        canvas.drawRoundRect(left, top, left + cw, top + ch, ch / 2, ch / 2, objChip)
+        canvas.drawCircle(left + 14f * d, top + ch / 2, 4f * d, objDot)
+        canvas.drawText(label, left + 24f * d, top + ch / 2 - (objText.ascent() + objText.descent()) / 2, objText)
+    }
+
+    // QR: moldura animada nos cantos do código lido (pontos da prévia = deste overlay, mesmo tamanho).
+    private val codeTarget = FloatArray(8)
+    private val codeNow = FloatArray(8)
+    private var codeVisible = false
+    private var codeAppear = 0f
+    private var codeAnim: ValueAnimator? = null
+    private val codePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 4.5f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        setShadowLayer(8f * resources.displayMetrics.density, 0f, 0f, 0xAA48BFFF.toInt())
+    }
+    private val codeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val codePath = android.graphics.Path()
+
+    /** Código visto nesta leitura (cantos em volta, x0,y0…x3,y3). A primeira vez entra com um "encaixe". */
+    fun showCode(quad: FloatArray) {
+        quad.copyInto(codeTarget)
+        if (!codeVisible) {
+            codeVisible = true
+            quad.copyInto(codeNow)
+            codeAnim?.cancel()
+            codeAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 320; interpolator = android.view.animation.OvershootInterpolator(1.4f)
+                addUpdateListener { codeAppear = it.animatedValue as Float; invalidate() }
+                start()
+            }
+        }
+        postInvalidateOnAnimation()
+    }
+
+    fun hideCode() {
+        if (!codeVisible) return
+        codeAnim?.cancel()
+        codeAnim = ValueAnimator.ofFloat(codeAppear.coerceAtMost(1f), 0f).apply {
+            duration = 180
+            addUpdateListener { codeAppear = it.animatedValue as Float; if (codeAppear <= 0f) codeVisible = false; invalidate() }
+            start()
+        }
+    }
+
+    private fun drawCode(canvas: Canvas) {
+        if (!codeVisible) return
+        if (com.novacamera.s24.core.CodeFrame.follow(codeNow, codeTarget, 0.3f)) postInvalidateOnAnimation()
+        val a = codeAppear.coerceIn(0f, 1f)
+        val scale = 1.35f - 0.35f * codeAppear // entra de fora para dentro e assenta no código
+        codePath.reset()
+        val cx = (codeNow[0] + codeNow[2] + codeNow[4] + codeNow[6]) / 4f
+        val cy = (codeNow[1] + codeNow[3] + codeNow[5] + codeNow[7]) / 4f
+        for (i in 0 until 4) {
+            val x = cx + (codeNow[2 * i] - cx) * scale; val y = cy + (codeNow[2 * i + 1] - cy) * scale
+            if (i == 0) codePath.moveTo(x, y) else codePath.lineTo(x, y)
+        }
+        codePath.close()
+        codeFill.color = Color.argb((40 * a).toInt(), 0x48, 0xBF, 0xFF)
+        canvas.drawPath(codePath, codeFill)
+        codePaint.alpha = (255 * a).toInt()
+        // Respiração sutil (±2,5%) enquanto o código está na tela: a moldura parece "viva", não um desenho parado.
+        val breath = 1f + 0.025f * kotlin.math.sin((android.os.SystemClock.uptimeMillis() % 1800L) / 1800f * 6.2832f)
+        val seg = com.novacamera.s24.core.CodeFrame.brackets(codeNow, scale * breath)
+        // Cada canto: dois braços unidos por uma curva (canto arredondado, como as molduras do sistema).
+        codePath.reset()
+        for (c in 0 until 4) {
+            val o = c * 8
+            val cx0 = seg[o]; val cy0 = seg[o + 1]
+            val ax = seg[o + 2]; val ay = seg[o + 3]; val bx = seg[o + 6]; val by = seg[o + 7]
+            codePath.moveTo(ax, ay)
+            codePath.lineTo(cx0 + (ax - cx0) * 0.3f, cy0 + (ay - cy0) * 0.3f)
+            codePath.quadTo(cx0, cy0, cx0 + (bx - cx0) * 0.3f, cy0 + (by - cy0) * 0.3f)
+            codePath.lineTo(bx, by)
+        }
+        canvas.drawPath(codePath, codePaint)
+        if (codeAppear >= 1f) postInvalidateOnAnimation()
+    }
+
     private fun scheduleFade(delay: Long) {
         fadeAnimator?.cancel()
         fadeAnimator = ValueAnimator.ofFloat(1f, 0f).apply {
@@ -320,6 +495,8 @@ class ViewfinderOverlay(context: Context) : View(context) {
             com.novacamera.s24.core.CrashLog.record(context, "visor (não fatal)", e)
         }
         drawContour(canvas)
+        drawObject(canvas)
+        drawCode(canvas)
         if (showGrid) {
             for (i in 1..2) {
                 val x = width * i / 3f
@@ -374,9 +551,12 @@ class ViewfinderOverlay(context: Context) : View(context) {
             if (evVisible) {
                 val barX = cx + dp(34f) + dp(18f)
                 val half = dp(34f)
-                linePaint.color = Nova.TEXT; linePaint.alpha = (alpha * 0.55f).toInt(); linePaint.strokeWidth = dp(1.2f)
-                canvas.drawLine(barX, cy - half, barX, cy + half, linePaint)
                 val ky = cy + half - 2 * half * evFraction
+                // Linha interrompida em volta do sol (leitura do iPhone): o sol "corta" a régua.
+                linePaint.color = Nova.TEXT; linePaint.alpha = (alpha * 0.55f).toInt(); linePaint.strokeWidth = dp(1.2f)
+                val gap = dp(11f)
+                if (ky - gap > cy - half) canvas.drawLine(barX, cy - half, barX, ky - gap, linePaint)
+                if (ky + gap < cy + half) canvas.drawLine(barX, ky + gap, barX, cy + half, linePaint)
                 knobPaint.color = Nova.LOCK; knobPaint.alpha = alpha
                 drawSun(canvas, barX, ky, knobPaint)
                 evText?.let {
@@ -411,5 +591,9 @@ class ViewfinderOverlay(context: Context) : View(context) {
         }
     }
 
-    private companion object { const val CONTOUR_MS = 1600L }
+    private companion object {
+        /** Amarelo do nível alinhado (mesmo tom do iPhone). */
+        const val LEVEL_YELLOW = 0xFFFFD60A.toInt()
+        const val CONTOUR_MS = 1600L
+    }
 }

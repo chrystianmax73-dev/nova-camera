@@ -1,3 +1,66 @@
+# Etapa 0.36.2 (Claude) — vídeo tele no escuro
+- **Feito:** `VideoTeleLight` segura 4,9× na 3× com pouca luz (via `lightZoom` em `sendZoom`, no bind e em `watchInitialZoom`).
+- **Proposta pendente, a decidir com o dono — "Vídeo noturno":**
+  - Ganho digital +1–2 EV, curva de sombras e denoise temporal recursivo no GPU (kmax 0,6 luma / 0,8 croma, máscara de movimento 4×4, histórico 16F).
+  - Exige desligar HDR/HLG nessa situação.
+  - Resolveria o 10× e o 5× sem perder a tele.
+- **A medir:** `CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE` e `TONEMAP_AVAILABLE_TONE_MAP_MODES` por lente.
+
+# Etapa 0.36.1 (Claude)
+- **Contraluz:** o clareamento de pessoa (`BacklitLift.plan`) exige rosto ≥ 0,3%. O segmentador multiclasse marca pano e sofá como roupa; não tirar essa trava.
+- **Retrato:** objeto em contraluz via `planSubject` + `saveBacklit`, que o `render()` já aplica antes do desfoque. `OBJECT_RATIO` 0,38 foi calibrado em uma garrafa; calibrar com mais fotos reais.
+
+# Etapa 0.36.0 (Claude) — retorno dos testes da 0.35 (detalhes em `docs/STATUS.md`)
+- **Pesquisa usada:**
+  - **Pouca luz:** Night Sight com quadros longos e mais quadros, preto no p0,5–1%, saturação 1,1–1,3 com o ganho.
+  - **Contraluz:** rosto 0,45–0,55 e até +1,5–2 EV linear, com mapa de ganho sem halo.
+  - **Retrato:** CoC linear na disparidade, R_max ≈ 2% da largura, desfoque em luz linear com oclusão (já existia), fundo −0,2 a −0,35 EV.
+  - **Cena:** EfficientNet-Lite0 do MediaPipe (Apache-2.0 nos metadados). Places365 e AIY evitados: licença dos pesos não confirmada.
+- **Não feito, de propósito:**
+  - Saturação no Noturno: o tom do Noturno é decisão do dono.
+  - Exposição por quadro mais longa na tele: `NightExposure.maxFrameNs`, risco de tremido sem teste físico.
+  - Clareamento extra dos olhos: precisa de face mesh.
+- **Próximo passo, se o dono pedir:** depois de confirmar o "N de 8" no aparelho, testar quadros mais longos na tele com o celular apoiado.
+- **Cena:**
+  - `SceneWatcher` só roda na FOTO, ~1×/s, e pula a leitura se outra IA nativa estiver ocupada.
+  - A cena vai no `Job.scene` → meta `scene` → `render()` ("acabamento/cena"). Só planta e comida mudam a cor.
+  - Exceção: o caminho de 200 MP em faixas (`JpegBands`) não aplica a cena.
+
+# Etapa 0.35.0 (Claude) — bug dos controles ao vivo + itens 1, 2, 3, 6 da pesquisa (detalhes em `docs/STATUS.md`)
+- **Bug dos controles ao vivo, corrigido:**
+  - A causa era `portraitPreviewFailed`, permanente na sessão.
+  - Agora é `EffectBreaker` (4 s → 20 s → 120 s, janela de 180 s). Em `NovaCamera.pauseEffect()`, ele religa via `bind()` passada a espera.
+  - **Não voltar a usar flag permanente.** Se o efeito falhar em loop, o disjuntor já espaça as tentativas.
+- **Detector:** `tools/picodet/export_ncnn.py` só copia para assets depois de aprovar. Manter as referências explícitas dos `ncnn.Mat` no Python: temporários dão lixo.
+- **Volume:** + dispara no aperto; − dispara ao soltar ou trava AE/AF segurando 0,35 s (`VOLUME_HOLD_MS`).
+- **Próximos:** 0.36 com Ultra HDR, estilos 2D com subtom, distorção + macro. 0.37 com borracha (MI-GAN MIT + MobileSAM Apache), melhor rosto (blendshapes), céu (U²-Net: conferir licença dos pesos antes).
+
+# Retorno do dono sobre a 0.31.6 → tratado na 0.32.1 (ver `docs/STATUS.md`)
+- Pendente só o que depende do aparelho: confirmar a galeria atualizando, o custo do QR duplo e do botão de texto no S24, e o deslocamento do próximo fechamento nativo, se houver.
+
+# Etapa 0.32.0 (Claude) — galeria no app, palma, IA de detalhe (pedido do dono)
+- Detalhes em `docs/STATUS.md` (0.32.0).
+- `runNextRefine` foi reorganizado: o NAFNet dispensado ou recusado não encerra mais o refino, porque a IA de detalhe pode entrar depois. Estado na sessão: `detail`=done/skipped e `detailReport`. `Session.meta` agora guarda `srFactor`, e o caminho AUTO guarda `zoom`.
+- Os limiares da IA de detalhe (`DetailGate.LO/HI`) foram calibrados em 3 fotos de 10×. Precisam de mais fotos reais (texto, rosto de longe, folhagem) antes de ampliar o uso.
+
+# Etapas 0.30.2–0.31.6 (Claude) — IA automática, estabilidade, ferramentas da câmera (pedido do dono)
+- Detalhes, limites e tabela "mudou × não mexi" em `docs/STATUS.md` (0.30.2 a 0.31.6). Noturno, tom, vídeo e Retrato não foram tocados nessas etapas, salvo onde o STATUS diz.
+- **IA automática:** `core/AiAutoPolicy.kt` (zoom ≥ 1,3×, ISO ≥ 800, Noturno, Retrato, até 52 MP). `core/imaging/AiQuality.kt` mede antes, escolhe a força e valida depois: recusa se o ruído não cair ≥ 10% ou se a borda perder > 8%. `HalfResidual` cobre fotos acima de 16,5 MP. `DenoiseBands` processa em faixas.
+- **Estabilidade:** `NativeGate` (uma IA nativa por vez; a prévia ao vivo pula o quadro em vez de esperar), `OutputMemory` (RAM do sistema, não heap), `NativeTombstone`.
+- **Atenção ao assunto:** `core/imaging/SubjectAttention.kt` (sombra com contorno, ou o ponto tocado, até +0,8 EV com validação). Vale só na FOTO com ISO ≥ 800 e é reaplicada pela revisão.
+- **Ferramentas:**
+  - QR: `camera/QrScanner.kt` com zxing-cpp.
+  - Texto: `processing/TextReader.kt` + `cpp/ocr.cpp` com PP-OCRv5; modelos baixados no build com sha256 fixo.
+  - Documento: `core/DocQuad.kt`.
+  - Lente suja: `core/LensSmudge.kt`.
+  - Local: `core/GeoTag.kt`, desligado por padrão; `Job.geo` copia a posição no disparo.
+- **CI:** cache do NAFNet convertido (o Google Drive pode recusar o download). Não remover a verificação final que barra APK sem modelo.
+
+# Etapa 0.30.1 (Claude) — vídeo travado no rosto/assunto + IA por região e foto inteira (pedido do dono)
+- Detalhes e limites em `docs/STATUS.md` (0.30.1). Para o Codex: `TileNoise.CLEAN_SIGMA` (1,2) é um palpite sem medição — calibrar com o "limpos pulados" do diagnóstico em fotos reais de Noturno e Retrato. A força da rede (0,75) e o acabamento não mudaram.
+- Pontos de integração: `ProcessingQueue.render(..., plans)` registra/reaplica os planos tonais (`RenderPlans`); `Engine.toneInPlace(..., region)`; `Engine.lowLightPlan`/`profilePlan` separados de `lowLightInPlace`/`profileInPlace` (saída idêntica). Mudou o tom? Mantenha o registro/reaplicação em todo passo com estatística global, senão a prévia por região diverge (`RegionRenderTest` pega).
+- Rastreio: `SubjectTracker` com adaptação presa ao modelo do toque e busca ampla quando incerto; `SubjectTrackingSession` aceita `faces` (rostos do sensor em coordenadas da prévia, `NovaCamera.facesInView`).
+
 # Etapa 0.29.7 (Claude) — auditoria do Noturno em zoom: ler `docs/pendente/AUDITORIA_NOTURNO_ZOOM.md`
 - Codex: propostas de qualidade A–D lá (mais quadros na tele, YUV, crominância pelo ruído medido, RAW). 0.29.2–0.29.6 mexeram em `Merge`, `Consistency`, `Engine.align/mergeInto/superRes`, `NightLensPolicy` (pedido do dono enquanto o teu plano estava encerrado) — revisar antes de mudar a fusão.
 - `Engine.mergeInto` agora paralelo (imagem idêntica, teste pixel a pixel); `readAligned` = `fetchAligned` + `finishAligned`.

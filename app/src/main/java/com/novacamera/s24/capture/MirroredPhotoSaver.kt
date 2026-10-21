@@ -39,6 +39,7 @@ object MirroredPhotoSaver {
         rotationDegrees: Int,
         values: ContentValues,
         quality: Int = 95,
+        geo: Map<String, String> = emptyMap(),
     ): Uri? {
         val original = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
         val exifIn = runCatching { ExifInterface(ByteArrayInputStream(jpeg)) }.getOrNull()
@@ -57,6 +58,7 @@ object MirroredPhotoSaver {
             resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
                 val exifOut = ExifInterface(pfd.fileDescriptor)
                 exifIn?.let { src -> EXIF_TAGS.forEach { tag -> src.getAttribute(tag)?.let { exifOut.setAttribute(tag, it) } } }
+                geo.forEach { (k, v) -> exifOut.setAttribute(k, v) }
                 exifOut.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
                 exifOut.setAttribute(ExifInterface.TAG_SOFTWARE, com.novacamera.s24.processing.MediaWriter.software)
                 exifOut.saveAttributes()

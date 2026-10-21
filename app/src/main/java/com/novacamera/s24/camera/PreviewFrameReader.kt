@@ -19,6 +19,8 @@ import androidx.camera.view.PreviewView
 /** Snapshot reduzido, sem getBitmap() bloqueante do PreviewView, sem stream de câmera adicional. */
 class PreviewFrameReader(
     private val preview: PreviewView,
+    /** Lado maior do snapshot (rastreio: 320; QR: maior, para ler códigos pequenos ou distantes). */
+    private val maxSide: Float = 320f,
     private val copy: (SurfaceView, Bitmap, (Int) -> Unit) -> Unit = { view, bitmap, done ->
         PixelCopy.request(view, bitmap, { result -> done(result) }, Handler(Looper.getMainLooper()))
     },
@@ -37,10 +39,10 @@ class PreviewFrameReader(
         if (closed || pending || preview.width <= 0 || preview.height <= 0) return false
         val child = find(preview) ?: return false
         if (child.width <= 0 || child.height <= 0) return false
-        val scale = minOf(1f, 320f / maxOf(child.width, child.height))
+        val scale = minOf(1f, maxSide / maxOf(child.width, child.height))
         val w = (child.width * scale).toInt().coerceAtLeast(1)
         val h = (child.height * scale).toInt().coerceAtLeast(1)
-        val outScale = minOf(1f, 320f / maxOf(preview.width, preview.height))
+        val outScale = minOf(1f, maxSide / maxOf(preview.width, preview.height))
         val ow = (preview.width*outScale).toInt().coerceAtLeast(48)
         val oh = (preview.height*outScale).toInt().coerceAtLeast(48)
         val transform = geometry(child, w, h, ow, oh)

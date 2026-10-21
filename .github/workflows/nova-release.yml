@@ -113,6 +113,13 @@ jobs:
             exit 1
           fi
           echo 'Keystore, senha e alias conferidos.'
+      - name: Cache do modelo de IA convertido (NAFNet)
+        # O Google Drive dos pesos oficiais às vezes recusa o download ("acessos demais"; build 110 de
+        # 20/10). Com o modelo já convertido guardado, o APK não fica sem a IA por causa disso.
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/nafnet
+          key: nafnet-sidd-width32-pnnx20260526-v1
       - name: Modelo de IA opcional (NAFNet → ncnn)
         # Baixa os pesos oficiais (MIT) do NAFNet-SIDD-width32, converte para ncnn e confere a
         # conversão contra o PyTorch. Se qualquer passo falhar, o APK sai sem o modelo e a opção
@@ -121,9 +128,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -s app/src/main/assets/nafnet/nafnet.param ] && [ -s app/src/main/assets/nafnet/nafnet.bin ]; then
+            echo 'Modelo NAFNet convertido restaurado do cache.'; ls -la app/src/main/assets/nafnet; exit 0
+          fi
           python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
           python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy gdown
-          gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth"
+          for attempt in 1 2 3; do
+            gdown 1lsByk21Xw-6aW7epCwOQxvm6HYCQZPHZ -O "$RUNNER_TEMP/nafnet.pth" && break
+            echo "Download dos pesos falhou (tentativa $attempt)"; sleep $((attempt * 30))
+          done
+          test -s "$RUNNER_TEMP/nafnet.pth"
           echo "sha256 dos pesos: $(sha256sum "$RUNNER_TEMP/nafnet.pth" | cut -d' ' -f1)"
           mkdir -p app/src/main/assets/nafnet
           python3 tools/nafnet/export_ncnn.py --weights "$RUNNER_TEMP/nafnet.pth" --out app/src/main/assets/nafnet
@@ -154,6 +168,40 @@ jobs:
           mkdir -p app/src/main/assets/depth
           python3 tools/depth/export_ncnn.py --hf-dir "$RUNNER_TEMP/da2s" --out app/src/main/assets/depth
           ls -la app/src/main/assets/depth
+      - name: Modelo de detalhe opcional (Real-ESRGAN realesr-general-x4v3 → ncnn)
+        # IA de detalhe no zoom digital da tele. Pesos oficiais da release v0.2.5.0 do xinntao/Real-ESRGAN
+        # (repositório BSD-3-Clause), sha256 fixos. Converte, confere contra o PyTorch (≥ 40 dB); se qualquer
+        # passo falhar, o APK sai sem o modelo e a foto fica só com o NAFNet, como antes.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy
+          base=https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/x4v3.pth" "$base/realesr-general-x4v3.pth"
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/wdn.pth" "$base/realesr-general-wdn-x4v3.pth"
+          echo "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292  $RUNNER_TEMP/x4v3.pth" | sha256sum -c -
+          echo "1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca  $RUNNER_TEMP/wdn.pth" | sha256sum -c -
+          mkdir -p app/src/main/assets/detail
+          python3 tools/realesr/export_ncnn.py --weights "$RUNNER_TEMP/x4v3.pth" --wdn "$RUNNER_TEMP/wdn.pth" --out app/src/main/assets/detail
+          ls -la app/src/main/assets/detail
+      - name: Detector de objetos opcional (PP-PicoDet-S 416 → ncnn)
+        # Toque inteligente (nome + caixa do objeto). ONNX oficial "sem pós-processamento" do PaddleDetection
+        # (Apache-2.0). Converte, confere ncnn × onnxruntime na imagem de exemplo do próprio repositório; se
+        # qualquer passo falhar, o APK sai sem o detector e o toque continua só com o contorno.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet pnnx==20260526 ncnn==1.0.20260526 numpy onnx onnxruntime pillow
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/picodet.onnx" https://paddledet.bj.bcebos.com/deploy/third_engine/picodet_s_416_coco_lcnet.onnx
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/coco.jpg" https://raw.githubusercontent.com/PaddlePaddle/PaddleDetection/release/2.8/demo/000000014439.jpg
+          echo "d080f8d9931bf9164934a7863e989605c7b3aa7751e35be406e20aa6b68256a7  $RUNNER_TEMP/picodet.onnx" | sha256sum -c -
+          mkdir -p app/src/main/assets/detect
+          python3 -u tools/picodet/export_ncnn.py --onnx "$RUNNER_TEMP/picodet.onnx" --image "$RUNNER_TEMP/coco.jpg" --out app/src/main/assets/detect
+          ls -la app/src/main/assets/detect
       - name: Compilar APK assinado
         env:
           NOVA_KEYSTORE_FILE: ${{ runner.temp }}/nova-upload-key.jks
@@ -170,6 +218,10 @@ jobs:
                   assert apk.getinfo(path).file_size > 0, path
               names = set(apk.namelist())
               print('profundidade no APK:', {'assets/depth/depth.param', 'assets/depth/depth.bin'} <= names)
+              print('detalhe no APK:', {'assets/detail/detail.param', 'assets/detail/detail.bin'} <= names)
+              print('mão no APK:', 'assets/hand/hand_landmarker.task' in names)
+              print('cena no APK:', 'assets/scene/efficientnet_lite0.tflite' in names)
+              print('detector no APK:', {'assets/detect/detect.param', 'assets/detect/detect.bin'} <= names)
           PY
       - name: Verificar continuidade da assinatura e versionCode
         shell: bash

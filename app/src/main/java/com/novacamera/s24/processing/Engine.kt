@@ -611,7 +611,11 @@ object Engine {
      * Aplica o plano (+ visual Food, se pedido) no lugar. [userStrength] (revisão) multiplica a
      * intensidade decidida pelo plano; 1 = a decisão automática.
      */
-    fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken, progress: (Float) -> Unit) {
+    /** Recorte de uma foto maior: os planos tonais da foto inteira valem no recorte nas coordenadas dele. */
+    data class Region(val x: Int, val y: Int, val fullW: Int, val fullH: Int)
+
+    fun toneInPlace(bmp: Bitmap, plan: Adaptive.Plan, userStrength: Float, food: Boolean, cancel: CancelToken,
+                    region: Region? = null, progress: (Float) -> Unit) {
         val s = (plan.strength * userStrength).coerceIn(0f, 1f)
         // ToneMap já dispensava esses planos por bloco, mas ainda copiávamos a foto inteira.
         // Food tem acabamento próprio mesmo quando o plano tonal é neutro.
@@ -620,20 +624,35 @@ object Engine {
             progress(1f)
             return
         }
-        val map = ToneMap(plan.base, plan.params, bmp.width, bmp.height, plan.mid)
+        val map = ToneMap(plan.base, plan.params, region?.fullW ?: bmp.width, region?.fullH ?: bmp.height, plan.mid)
+        val ox = region?.x ?: 0; val oy = region?.y ?: 0
         if(!food) {
-            // Faixa curta reutilizável: menos buffers e preparação geométrica repetida.
-            // Mesmas coordenadas/pixels; cancelamento a cada64 linhas, sem JNI tonal.
+            // Faixas de 64 linhas: leitura e gravação em série (o Bitmap não é tocado por duas threads), conta
+            // tonal em paralelo ([Parallel], respeita calor/economia). Cada pixel depende só dele e da
+            // coordenada: resultado idêntico ao de um núcleo (teste pixel a pixel). 49 MP: ~3,5 s por passada
+            // em um núcleo (diagnóstico 19/10), e o acabamento faz até três passadas (tom, pouca luz, perfil).
             val rows=64
-            val buffer=IntArray(bmp.width*min(rows,bmp.height))
-            for(y0 in 0 until bmp.height step rows) {
+            val group=max(1,Parallel.workers)*2
+            val bands=ArrayList<IntArray>(group)
+            var y0=0
+            while(y0<bmp.height) {
                 if(cancel.cancelled)throw CancelledException()
-                val h=min(rows,bmp.height-y0)
-                val band=if(buffer.size==bmp.width*h)buffer else IntArray(bmp.width*h)
-                bmp.getPixels(band,0,bmp.width,0,y0,bmp.width,h)
-                map.applyTile(band,bmp.width,h,0,y0,s,plan.imaging?.protection ?: 0f)
-                bmp.setPixels(band,0,bmp.width,0,y0,bmp.width,h)
-                progress((y0+h).toFloat()/bmp.height)
+                val starts=(0 until group).map{y0+it*rows}.filter{it<bmp.height}
+                starts.forEachIndexed{k,start->
+                    val h=min(rows,bmp.height-start)
+                    if(bands.size<=k)bands+=IntArray(bmp.width*rows)
+                    bmp.getPixels(bands[k],0,bmp.width,0,start,bmp.width,h)
+                }
+                Parallel.map(starts.size){k->
+                    val start=starts[k]
+                    map.applyTile(bands[k],bmp.width,min(rows,bmp.height-start),ox,oy+start,s,plan.imaging?.protection ?: 0f)
+                }
+                starts.forEachIndexed{k,start->
+                    val h=min(rows,bmp.height-start)
+                    bmp.setPixels(bands[k],0,bmp.width,0,start,bmp.width,h)
+                    progress((start+h).toFloat()/bmp.height)
+                }
+                y0=starts.last()+rows
             }
             return
         }
@@ -642,21 +661,52 @@ object Engine {
         tiles(bmp.width, bmp.height) { x0, y0, tw, th ->
             if (cancel.cancelled) throw CancelledException()
             val buf = IntArray(tw * th).also { bmp.getPixels(it, 0, tw, x0, y0, tw, th) }
-            map.applyTile(buf, tw, th, x0, y0, s, plan.imaging?.protection ?: 0f)
+            map.applyTile(buf, tw, th, ox + x0, oy + y0, s, plan.imaging?.protection ?: 0f)
             if (food) FoodLook.applyTile(buf, userStrength)
             bmp.setPixels(buf, 0, tw, x0, y0, tw, th)
             done++; progress(done.toFloat() / total)
         }
     }
 
+    /** Atenção ao assunto: faixas lidas/gravadas em série, conta em paralelo (como [toneInPlace]). */
+    fun attentionInPlace(bmp: Bitmap, maps: com.novacamera.s24.core.imaging.SubjectAttention.Maps, cancel: CancelToken, region: Region? = null) =
+        tilesInPlace(bmp, cancel, region) { t, tw, th, ox, oy, fw, fh -> com.novacamera.s24.core.imaging.SubjectAttention.applyTile(t, tw, th, ox, oy, fw, fh, maps) }
+
+    /** Aplica [op] em faixas de 64 linhas, em paralelo; [op] recebe a faixa e a posição dela na foto cheia. */
+    fun tilesInPlace(bmp: Bitmap, cancel: CancelToken, region: Region? = null,
+                     op: (IntArray, Int, Int, Int, Int, Int, Int) -> Unit) {
+        val fullW = region?.fullW ?: bmp.width; val fullH = region?.fullH ?: bmp.height
+        val ox = region?.x ?: 0; val oy = region?.y ?: 0
+        val rows = 64
+        val group = max(1, Parallel.workers) * 2
+        val bands = ArrayList<IntArray>(group)
+        var y0 = 0
+        while (y0 < bmp.height) {
+            if (cancel.cancelled) throw CancelledException()
+            val starts = (0 until group).map { y0 + it * rows }.filter { it < bmp.height }
+            starts.forEachIndexed { k, start ->
+                if (bands.size <= k) bands += IntArray(bmp.width * rows)
+                bmp.getPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start))
+            }
+            Parallel.map(starts.size) { k -> op(bands[k], bmp.width, min(rows, bmp.height - starts[k]), ox, oy + starts[k], fullW, fullH) }
+            starts.forEachIndexed { k, start -> bmp.setPixels(bands[k], 0, bmp.width, 0, start, bmp.width, min(rows, bmp.height - start)) }
+            y0 = starts.last() + rows
+        }
+    }
+
     /** Pouca luz na foto comum: clareia meios-tons (ver [ToneParams.lowLightLift]). Devolve o EV aplicado. */
     fun lowLightInPlace(bmp: Bitmap, iso: Int?, cancel: CancelToken): Float {
+        val plan = lowLightPlan(bmp, iso) ?: return 0f
+        toneInPlace(bmp, plan, 1f, false, cancel) {}
+        return plan.params.midLiftEv
+    }
+
+    fun lowLightPlan(bmp: Bitmap, iso: Int?): Adaptive.Plan? {
         val (px, w, h) = preview(bmp)
         val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
         val params = ToneParams.lowLightLift(iso, com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f),
-            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.95f)) ?: return 0f
-        toneInPlace(bmp, com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), null, "pouca luz"), 1f, false, cancel) {}
-        return params.midLiftEv
+            com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.95f)) ?: return null
+        return com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), null, "pouca luz")
     }
 
     /** Sombras sem cor falsa de ruído (ver [com.novacamera.s24.core.imaging.ShadowChroma]). */
@@ -672,13 +722,14 @@ object Engine {
     }
 
     /** Perfil "Contraste": preto firme e contraste local sobre a foto já com o tom automático. */
-    fun profileInPlace(bmp: Bitmap, cancel: CancelToken) {
+    fun profileInPlace(bmp: Bitmap, cancel: CancelToken) = toneInPlace(bmp, profilePlan(bmp), 1f, false, cancel) {}
+
+    fun profilePlan(bmp: Bitmap): Adaptive.Plan {
         val (px, w, h) = preview(bmp)
         val luma = com.novacamera.s24.core.imaging.Planes.downsampleLuma(px, w, h, 1)
         val params = ToneParams.contrastProfile(com.novacamera.s24.core.imaging.Adaptive.darkChannel(px),
             com.novacamera.s24.core.imaging.Planes.percentile(luma.data, 0.5f))
-        val plan = com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), ToneMap.midFrom(luma), "perfil contraste")
-        toneInPlace(bmp, plan, 1f, false, cancel) {}
+        return com.novacamera.s24.core.imaging.Adaptive.Plan(params, 1f, ToneMap.baseFrom(luma), ToneMap.midFrom(luma), "perfil contraste")
     }
 
     /** Resolução da máscara refinada do retrato para uma foto w×h. */
@@ -806,8 +857,8 @@ object Engine {
         // A máscara já vem final de [portraitMatte] (borda firme; transição larga só no cabelo).
         val protectedMatte = matte
         val smallMatte = Planes.resize(protectedMatte, sw, sh)
-        val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (3 + 6 * s).toInt()))
-        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, (5 + 18 * s).toInt()))
+        val near = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, Portrait.nearRadius(s).toInt()))
+        val far = Portrait.blurBackground(smallPx, sw, sh, smallMatte, max(1, Portrait.farRadius(s).toInt()))
         val dist = blurMap ?: Portrait.backgroundDistance(protectedMatte)
         val grain = noiseSigma(bmp)
         progress(0.4f)

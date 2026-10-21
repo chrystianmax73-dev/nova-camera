@@ -35,6 +35,14 @@ class NovaSettings(context: Context) {
     var autoBacklight get() = bool("auto_backlight", true); set(v) = put("auto_backlight", v)
     var teleHighRes get() = bool("tele_high_res", true); set(v) = put("tele_high_res", v)
     var superRes get() = bool("super_res", true); set(v) = put("super_res", v)
+    var qrScan get() = bool("qr_scan", true); set(v) = put("qr_scan", v)
+    /** Botão de texto aparece sozinho quando há texto na prévia da Foto (só o detector, ~1,5 s). */
+    var textSpot get() = bool("text_spot", true); set(v) = put("text_spot", v)
+    /** Local da foto no EXIF; desligado por padrão (pede permissão de localização ao ligar). */
+    var geoTag get() = bool("geo_tag", false); set(v) = put("geo_tag", v)
+    /** Palma aberta para a câmera inicia o contador; desligado por padrão (lê a prévia ~4×/s). */
+    var palmShutter get() = bool("palm_shutter", false); set(v) = put("palm_shutter", v)
+    var autoNightPhoto get() = bool("auto_night_photo", false); set(v) = put("auto_night_photo", v)
     var levelIndicator get() = bool("level_indicator", false); set(v) = put("level_indicator", v)
     var proHistogram get() = bool("pro_histogram", true); set(v) = put("pro_histogram", v)
     var proClipping get() = bool("pro_clipping", true); set(v) = put("pro_clipping", v)
@@ -63,7 +71,7 @@ class NovaSettings(context: Context) {
     var autoProcess get() = bool("auto_process", true); set(v) = put("auto_process", v)
 
     /** Redução de ruído por IA (NAFNet) no Noturno e no Retrato — experimental. */
-    var aiDenoise get() = bool("ai_denoise", false); set(v) = put("ai_denoise", v)
+    var aiDenoise get() = bool("ai_denoise", true); set(v) = put("ai_denoise", v)
 
     // Assinatura
     var signatureEnabled get() = bool("signature", false); set(v) = put("signature", v)

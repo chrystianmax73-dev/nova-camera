@@ -46,6 +46,8 @@ object PersonSegmenter {
         val coverage: Float,
         /** Fração ocupada por pele do rosto (rosto detectado de fato). */
         val faceCoverage: Float,
+        /** Pele do rosto (confiança), para medir o rosto na contraluz da selfie. */
+        val face: Plane? = null,
     )
 
     private fun options(model: String = MODEL) = ImageSegmenter.ImageSegmenterOptions.builder()
@@ -74,7 +76,7 @@ object PersonSegmenter {
             val before=android.os.SystemClock.elapsedRealtime()
             return withOwnedInput(frame,256) { image ->
                 val nativeAt=android.os.SystemClock.elapsedRealtime();inputMs=nativeAt-before
-                val masks=segmenter.segment(image).confidenceMasks().get()
+                val masks=com.novacamera.s24.core.NativeGate.run("segmentação ao vivo") { segmenter.segment(image) }.confidenceMasks().get()
                 val extractAt=android.os.SystemClock.elapsedRealtime();nativeMs=extractAt-nativeAt
                 try {
                     // A prévia só usa pessoa/fundo. Cabelo e rosto completos continuam na foto final.
@@ -111,7 +113,7 @@ object PersonSegmenter {
     }
 
     private fun run(segmenter: ImageSegmenter, photo: Bitmap, input: Int): Result = withOwnedInput(photo,input) { image ->
-        val masks = segmenter.segment(image).confidenceMasks().get()
+        val masks = com.novacamera.s24.core.NativeGate.run("segmentação da foto") { segmenter.segment(image) }.confidenceMasks().get()
         try {
             fun plane(i: Int): Plane {
                 val img = masks[i]
@@ -126,7 +128,7 @@ object PersonSegmenter {
             val hair = plane(HAIR)
             val face = plane(FACE_SKIN)
             val n = person.data.size.toFloat()
-            Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n)
+            Result(person, hair, person.data.count { it > 0.5f } / n, face.data.count { it > 0.5f } / n, face)
         } finally { masks.forEach { it.close() } }
     }
 }

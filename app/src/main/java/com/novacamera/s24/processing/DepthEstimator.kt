@@ -47,7 +47,7 @@ object DepthEstimator {
             ?: run { report = "Profundidade: falha ao carregar o modelo"; return null }
         val tLoad = SystemClock.elapsedRealtime() - t0
         val t1 = SystemClock.elapsedRealtime()
-        val out = session.run(photo)
+        val out = session.run(photo, live = false)
         lastUsedMs = SystemClock.elapsedRealtime()
         report = "Profundidade (Depth Anything V2 Small): ${if (out != null) "ok" else "falhou"} · backend=" +
             "${if (session.gpu) "Vulkan" else "CPU"}, carga=${if (reused) "0ms (modelo já carregado)" else "${tLoad}ms"}, " +
@@ -91,13 +91,15 @@ object DepthEstimator {
         var resultMs=0L;private set
 
         @Synchronized
-        fun run(photo: Bitmap): Plane? {
+        /** [live]: análise ao vivo pula o quadro se outro motor nativo estiver ativo; a foto espera a vez. */
+        fun run(photo: Bitmap, live: Boolean = true): Plane? {
             if (closed) return null
             val start=SystemClock.elapsedRealtime()
             val input = Bitmap.createScaledBitmap(photo, SIZE, SIZE, true)
             val beforeNative=SystemClock.elapsedRealtime();prepareMs=beforeNative-start
             try {
-                val ok = nativeRun(handle, input, out)
+                val ok = if (live) com.novacamera.s24.core.NativeGate.tryRun("profundidade ao vivo") { nativeRun(handle, input, out) } ?: return null
+                    else com.novacamera.s24.core.NativeGate.run("profundidade da foto") { nativeRun(handle, input, out) }
                 val afterNative=SystemClock.elapsedRealtime();nativeMs=afterNative-beforeNative
                 return (if (ok && out.any { it.isFinite() && it != out[0] }) Plane(SIZE, SIZE, out.copyOf()) else null)
                     .also { resultMs=SystemClock.elapsedRealtime()-afterNative }
