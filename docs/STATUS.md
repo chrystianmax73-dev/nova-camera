@@ -1,3 +1,25 @@
+# 0.36.3 — Diagnóstico do vídeo noturno: o que o S24 permite (Claude; branch `claude/nova-interface`; APK de teste pendente; fonte)
+- **Pedido do dono (21/10):** pesquisar como implementar o vídeo noturno, agora com o vídeo dele em mãos.
+- **Vídeo do dono** (0.36.1, HLG 10 bits, 23,9 fps), brilho medido quadro a quadro:
+  - 1× ≈ 0,35; 3× no escuro ≈ 0,13.
+  - Ao trocar para a tele 5×, cai num degrau para 0,027 (4,6×, ≈ 2,2 EV), fica parado 1,5 s e volta a 0,12 quando a câmera retorna à 3×.
+- **Simulação offline nos quadros de 10 bits:**
+  - Ganho de ~14× linear com ombro: 0,034 → 0,127 (igual à 3×), ruído ~2× o da 3×.
+  - Juntar 12–24 quadros alinhados tira só ~10% do ruído, porque o ISP da Samsung já faz denoise temporal e o grão que sobra é correlacionado.
+- **Pesquisa** (código do CameraX; Low Light Boost do CameraX 1.5; documentação Camera2):
+  - **HLG + efeito:** o CameraX aceita efeito com HLG 10 bits (EGL RGBA1010102, `EGL_EXT_gl_colorspace_bt2020_hlg`, `GL_EXT_YUV_target`). A regra "HLG desliga efeitos" é do app, e dá para manter o HDR.
+  - **Antes do GL, vem a luz física:** faixa de fps [15,30] (+1 EV), ISO manual acima do teto analógico, `POST_RAW_SENSITIVITY_BOOST` e Low Light Boost (`CONTROL_AE_MODE_ON_LOW_LIGHT_BOOST_BRIGHTNESS_PRIORITY`, sem restrição de 10 bits desde o CameraX 1.5.0-rc01). Nenhum dump público do S24 mostra se eles existem.
+- **Feito** (só leitura, nada muda na câmera):
+  - O Diagnóstico mostra por câmera e lente física: ISO total e analógico, boost pós-RAW, modos de AE (Low Light Boost sim/não), modos de NR, curva de tom, relógio do sensor e dados de OIS.
+  - Também mostra as extensões de GPU para HDR: config 10 bits, EGL HLG, YUV_target, float16, timer.
+- **Próximo (depende do Diagnóstico do aparelho):**
+  1. Luz física: fps, ISO acima do teto ou Low Light Boost, o que existir.
+  2. Processador GLES3 em HLG: decodificação BT.2020, ganho em luz linear, ombro, AWB e marca d'água embutida.
+  3. Denoise temporal com giroscópio, só se medir ganho.
+- **Mudou × não mexi:** mudou só o texto do Diagnóstico. Não mexi em foto, vídeo nem câmera.
+
+---
+
 # 0.36.2 — Vídeo no 5× com pouca luz usa a lente 3× (Claude; branch `claude/nova-interface`; APK de teste build120 entregue)
 - **[Baixar ZIP com app-release.apk — build120 (1120)](https://github.com/chrystianmax73-dev/nova-camera/actions/runs/39504988708/artifacts/12303785864)**. Artefato 12303785864, 162820312 bytes; sha256:050cca26b7735ed5aefb932d41a8a5d4744688dc93d6876e1e45584bd0468bdf; fonte d32f14b (gatilho 3e64f10, restaurado em 6db65af); expira 2026-11-19; sem release.
 - **Pedido do dono (20/10):** filmando, ao dar zoom para 5× e 10× a imagem fica preta, mesmo com luz; a 3× fica normal. A qualidade das fotos deve continuar exatamente como está.

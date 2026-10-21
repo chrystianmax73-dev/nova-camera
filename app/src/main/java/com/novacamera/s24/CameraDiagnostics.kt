@@ -60,6 +60,7 @@ object CameraDiagnostics {
                     val c = manager.getCameraCharacteristics(id)
                     appendLine("\n── Câmera ID $id (${facing(c)})")
                     describe(c, mainEq)
+                    appendLine(lowLight(c))
                     if (c.physicalCameraIds.isNotEmpty()) {
                         appendLine("Lentes físicas sob este ID:")
                         c.physicalCameraIds.forEach { pid ->
@@ -69,6 +70,7 @@ object CameraDiagnostics {
                                 appendLine("  · ID $pid: ${eq?.let { String.format(Locale.US, "%.0f mm eq.", it) } ?: "?"}$rel, " +
                                     "sensor ${pc.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)}")
                                 appendLine("    " + resolutionVerdict(pc).replace("\n", "\n    "))
+                                appendLine("    " + lowLight(pc))
                             }
                         }
                     }
@@ -224,13 +226,58 @@ fun exitReport(context: Context): String = buildString {
                 ?: com.novacamera.s24.core.NativeCrashHints.extract(bytes)).forEach { append("\n      $it") }
         }
     }
+
 }
+/**
+ * Vídeo noturno (pesquisa 20/10): o que esta câmera permite além do teto do automático. Ganho acima do
+ * analógico, boost pós-RAW, Low Light Boost (modo de AE 6), faixas de fps, redução de ruído e curva de tom.
+ */
+private fun lowLight(c: CameraCharacteristics): String {
+    val ae = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.toList().orEmpty()
+    val boost = runCatching { c.get(CameraCharacteristics.CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE) }.getOrNull()
+    val ois = runCatching { c.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_OIS_DATA_MODES)?.joinToString() }.getOrNull()
+    val ts = when (c.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE)) { 1 -> "REALTIME"; 0 -> "UNKNOWN"; else -> "—" }
+    return "Luz no vídeo: ISO ${c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)} (analógico até ${c.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY)})" +
+        " · boost pós-RAW ${boost ?: "—"} · AE ${ae.joinToString()}${if (6 in ae) " (Low Light Boost: sim)" else " (Low Light Boost: não)"}" +
+        " · NR ${c.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)?.joinToString()}" +
+        " · curva de tom ${c.get(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES)?.joinToString()}" +
+        " · relógio $ts · OIS dados ${ois ?: "—"}"
+}
+
+/** Extensões de GPU que o vídeo noturno em HDR (HLG 10 bits) precisa; contexto EGL descartável. */
+fun gpuVideoSupport(): String = runCatching {
+    val d = android.opengl.EGL14.eglGetDisplay(android.opengl.EGL14.EGL_DEFAULT_DISPLAY)
+    val v = IntArray(2); check(android.opengl.EGL14.eglInitialize(d, v, 0, v, 1))
+    try {
+        val egl = android.opengl.EGL14.eglQueryString(d, android.opengl.EGL14.EGL_EXTENSIONS).orEmpty()
+        val attrs = intArrayOf(android.opengl.EGL14.EGL_RED_SIZE, 10, android.opengl.EGL14.EGL_GREEN_SIZE, 10, android.opengl.EGL14.EGL_BLUE_SIZE, 10,
+            android.opengl.EGL14.EGL_ALPHA_SIZE, 2, android.opengl.EGL14.EGL_RENDERABLE_TYPE, 0x40 /* EGL_OPENGL_ES3_BIT_KHR */,
+            android.opengl.EGL14.EGL_SURFACE_TYPE, android.opengl.EGL14.EGL_PBUFFER_BIT, android.opengl.EGL14.EGL_NONE)
+        val cfg = arrayOfNulls<android.opengl.EGLConfig>(1); val n = IntArray(1)
+        val has1010102 = android.opengl.EGL14.eglChooseConfig(d, attrs, 0, cfg, 0, 1, n, 0) && n[0] > 0
+        var gl = ""
+        if (has1010102) {
+            val ctx = android.opengl.EGL14.eglCreateContext(d, cfg[0], android.opengl.EGL14.EGL_NO_CONTEXT,
+                intArrayOf(android.opengl.EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, android.opengl.EGL14.EGL_NONE), 0)
+            val surf = android.opengl.EGL14.eglCreatePbufferSurface(d, cfg[0], intArrayOf(android.opengl.EGL14.EGL_WIDTH, 1, android.opengl.EGL14.EGL_HEIGHT, 1, android.opengl.EGL14.EGL_NONE), 0)
+            if (android.opengl.EGL14.eglMakeCurrent(d, surf, surf, ctx)) gl = android.opengl.GLES20.glGetString(android.opengl.GLES20.GL_EXTENSIONS).orEmpty()
+            android.opengl.EGL14.eglMakeCurrent(d, android.opengl.EGL14.EGL_NO_SURFACE, android.opengl.EGL14.EGL_NO_SURFACE, android.opengl.EGL14.EGL_NO_CONTEXT)
+            android.opengl.EGL14.eglDestroySurface(d, surf); android.opengl.EGL14.eglDestroyContext(d, ctx)
+        }
+        "GPU para vídeo noturno em HDR: config 10 bits (RGBA1010102) ${if (has1010102) "sim" else "não"} · " +
+            "EGL HLG ${"EGL_EXT_gl_colorspace_bt2020_hlg" in egl} · YUV_target ${"GL_EXT_YUV_target" in gl} · " +
+            "float16 ${"GL_EXT_color_buffer_half_float" in gl || "GL_EXT_color_buffer_float" in gl} · timer ${"GL_EXT_disjoint_timer_query" in gl}"
+    } finally { android.opengl.EGL14.eglTerminate(d) }
+}.getOrElse { "GPU para vídeo noturno: não medida (${it.javaClass.simpleName})" }
+
+
 
 object BuildConfigInfo {
     fun version(context: Context): String = runCatching {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         "${info.versionName} (${info.longVersionCode})"
     }.getOrDefault("?")
+
 }
 
 

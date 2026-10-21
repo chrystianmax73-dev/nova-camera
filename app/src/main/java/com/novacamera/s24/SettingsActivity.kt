@@ -405,6 +405,7 @@ class DiagnosticsActivity : NovaScreen() {
         }
         val all = provider.availableCameraInfos
         appendLine("Câmeras acessíveis ao CameraX: ${all.size}")
+        appendLine(com.novacamera.s24.gpuVideoSupport())
     }
 
     /**
